@@ -1,0 +1,18 @@
+{
+  "name": "worship-planning-ts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "rimraf dist && tsc",
+    "push": "clasp push",
+    "open": "clasp open",
+    "watch": "concurrently -k \"tsc -w\" \"clasp push -w\""
+  },
+  "devDependencies": {
+    "@types/google-apps-script": "^1.0.88",
+    "concurrently": "^9.0.0",
+    "rimraf": "^6.0.0",
+    "typescript": "^5.6.0"
+  }
+}

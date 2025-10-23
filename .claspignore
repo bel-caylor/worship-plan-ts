@@ -1,0 +1,9 @@
+**/**
+!dist/**
+
+# Safety:
+node_modules/
+src/
+.vscode/
+.git/
+*.map

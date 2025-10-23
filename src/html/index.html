@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>Songs (first 5)</h1>
+    <pre id="out">Loading…</pre>
+    <script>
+      // If this file is served by the Apps Script web app, same-origin fetch works:
+      fetch(location.href)
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById('out').textContent =
+            JSON.stringify(data.rows.slice(0, 5), null, 2);
+        })
+        .catch(console.error);
+
+      // Example of calling server functions via google.script.run when used in Sidebar/Modal:
+      // google.script.run.withSuccessHandler(alert).addSong({ Title:'New', Key:'C', Tempo:'90', LastUsed:'' });
+    </script>
+  </body>
+</html>
