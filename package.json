@@ -4,15 +4,22 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "rimraf dist && tsc",
-    "push": "clasp push",
-    "open": "clasp open",
-    "watch": "concurrently -k \"tsc -w\" \"clasp push -w\""
+    "build": "rimraf dist && tsc && copyfiles -u 1 src/**/*.json src/html/**/*.html dist/ && ./node_modules/.bin/tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --minify",
+    "watch": "concurrently -k \"npm:watch:ts\" \"npm:watch:assets\" \"npm:watch:css\" \"npm:watch:push\"",
+    "watch:ts": "tsc -w",
+    "watch:assets": "chokidar \"src/**/*.{html,json}\" -c \"copyfiles -u 1 src/**/*.json src/html/**/*.html dist/\"",
+    "watch:css": "./node_modules/.bin/tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --watch",
+    "watch:push": "clasp push -w"
   },
   "devDependencies": {
     "@types/google-apps-script": "^1.0.88",
+    "autoprefixer": "^10.4.21",
+    "chokidar-cli": "^3.0.0",
     "concurrently": "^9.0.0",
+    "copyfiles": "^2.4.1",
+    "postcss": "^8.5.6",
     "rimraf": "^6.0.0",
+    "tailwindcss": "^3.4.14",
     "typescript": "^5.6.0"
   }
 }

@@ -1,20 +1,115 @@
 <!doctype html>
 <html>
-  <body>
-    <h1>Songs (first 5)</h1>
-    <pre id="out">Loading…</pre>
-    <script>
-      // If this file is served by the Apps Script web app, same-origin fetch works:
-      fetch(location.href)
-        .then(r => r.json())
-        .then(data => {
-          document.getElementById('out').textContent =
-            JSON.stringify(data.rows.slice(0, 5), null, 2);
-        })
-        .catch(console.error);
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Songs</title>
+    <!-- built locally, output goes to dist/html/styles.css -->
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  </head>
+  <body class="p-6">
+    <div x-data="songsApp()" x-init="init()">
+      <h1 class="text-3xl font-bold mb-4">Song List</h1>
 
-      // Example of calling server functions via google.script.run when used in Sidebar/Modal:
-      // google.script.run.withSuccessHandler(alert).addSong({ Title:'New', Key:'C', Tempo:'90', LastUsed:'' });
+      <div class="flex items-center gap-3 mb-3">
+        <input type="search" placeholder="Filter (title, theme, scripture…)"
+               x-model="q" @input="render()" />
+        <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length} shown`"></span>
+        <span class="text-sm italic text-gray-500" x-show="loading">Loading…</span>
+        <span class="text-sm text-red-600" x-text="error"></span>
+      </div>
+
+      <div class="overflow-auto border rounded">
+        <table class="min-w-full">
+          <thead class="bg-gray-50">
+            <tr>
+              <template x-for="h in headers" :key="h">
+                <th class="text-left px-3 py-2 cursor-pointer select-none"
+                    @click="sort(h)"
+                    x-text="h"></th>
+              </template>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(r, i) in filtered" :key="i">
+              <tr class="odd:bg-white even:bg-gray-50">
+                <template x-for="h in headers" :key="h">
+                  <td class="px-3 py-2" x-text="format(r[h])"></td>
+                </template>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      function songsApp() {
+        return {
+          rows: [],
+          headers: [],
+          filtered: [],
+          q: '',
+          sortKey: null,
+          sortDir: 1,
+          loading: false,
+          error: '',
+
+          init() { this.fetchSongs(); },
+
+          async fetchSongs() {
+            this.loading = true; this.error = '';
+            try {
+              // always call the same page with ?json=1
+              const base = location.origin + location.pathname;
+              const url  = base + (location.search ? location.search + '&' : '?') + 'json=1';
+              const res  = await fetch(url, { cache: 'no-store' });
+              const data = await res.json();
+              this.rows = Array.isArray(data) ? data : (data.rows || []);
+              this.headers = this.rows.length ? Object.keys(this.rows[0]) : [];
+              this.render();
+            } catch (e) {
+              console.error(e);
+              this.error = 'Failed to load songs.';
+            } finally {
+              this.loading = false;
+            }
+          },
+
+          render() {
+            const q = this.q.toLowerCase();
+            const headers = this.headers;
+            let out = !q ? this.rows : this.rows.filter(r =>
+              headers.some(h => (r[h] ?? '').toString().toLowerCase().includes(q))
+            );
+            if (this.sortKey) {
+              const k = this.sortKey, d = this.sortDir;
+              out = out.slice().sort((a,b) => {
+                const av = (a[k] ?? '').toString().toLowerCase();
+                const bv = (b[k] ?? '').toString().toLowerCase();
+                return av < bv ? -1*d : av > bv ? 1*d : 0;
+              });
+            }
+            this.filtered = out;
+          },
+
+          sort(h) {
+            if (this.sortKey === h) this.sortDir *= -1;
+            else { this.sortKey = h; this.sortDir = 1; }
+            this.render();
+          },
+
+          format(v) {
+            // pretty-print ISO dates (e.g., Last_Used)
+            if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+              const d = new Date(v);
+              return d.toLocaleDateString();
+            }
+            return v == null ? '' : v;
+          }
+        }
+      }
     </script>
   </body>
 </html>

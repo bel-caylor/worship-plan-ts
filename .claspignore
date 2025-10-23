@@ -1,9 +1,4 @@
-**/**
-!dist/**
-
-# Safety:
+# .claspignore  (keep it tiny when using rootDir=dist)
 node_modules/
-src/
 .vscode/
 .git/
-*.map
