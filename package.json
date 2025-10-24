@@ -4,12 +4,15 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "build": "rimraf dist && tsc && copyfiles -u 1 src/**/*.json src/html/**/*.html dist/ && ./node_modules/.bin/tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --minify",
-    "watch": "concurrently -k \"npm:watch:ts\" \"npm:watch:assets\" \"npm:watch:css\" \"npm:watch:push\"",
+    "build": "rimraf dist && tsc && copyfiles -u 1 src/**/*.json src/html/**/*.html dist/ && npx tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --minify && node -e \"fs=require('fs');css=fs.readFileSync('dist/html/styles.css','utf8');fs.writeFileSync('dist/html/styles.html','<style>'+css+'</style>')\"",
+    "watch": "concurrently -k \"npm:watch:ts\" \"npm:watch:assets\" \"npm:watch:css\" \"npm:watch:wrap\" \"npm:watch:push\"",
     "watch:ts": "tsc -w",
     "watch:assets": "chokidar \"src/**/*.{html,json}\" -c \"copyfiles -u 1 src/**/*.json src/html/**/*.html dist/\"",
-    "watch:css": "./node_modules/.bin/tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --watch",
-    "watch:push": "clasp push -w"
+    "watch:css": "npx tailwindcss -i ./src/styles.css -o ./dist/html/styles.css --watch",
+    "watch:wrap": "chokidar \"dist/html/styles.css\" -c \"node scripts/wrap-css.js\"",
+    "watch:push": "clasp push -w",
+    "status": "clasp status",
+    "whoami": "clasp login --status"
   },
   "devDependencies": {
     "@types/google-apps-script": "^1.0.88",
