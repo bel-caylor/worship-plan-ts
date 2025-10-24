@@ -1,0 +1,23 @@
+<div class="sticky top-0 z-10 bg-white border-b">
+  <div class="h-14 px-4 flex items-center gap-4">
+    <h1 class="text-lg font-bold mr-2">Worship Planner</h1>
+
+    <a href="#/songs"
+       class="px-2 py-1"
+       :class="route==='songs' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+      Song List
+    </a>
+
+    <a href="#/plan"
+       class="px-2 py-1"
+       :class="route==='plan' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+      Weekly Plan
+    </a>
+
+    <a href="#/usage"
+       class="px-2 py-1"
+       :class="route==='usage' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+      Usage Log
+    </a>
+  </div>
+</div>

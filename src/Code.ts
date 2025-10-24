@@ -470,7 +470,7 @@ function doGet(e?: GoogleAppsScript.Events.DoGet) {
         return ContentService.createTextOutput(JSON.stringify({ rows: getSongsWithLinksForView() }))
             .setMimeType(ContentService.MimeType.JSON);
     }
-    const tpl = HtmlService.createTemplateFromFile('html/index');
+    const tpl = HtmlService.createTemplateFromFile('index');
     tpl.rowsJson = JSON.stringify(getSongsWithLinksForView());   // inject with links
     return tpl.evaluate().setTitle('Worship Planner');
 }

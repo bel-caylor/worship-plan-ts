@@ -1,0 +1,123 @@
+<div x-data="weeklyPlan()" x-init="init()" class="h-full flex flex-col">
+    <div class="p-4" x-data>
+        <h2 class="text-xl font-semibold mb-2">Weekly Plan</h2>
+        <p class="text-sm text-gray-600">If you can read this, the plan view is mounted.</p>
+    </div>
+
+    <div class="p-3 border-b flex items-center gap-3">
+        <button class="px-3 py-1 rounded bg-blue-600 text-white" @click="addRow()">+ Add Row</button>
+        <button class="px-3 py-1 rounded border" @click="save()">Save</button>
+        <span class="text-sm text-gray-500" x-text="`${rows.length} weeks`"></span>
+    </div>
+
+    <div class="flex-1 overflow-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-gray-50 sticky top-0">
+                <tr>
+                    <th class="border px-2 py-1">Date</th>
+                    <th class="border px-2 py-1">Type</th>
+                    <th class="border px-2 py-1">Call to worship</th>
+                    <th class="border px-2 py-1">Opening</th>
+                    <th class="border px-2 py-1">Song2</th>
+                    <th class="border px-2 py-1">2nd Scripture</th>
+                    <th class="border px-2 py-1">Song3</th>
+                    <th class="border px-2 py-1">Song4/Communion</th>
+                    <th class="border px-2 py-1">Offering/Communion Song</th>
+                    <th class="border px-2 py-1">Closing</th>
+                    <th class="border px-2 py-1">Leader</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="(w, i) in rows" :key="i">
+                    <tr class="border-b">
+                        <td class="border px-2 py-1"><input type="date" x-model="w.date" class="w-44"></td>
+                        <td class="border px-2 py-1"><input type="text" x-model="w.type" class="w-32"></td>
+                        <td class="border px-2 py-1"><input type="text" x-model="w.call" class="w-56"></td>
+
+                        <!-- Autocomplete example: binds to the global song list (title) -->
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.opening" @input="hint(i,'opening')" list="songtitles"
+                                class="w-56">
+                        </td>
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.song2" @input="hint(i,'song2')" list="songtitles"
+                                class="w-56">
+                        </td>
+
+                        <td class="border px-2 py-1"><input type="text" x-model="w.scripture2" class="w-48"></td>
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.song3" @input="hint(i,'song3')" list="songtitles"
+                                class="w-56">
+                        </td>
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.song4" @input="hint(i,'song4')" list="songtitles"
+                                class="w-56">
+                        </td>
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.offering" @input="hint(i,'offering')" list="songtitles"
+                                class="w-56">
+                        </td>
+                        <td class="border px-2 py-1">
+                            <input type="text" x-model="w.closing" @input="hint(i,'closing')" list="songtitles"
+                                class="w-56">
+                        </td>
+                        <td class="border px-2 py-1"><input type="text" x-model="w.leader" class="w-32"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <!-- shared song title datalist for autocomplete -->
+        <datalist id="songtitles">
+            <template x-for="t in songTitles" :key="t">
+                <option :value="t"></option>
+            </template>
+        </datalist>
+    </div>
+</div>
+
+<script>
+    function weeklyPlan() {
+        return {
+            rows: [],
+            songTitles: [],
+            async init() {
+                // Load existing weekly plan (from Sheets / API)
+                try {
+                    const plan = await apiRequest('GetWeeklyPlan', {}); // implement in server
+                    this.rows = Array.isArray(plan?.rows) ? plan.rows : [];
+                } catch (e) {
+                    console.warn('No weekly plan yet; starting empty.');
+                    this.rows = [];
+                }
+
+                // Pull titles for autocomplete from song endpoint
+                try {
+                    const res = await apiRequest('GetSongs', {});
+                    this.songTitles = (res?.songs || []).map(s => s.title).filter(Boolean).sort();
+                } catch (e) {
+                    this.songTitles = [];
+                }
+            },
+            addRow() {
+                this.rows.push({
+                    date: '', type: '', call: '',
+                    opening: '', song2: '', scripture2: '',
+                    song3: '', song4: '', offering: '', closing: '', leader: ''
+                });
+            },
+            hint(i, field) {
+                // (optional) could enforce exact-match to known titles here if desired
+            },
+            async save() {
+                try {
+                    await apiRequest('SaveWeeklyPlan', { rows: this.rows });
+                    alert('Weekly plan saved');
+                } catch (e) {
+                    console.error(e);
+                    alert('Save failed');
+                }
+            }
+        }
+    }
+</script>
