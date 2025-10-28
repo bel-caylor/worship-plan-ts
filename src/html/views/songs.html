@@ -176,7 +176,6 @@
     </div>
 
     </body>
-    <script>window.__ROWS__ = <?!= rowsJson ?>;</script>
 
     <script>
         // helper: split Season tokens
@@ -262,21 +261,16 @@
                 select(row) {
                     this.selected = row;
                     this.mediaFiles = [];
-                    this.mediaLoading = false;
-                    const folderUrl = row?._folderUrl;
-                    if (folderUrl) {
-                        this.mediaLoading = true;
-                        google.script.run
-                            .withSuccessHandler((files) => {
-                                this.mediaFiles = Array.isArray(files) ? files : [];
-                                this.mediaLoading = false;
-                            })
-                            .withFailureHandler(err => {
-                                console.error(err);
-                                this.mediaLoading = false;
-                            })
-                            .getFilesForFolderUrl(folderUrl);
-                    }
+                    const url = row && row._folderUrl;
+                    if (!url) return;
+
+                    this.mediaLoading = true;
+
+                    fetch(`${window.__BASE__}?action=files&folderUrl=${encodeURIComponent(url)}`)
+                        .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
+                        .then(data => { this.mediaFiles = Array.isArray(data.files) ? data.files : []; })
+                        .catch(err => { console.error('files fetch failed:', err); })
+                        .finally(() => { this.mediaLoading = false; });
                 },
 
                 // sorting

@@ -1,16 +1,13 @@
 <script>
-  // Thin wrapper for your Apps Script doGet/doPost endpoint or google.script.run
-  async function apiRequest(name, payload){
-    // Example using google.script.run promise wrapper
+  function callRpc(method, payload) {
     return new Promise((resolve, reject) => {
-      try {
-        google.script.run
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
-          [name](payload || {}); // server-side function name
-      } catch (e) {
-        reject(e);
+      if (!(window.google && google.script && google.script.run)) {
+        return reject(new Error('Apps Script client not ready'));
       }
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .rpc({ method, payload }); // single, stable entrypoint
     });
   }
 </script>

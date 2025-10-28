@@ -1,13 +1,14 @@
 {
   "compilerOptions": {
     "target": "ES2019",
-    "module": "none",
-    "outDir": "dist",
-    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "noImplicitAny": true,
-    "esModuleInterop": false,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "lib": ["ES2019"],
+    "types": ["google-apps-script"]
   },
   "include": ["src/**/*"]
 }

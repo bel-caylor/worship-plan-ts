@@ -1,16 +1,23 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Songs</title>
 
-  <!-- If you have src/html/styles.html, keep this; otherwise remove this line -->
   <?!= HtmlService.createHtmlOutputFromFile('styles').getContent(); ?>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
-  <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
 
-  <script>window.__ROWS__ = <?!= rowsJson ?>;</script>
+  <script id="rows-json" type="application/json">
+    <?!= JSON.stringify(rowsData).replace(/<\//g, '<\\/') ?>
+  </script>
+  <script>
+    window.__ROWS__ = JSON.parse(document.getElementById('rows-json').textContent);
+    // console.info('rows loaded:', Array.isArray(window.__ROWS__) && window.__ROWS__.length);
+    window.__BASE__ = location.origin + location.pathname;
+  </script>
+  <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
 
 </head>
 
@@ -50,4 +57,5 @@
     }
   </script>
 </body>
+
 </html>
