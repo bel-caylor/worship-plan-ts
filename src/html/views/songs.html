@@ -266,10 +266,10 @@
 
                     this.mediaLoading = true;
 
-                    fetch(`${window.__BASE__}?action=files&folderUrl=${encodeURIComponent(url)}`)
-                        .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-                        .then(data => { this.mediaFiles = Array.isArray(data.files) ? data.files : []; })
-                        .catch(err => { console.error('files fetch failed:', err); })
+                    // Use Apps Script RPC to avoid iframe/base URL issues
+                    callRpc('getFilesForFolderUrl', url)
+                        .then(files => { this.mediaFiles = Array.isArray(files) ? files : []; })
+                        .catch(err => { console.error('files rpc failed:', err); })
                         .finally(() => { this.mediaLoading = false; });
                 },
 
