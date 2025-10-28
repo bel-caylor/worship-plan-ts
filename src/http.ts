@@ -16,5 +16,12 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   // HTML app
   const tpl = HtmlService.createTemplateFromFile('index');
   tpl.rowsData = getSongsWithLinksForView();
+  try {
+    // Provide the deployed Web App base URL to client for fetch fallbacks
+    // Note: returns null when not deployed as a Web App
+    tpl.baseUrl = (ScriptApp.getService && ScriptApp.getService().getUrl && ScriptApp.getService().getUrl()) || '';
+  } catch (_) {
+    tpl.baseUrl = '';
+  }
   return tpl.evaluate().setTitle('Worship Planner');
 }

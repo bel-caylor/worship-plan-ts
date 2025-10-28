@@ -1,13 +1,9 @@
 <script>
   function callRpc(method, payload) {
     return new Promise((resolve, reject) => {
-      if (!(window.google && google.script && google.script.run)) {
-        return reject(new Error('Apps Script client not ready'));
-      }
-      google.script.run
-        .withSuccessHandler(resolve)
-        .withFailureHandler(reject)
-        .rpc({ method, payload }); // single, stable entrypoint
+      const run = (window.google && google.script && google.script.run) || null;
+      if (!run) return reject(new Error('Apps Script client not ready'));
+      run.withSuccessHandler(resolve).withFailureHandler(reject).rpc({ method, payload });
     });
   }
 </script>

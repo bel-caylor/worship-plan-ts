@@ -15,7 +15,8 @@
   <script>
     window.__ROWS__ = JSON.parse(document.getElementById('rows-json').textContent);
     // console.info('rows loaded:', Array.isArray(window.__ROWS__) && window.__ROWS__.length);
-    window.__BASE__ = location.origin + location.pathname;
+    // Prefer server-provided Web App URL; fallback to current location
+    window.__BASE__ = <?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?> || (location.origin + location.pathname);
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
 

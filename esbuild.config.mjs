@@ -11,6 +11,11 @@ const common = {
   format: 'iife',
   target: ['es2019'],
   banner: { js: 'var global=this;' },
+  footer: { js: `
+// Top-level wrappers so google.script.run can find callable server functions
+function rpc(input){ return global.rpc.apply(global, arguments); }
+function getFilesForFolderUrl(url, limit){ return global.getFilesForFolderUrl.apply(global, arguments); }
+` },
   sourcemap: false,
   minify: false,
   logLevel: 'info'
