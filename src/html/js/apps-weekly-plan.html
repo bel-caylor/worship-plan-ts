@@ -31,6 +31,10 @@
             if (r?.preachers) this.sermonChoices = Array.from(new Set([...this.sermonChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
           } catch (e) { /* ignore */ }
           this.ensureDefaults();
+          // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
+          this.$nextTick(() => {
+            try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'Custom…'); } catch(_) {}
+          });
         })();
       },
 
@@ -55,7 +59,13 @@
         this.$nextTick(() => {
           if (this.$refs.bookSel) this.$refs.bookSel.value = this.scripture.book;
           if (this.$refs.chapterSel) this.$refs.chapterSel.value = String(this.scripture.chapter);
+          if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
         });
+      },
+
+      close() {
+        this.showAddService = false;
+        this.$nextTick(() => { try { this.$refs.openBtn && this.$refs.openBtn.focus(); } catch(_) {} });
       },
 
       async submit() {

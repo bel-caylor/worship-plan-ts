@@ -6,19 +6,19 @@
       
   <div class="p-3 border-b flex items-center gap-3">
     <div class="flex-1"></div>
-    <button class="px-3 py-1 rounded bg-emerald-600 text-white" @click="open()">+ Add Service</button>
+    <button x-ref="openBtn" class="px-3 py-1 rounded bg-emerald-600 text-white" @click="open()">+ Add Service</button>
   </div>
 
   <!-- No table/rows on this page for now -->
 
   <!-- Add Service modal -->
-  <div x-show="showAddService" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-    <div class="absolute inset-0 bg-black/40" @click="showAddService=false"></div>
+  <div x-show="showAddService" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" @keydown.window.escape.prevent="close()">
+    <div class="absolute inset-0 bg-black/40" @click="close()"></div>
     <div class="relative bg-white rounded shadow-lg w-[560px] max-w-[95vw] p-4">
       <h3 class="text-lg font-semibold mb-3">Add Service</h3>
       <div class="flex gap-2">
         <label class="text-sm">Date
-          <input type="date" class="mt-1 w-full border rounded px-2 py-1" x-model="form.date">
+          <input x-ref="dateInput" type="date" class="mt-1 w-full border rounded px-2 py-1" x-model="form.date">
         </label>
         <label class="text-sm">Time
           <input type="text" class="mt-1 w-full border rounded px-2 py-1" placeholder="10:00 AM" x-model="form.time">
@@ -81,7 +81,7 @@
       </div>
       
       <div class="mt-4 flex justify-end gap-2">
-        <button class="px-3 py-1 rounded border" @click="showAddService=false">Cancel</button>
+        <button class="px-3 py-1 rounded border" @click="close()">Cancel</button>
         <button class="px-3 py-1 rounded bg-emerald-600 text-white" @click="submit()">Add Service</button>
       </div>
 
