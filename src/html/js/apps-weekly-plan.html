@@ -1,0 +1,104 @@
+<script>
+  function weeklyPlanApp() {
+    return {
+      showAddService: false,
+      leaderChoices: [],
+      sermonChoices: [],
+      leaderSelect: '',
+      sermonSelect: '',
+      books: [],
+      scripture: { book: 'John', chapter: 3, start: '1', end: '' },
+      form: { date: '', time: '', type: '', leader: '', sermon: '', scripture: '', theme: '', notes: '' },
+
+      init() {
+        const ctx = (window.APP_CTX || {});
+        const defs = ctx.defaults || {};
+        this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
+        this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden','Belinda','Lois'];
+        this.sermonChoices = Array.isArray(ctx.sermonChoices) ? ctx.sermonChoices.slice() : ['Tom','Darden','Miguel','Alfredo'];
+
+        this.form.date = this.nextSundayISO();
+        this.form.time = defs.time || '10:00 AM';
+        this.form.type = defs.serviceType || 'Worship';
+        this.form.leader = defs.leader || 'Darden';
+        this.form.sermon = defs.sermon || 'Tom';
+        this.leaderSelect = this.form.leader;
+        this.sermonSelect = this.form.sermon;
+        (async () => {
+          try {
+            const r = await callRpc('getServicePeople', null);
+            if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a,b)=>a.localeCompare(b));
+            if (r?.preachers) this.sermonChoices = Array.from(new Set([...this.sermonChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
+          } catch (e) { /* ignore */ }
+          this.ensureDefaults();
+        })();
+      },
+
+      nextSundayISO() {
+        const now = new Date();
+        const day = now.getDay();
+        const add = (7 - day) % 7 || 7; // upcoming Sunday
+        const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + add);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${dd}`;
+      },
+
+      open() {
+        const ctx = (window.APP_CTX || {}); const d = ctx.defaults || {};
+        this.form = { date: this.nextSundayISO(), time: (d.time||'10:00 AM'), type: (d.serviceType||'Worship'), leader: (d.leader||'Darden'), sermon: (d.sermon||'Tom'), scripture: '', theme: '', notes: '' };
+        this.ensureDefaults();
+        this.scripture = { book: 'John', chapter: 3, start: '1', end: '' };
+        this.form.scripture = this.scriptureRef();
+        this.showAddService = true;
+        this.$nextTick(() => {
+          if (this.$refs.bookSel) this.$refs.bookSel.value = this.scripture.book;
+          if (this.$refs.chapterSel) this.$refs.chapterSel.value = String(this.scripture.chapter);
+        });
+      },
+
+      async submit() {
+        try {
+          await callRpc('addService', { ...this.form });
+          this.showAddService = false;
+          alert('Service added to Services sheet.');
+        } catch (e) {
+          console.error(e);
+          alert('Failed to add service');
+        }
+      },
+
+      chapterCountFor(bookName) {
+        const e = this.books.find(b => b[0] === bookName);
+        return e ? e[1] : 50;
+      },
+
+      scriptureRef() {
+        const b = this.scripture.book;
+        const c = this.scripture.chapter;
+        const s = String(this.scripture.start || '').trim();
+        const e = String(this.scripture.end || '').trim();
+        if (!s && !e) return `${b} ${c}`;
+        if (s && !e) return `${b} ${c}:${s}`;
+        return `${b} ${c}:${s}-${e}`;
+      },
+
+      ensureDefaults() {
+        const d = (window.APP_CTX && window.APP_CTX.defaults) || {};
+        const defLeader = d.leader || 'Darden';
+        const defSermon = d.sermon || 'Tom';
+        if (!this.leaderChoices.includes(defLeader)) this.leaderChoices = [defLeader, ...this.leaderChoices];
+        if (!this.sermonChoices.includes(defSermon)) this.sermonChoices = [defSermon, ...this.sermonChoices];
+        this.leaderSelect = defLeader;
+        this.sermonSelect = defSermon;
+        this.form.leader = defLeader;
+        this.form.sermon = defSermon;
+        this.$nextTick(() => {
+          if (this.$refs.leaderSel) this.$refs.leaderSel.value = defLeader;
+          if (this.$refs.sermonSel) this.$refs.sermonSel.value = defSermon;
+        });
+      }
+    }
+  }
+</script>

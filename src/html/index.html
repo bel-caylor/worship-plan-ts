@@ -19,6 +19,9 @@
     window.__BASE__ = <?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?> || (location.origin + location.pathname);
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('apps-weekly-plan').getContent(); ?>
 
 </head>
 
