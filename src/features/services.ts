@@ -1,5 +1,5 @@
 // src/features/services.ts
-import { SERVICES_SHEET, PLANNER_SHEET } from '../constants';
+import { SERVICES_SHEET, PLANNER_SHEET, SERVICES_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
 
 export type AddServiceInput = {
@@ -14,6 +14,18 @@ export type AddServiceInput = {
   notes?: string;
 };
 
+// --- Normalization helpers ---
+function normalizeDisplayName(s: string): string {
+  const clean = String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!clean) return '';
+  return clean
+    .split(' ')
+    .map(w => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
+
 export function addService(input: AddServiceInput) {
   const sh = getSheetByName(SERVICES_SHEET);
 
@@ -21,21 +33,21 @@ export function addService(input: AddServiceInput) {
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
 
-  const idIdx = col('ServiceID');
-  const dateIdx = col('Date');
-  const timeIdx = col('Time');
-  const typeIdx = col('ServiceType');
-  const leaderIdx = col('Leader');
-  const sermonIdx = col('Sermon');
-  const scriptureIdx = col('Scripture');
+  const idIdx = col(SERVICES_COL.id);
+  const dateIdx = col(SERVICES_COL.date);
+  const timeIdx = col(SERVICES_COL.time);
+  const typeIdx = col(SERVICES_COL.type);
+  const leaderIdx = col(SERVICES_COL.leader);
+  const sermonIdx = col(SERVICES_COL.sermon);
+  const scriptureIdx = col(SERVICES_COL.scripture);
   const scriptureTextIdx = (() => {
-    const i1 = col('Scripture Text');
+    const i1 = col(SERVICES_COL.scriptureText);
     if (i1 >= 0) return i1;
     const i2 = col('ScriptureText');
     return i2 >= 0 ? i2 : -1;
   })();
-  const themeIdx = col('Theme');
-  const notesIdx = col('Notes');
+  const themeIdx = col(SERVICES_COL.theme);
+  const notesIdx = col(SERVICES_COL.notes);
 
   // Build a deterministic ServiceID from date + time, e.g., 2025-11-02_10am
   let computedId = '';
@@ -99,8 +111,8 @@ export function addService(input: AddServiceInput) {
   }
   if (timeIdx >= 0) vals[timeIdx] = input.time ?? '';
   if (typeIdx >= 0) vals[typeIdx] = input.type ?? '';
-  if (leaderIdx >= 0) vals[leaderIdx] = input.leader ?? '';
-  if (sermonIdx >= 0) vals[sermonIdx] = input.sermon ?? '';
+  if (leaderIdx >= 0) vals[leaderIdx] = normalizeDisplayName(input.leader ?? '');
+  if (sermonIdx >= 0) vals[sermonIdx] = normalizeDisplayName(input.sermon ?? '');
   if (scriptureIdx >= 0) vals[scriptureIdx] = input.scripture ?? '';
   // Fetch scripture text via ESV API when a column is available and a reference provided
   try {
@@ -126,15 +138,25 @@ export function addService(input: AddServiceInput) {
 }
 
 export function getServicePeople() {
-  const merge = (set: Set<string>, vals: any[]) => {
+  const toDisplay = (s: string) => s
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map(w => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ');
+  const toKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+
+  const merge = (map: Map<string, string>, vals: any[]) => {
     for (const v of vals) {
-      const s = String(v ?? '').trim();
-      if (s) set.add(s);
+      const raw = String(v ?? '');
+      const key = toKey(raw);
+      if (!key) continue;
+      if (!map.has(key)) map.set(key, toDisplay(raw));
     }
   };
 
-  const leaders = new Set<string>();
-  const preachers = new Set<string>();
+  const leaders = new Map<string, string>();
+  const preachers = new Map<string, string>();
 
   // From Services sheet
   try {
@@ -144,8 +166,8 @@ export function getServicePeople() {
     if (lastRow >= 2 && lastCol >= 1) {
       const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
       const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-      const leaderIdx = normIdx('Leader');
-      const sermonIdx = normIdx('Sermon');
+      const leaderIdx = normIdx(SERVICES_COL.leader);
+      const sermonIdx = normIdx(SERVICES_COL.sermon);
       const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
       if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
       if (sermonIdx >= 0) merge(preachers, body.map(r => r[sermonIdx]));
@@ -160,8 +182,8 @@ export function getServicePeople() {
     if (lastRow >= 2 && lastCol >= 1) {
       const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
       const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-      const leaderIdx = normIdx('Leader');
-      const sermonIdx = normIdx('Sermon');
+      const leaderIdx = normIdx(SERVICES_COL.leader);
+      const sermonIdx = normIdx(SERVICES_COL.sermon);
       const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
       if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
       if (sermonIdx >= 0) merge(preachers, body.map(r => r[sermonIdx]));
@@ -169,7 +191,10 @@ export function getServicePeople() {
   } catch (_) { /* ignore */ }
 
   const sort = (a: string, b: string) => a.localeCompare(b);
-  return { leaders: Array.from(leaders).sort(sort), preachers: Array.from(preachers).sort(sort) };
+  return {
+    leaders: Array.from(leaders.values()).sort(sort),
+    preachers: Array.from(preachers.values()).sort(sort)
+  };
 }
 
 export function esvPassage(input: { reference: string }) {
@@ -188,7 +213,7 @@ export function esvPassage(input: { reference: string }) {
     '&include-footnotes=false' +
     '&include-headings=false' +
     '&include-short-copyright=false' +
-    '&include-verse-numbers=true' +
+    '&include-verse-numbers=false' +
     '&indent-poetry=false' +
     '&indent-using=spaces' +
     '&indent-paragraphs=0';
@@ -196,6 +221,8 @@ export function esvPassage(input: { reference: string }) {
   const res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Token ' + token } });
   const data = JSON.parse(res.getContentText());
   let text = (data && data.passages && data.passages[0]) ? String(data.passages[0]) : '';
+  // Remove bracketed footnote remnants or stray markers just in case
+  text = text.replace(/\s*\[\d+\]\s*/g, ' ');
   // Normalize whitespace: trim, collapse 3+ newlines to 2, normalize CRLF
   text = text.replace(/\r\n?/g, '\n');
   text = text.replace(/\n{3,}/g, '\n\n').trim();

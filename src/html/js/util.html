@@ -6,4 +6,26 @@
       run.withSuccessHandler(resolve).withFailureHandler(reject).rpc({ method, payload });
     });
   }
+
+  // Minimal toast-style notifier for consistent UX (client-only)
+  function notify(message, type = 'info', ms = 2200) {
+    try {
+      const root = document.createElement('div');
+      root.textContent = String(message ?? '');
+      root.style.position = 'fixed';
+      root.style.right = '12px';
+      root.style.bottom = '12px';
+      root.style.zIndex = '9999';
+      root.style.maxWidth = '70vw';
+      root.style.padding = '8px 12px';
+      root.style.borderRadius = '6px';
+      root.style.color = '#111827';
+      root.style.background = type === 'error' ? '#fecaca' : type === 'success' ? '#bbf7d0' : '#e5e7eb';
+      root.style.boxShadow = '0 4px 14px rgba(0,0,0,0.2)';
+      document.body.appendChild(root);
+      setTimeout(() => root.remove(), ms);
+    } catch (_) {
+      try { alert(String(message ?? '')); } catch(_) {}
+    }
+  }
 </script>

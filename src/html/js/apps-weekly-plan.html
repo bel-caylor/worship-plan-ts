@@ -62,10 +62,10 @@
         try {
           await callRpc('addService', { ...this.form });
           this.showAddService = false;
-          alert('Service added to Services sheet.');
+          notify('Service added to Services sheet.', 'success');
         } catch (e) {
           console.error(e);
-          alert('Failed to add service');
+          notify('Failed to add service', 'error');
         }
       },
 

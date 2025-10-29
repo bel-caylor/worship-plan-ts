@@ -14,5 +14,17 @@ export const PLANNER_SHEET = 'Weekly Planner';
 export const PLANNER_LEADER_CANDIDATES = ['Leader'];
 export const PLANNER_SONG_COLS = ['Opening Song','Song2','Song3','Song4/Communion','Offering/Communion Song','Closing Song'];
 export const SERVICES_SHEET = 'Services';
+export const SERVICES_COL = {
+  id: 'ServiceID',
+  date: 'Date',
+  time: 'Time',
+  type: 'ServiceType',
+  leader: 'Leader',
+  sermon: 'Sermon',
+  scripture: 'Scripture',
+  scriptureText: 'Scripture Text',
+  theme: 'Theme',
+  notes: 'Notes'
+} as const;
 
 export type Row = Record<string, unknown>;
