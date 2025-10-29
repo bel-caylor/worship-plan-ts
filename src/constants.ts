@@ -13,5 +13,6 @@ export const TARGET_LEADER_COL = 'Leader';
 export const PLANNER_SHEET = 'Weekly Planner';
 export const PLANNER_LEADER_CANDIDATES = ['Leader'];
 export const PLANNER_SONG_COLS = ['Opening Song','Song2','Song3','Song4/Communion','Offering/Communion Song','Closing Song'];
+export const SERVICES_SHEET = 'Services';
 
 export type Row = Record<string, unknown>;
