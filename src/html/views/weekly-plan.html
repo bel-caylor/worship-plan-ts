@@ -1,91 +1,155 @@
-<div x-data="weeklyPlanApp()" x-init="init()" class="h-full flex flex-col">
-  <div class="p-4">
-    <h2 class="text-xl font-semibold mb-2">Weekly Plan</h2>
-    <p class="text-sm text-gray-600">If you can read this, the plan view is mounted.</p>
-  </div>
-      
+<div x-data="weeklyPlanApp()" x-init="init()" class="min-h-screen flex flex-col overflow-y-auto pt-6 md:pt-8">
   <div class="p-3 border-b flex items-center gap-3">
+    <div class="flex items-center gap-2">
+      <label class="text-sm text-gray-700">Existing Service</label>
+      <select class="border rounded px-2 py-1 min-w-[320px]" x-model="selectedServiceId">
+        <option value="" disabled selected>Select…</option>
+        <template x-for="s in existingServices" :key="s.id || (s.date + s.time)">
+          <option :value="s.id"
+            x-text="(s.id || ((s.date||'') + (s.time?(' '+s.time):''))) + (s.type?(' — '+s.type):'') + (s.leader?(' ('+s.leader+')'):'')">
+          </option>
+        </template>
+      </select>
+      <button class="px-3 py-1 rounded border" @click="loadSelected()">Load</button>
+    </div>
     <div class="flex-1"></div>
-    <button x-ref="openBtn" class="px-3 py-1 rounded bg-emerald-600 text-white" @click="open()">+ Add Service</button>
+    <div class="flex items-center gap-2">
+      <span class="text-sm text-gray-500" x-show="!existingServices.length">Loading…</span>
+      <button class="px-3 py-1 rounded border disabled:opacity-50" :disabled="!existingServices.length" @click="newService()">New Service</button>
+    </div>
   </div>
 
-  <!-- No table/rows on this page for now -->
-
-  <!-- Add Service modal -->
-  <div x-show="showAddService" x-cloak class="fixed inset-0 z-50 flex items-center justify-center" @keydown.window.escape.prevent="close()">
-    <div class="absolute inset-0 bg-black/40" @click="close()"></div>
-    <div class="relative bg-white rounded shadow-lg w-[560px] max-w-[95vw] p-4">
-      <h3 class="text-lg font-semibold mb-3">Add Service</h3>
-      <div class="flex gap-2">
-        <label class="text-sm">Date
-          <input x-ref="dateInput" type="date" class="mt-1 w-full border rounded px-2 py-1" x-model="form.date">
-        </label>
-        <label class="text-sm">Time
-          <input type="text" class="mt-1 w-full border rounded px-2 py-1" placeholder="10:00 AM" x-model="form.time">
-        </label>
-        <label class="text-sm">Service Type
-          <input type="text" class="mt-1 w-full border rounded px-2 py-1" x-model="form.type">
-        </label>
+  <div class="p-4" x-show="showDetails" x-cloak>
+    <h3 class="text-lg font-semibold mb-3">Service Details</h3>
+    <div class="flex gap-2">
+      <label class="text-sm">Date
+        <input x-ref="dateInput" type="date" class="mt-1 w-full border rounded px-2 py-1" x-model="form.date">
+      </label>
+      <label class="text-sm">Time
+        <input type="text" class="mt-1 w-full border rounded px-2 py-1" placeholder="10:00 AM" x-model="form.time">
+      </label>
+      <label class="text-sm">Service Type
+        <select class="mt-1 w-full border rounded px-2 py-1" x-model="form.type">
+          <option value="Communion">Communion</option>
+          <option value="Offering">Offering</option>
+        </select>
+      </label>
+      <label class="text-sm flex-1">Leader
+        <div class="mt-1">
+          <select x-ref="leaderSel" class="border rounded px-2 py-1 w-full" x-model="leaderSelect"
+            @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect">
+            <template x-for="n in leaderChoices" :key="'lead-'+n">
+              <option :value="n" x-text="n"></option>
+            </template>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+        <template x-if="leaderSelect==='__custom'">
+          <input type="text" class="mt-2 w-full border rounded px-2 py-1" placeholder="Type leader name"
+            x-model="form.leader">
+        </template>
+      </label>
+      <label class="text-sm min-w-32">Preacher
+        <div class="mt-1">
+          <select x-ref="preacherSel" class="border rounded px-2 py-1 w-full" x-model="preacherSelect"
+            @change="form.preacher = preacherSelect==='__custom' ? '' : preacherSelect">
+            <template x-for="n in preacherChoices" :key="'prech-'+n">
+              <option :value="n" x-text="n"></option>
+            </template>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+        <template x-if="preacherSelect==='__custom'">
+          <input type="text" class="mt-2 w-full border rounded px-2 py-1" placeholder="Type preacher name"
+            x-model="form.preacher">
+        </template>
+      </label>
+      <label class="text-sm block">Theme
+        <input type="text" class="mt-1 w-full border rounded px-2 py-1" x-model="form.theme">
+      </label>
+    </div>
+    <div class="pt-2">
+      <div class="border rounded w-full">
+        <button type="button" class="w-full flex items-center justify-between px-3 py-2" @click="showScripture = !showScripture">
+          <h4 class="font-medium">Scripture</h4>
+          <span x-text="showScripture ? '▾' : '▸'" class="text-sm"></span>
+        </button>
+        <div class="p-3 border-t" x-show="showScripture" x-cloak>
+          <div class="flex items-center gap-2">
+            <input class="flex-1 border rounded px-2 py-1" type="text" placeholder="e.g., John 3:5-6, 8-10" x-model="form.scripture">
+            <button class="px-2 py-1 border rounded" @click="fetchScripture()">Fetch Text</button>
+          </div>
+          <textarea class="mt-2 w-full border rounded px-2 py-1" rows="6" x-model="scriptureText" placeholder="Scripture text (editable)"></textarea>
+        </div>
       </div>
-      <div class="flex gap-2">
-        <label class="text-sm flex-1">Leader
-          <div class="mt-1">
-            <select x-ref="leaderSel" class="border rounded px-2 py-1 w-full" x-model="leaderSelect" @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect">
-              <template x-for="n in leaderChoices" :key="'lead-'+n">
-                <option :value="n" x-text="n"></option>
-              </template>
-              <option value="__custom">Custom…</option>
-            </select>
-          </div>
-          <template x-if="leaderSelect==='__custom'">
-            <input type="text" class="mt-2 w-full border rounded px-2 py-1" placeholder="Type leader name" x-model="form.leader">
-          </template>
-        </label>
-        <label class="text-sm flex-1">Sermon
-          <div class="mt-1">
-            <select x-ref="sermonSel" class="border rounded px-2 py-1 w-full" x-model="sermonSelect" @change="form.sermon = sermonSelect==='__custom' ? '' : sermonSelect">
-              <template x-for="n in sermonChoices" :key="'serm-'+n">
-                <option :value="n" x-text="n"></option>
-              </template>
-              <option value="__custom">Custom…</option>
-            </select>
-          </div>
-          <template x-if="sermonSelect==='__custom'">
-            <input type="text" class="mt-2 w-full border rounded px-2 py-1" placeholder="Type preacher name" x-model="form.sermon">
-          </template>
-        </label>
-      </div>
-      <div>
-        <label class="text-sm col-span-2">Scripture
-          <div class="mt-1 grid grid-cols-6 gap-2 items-center">
-            <select x-ref="bookSel" class="col-span-3 border rounded px-2 py-1" x-model="scripture.book">
-              <template x-for="b in books" :key="b[0]"><option :value="b[0]" x-text="b[0]"></option></template>
-            </select>
-            <select x-ref="chapterSel" class="col-span-1 border rounded px-2 py-1" x-model.number="scripture.chapter">
-              <template x-for="n in chapterCountFor(scripture.book)" :key="'ch-'+n"><option :value="n" x-text="n"></option></template>
-            </select>
-            <input class="col-span-1 border rounded px-2 py-1" type="number" min="1" placeholder="v" x-model="scripture.start">
-            <input class="col-span-1 border rounded px-2 py-1" type="number" min="1" placeholder="to" x-model="scripture.end">
-          </div>
-          <div class="mt-2 flex items-center gap-2 text-sm text-gray-600">
-            <span x-text="scriptureRef()"></span>
+    </div>
 
-          </div>
-        </label>
-        <label class="text-sm col-span-2">Theme
+    <div class="mt-2 border rounded">
+      <button type="button" class="w-full flex items-center justify-between px-3 py-2" @click="showNotes = !showNotes">
+        <h4 class="font-medium">Notes</h4>
+        <span x-text="showNotes ? '▾' : '▸'" class="text-sm"></span>
+      </button>
+      <div class="p-3 border-t" x-show="showNotes" x-cloak>
+        <label class="text-sm block">Theme
           <input type="text" class="mt-1 w-full border rounded px-2 py-1" x-model="form.theme">
         </label>
-        <label class="text-sm col-span-2">Notes
+        <label class="text-sm block mt-2">Notes
           <textarea class="mt-1 w-full border rounded px-2 py-1" rows="3" x-model="form.notes"></textarea>
         </label>
       </div>
-      
-      <div class="mt-4 flex justify-end gap-2">
-        <button class="px-3 py-1 rounded border" @click="close()">Cancel</button>
-        <button class="px-3 py-1 rounded bg-emerald-600 text-white" @click="submit()">Add Service</button>
-      </div>
+    </div>
 
-      <!-- no datalists; using select + custom field -->
+    <div class="mt-4 border rounded p-3" x-show="showOrder" x-cloak>
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="font-medium">Order of Worship</h4>
+        <div class="flex gap-2">
+          <button class="px-2 py-1 border rounded" @click="addOrderRow()">+ Add Row</button>
+        </div>
+      </div>
+      <div class="max-h-[60vh] overflow-auto">
+        <table class="min-w-full border text-sm">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="border px-2 py-1 w-14 text-left">#</th>
+              <th class="border px-2 py-1 text-left">Item</th>
+              <th class="border px-2 py-1 text-left">Detail</th>
+              <th class="border px-2 py-1 text-left">Leader</th>
+              <th class="border px-2 py-1 text-left">Notes</th>
+              <th class="border px-2 py-1 w-28">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="(row, i) in orderRows" :key="'ord-'+i">
+              <tr>
+                <td class="border px-2 py-1" x-text="i+1"></td>
+                  <td class="border px-2 py-1">
+                    <select class="border rounded px-2 py-1 w-full" x-model="row.itemType">
+                      <!-- Always include current value so select shows correctly even before options are ready -->
+                      <option :value="row.itemType" x-text="row.itemType"></option>
+                      <template x-for="t in orderItemTypes" :key="t">
+                        <option :value="t" x-text="t"></option>
+                      </template>
+                    </select>
+                  </td>
+                <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.detail" placeholder="e.g., Song title"></td>
+                <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.leader" placeholder="Leader"></td>
+                <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.notes" placeholder="Notes"></td>
+                <td class="border px-2 py-1">
+                  <div class="flex gap-1">
+                    <button class="px-2 py-1 border rounded" @click="moveOrderRow(i,-1)">↑</button>
+                    <button class="px-2 py-1 border rounded" @click="moveOrderRow(i,1)">↓</button>
+                    <button class="px-2 py-1 border rounded" @click="removeOrderRow(i)">✕</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="mt-4 flex justify-end gap-2">
+      <button class="px-3 py-1 rounded bg-emerald-600 text-white" @click="submit()" x-text="actionLabel()"></button>
     </div>
   </div>
 </div>

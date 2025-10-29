@@ -3,12 +3,60 @@
   window.APP_CTX = {
     defaults: {
       leader: 'Darden',
-      sermon: 'Tom',
+      preacher: 'Tom',
       serviceType: 'Worship',
       time: '10:00 AM'
     },
     leaderChoices: ['Darden','Belinda','Lois'],
     sermonChoices: ['Tom','Darden','Miguel','Alfredo'],
+    preacherChoices: ['Tom','Darden','Miguel','Alfredo'],
+    orderItemTypes: [
+      'Pre-Service','Welcome','Opening Song','Call to Worship','Song 1','Prayer of Invocation','Song 2','2nd Scripture','Song 3','Prayer of Illumination','Announcements','Children\'s Chat','Sermon','Communion','Communion Song','Closing Song','Benediction','Post Services','Note','Song 4','Offering','Offering Song'
+    ],
+    orderTemplates: {
+      communion: [
+        { itemType: 'Pre-Service' },
+        { itemType: 'Welcome', leader: '{leader}' },
+        { itemType: 'Opening Song' },
+        { itemType: 'Call to Worship' },
+        { itemType: 'Song 1' },
+        { itemType: 'Prayer of Invocation' },
+        { itemType: 'Song 2' },
+        { itemType: '2nd Scripture' },
+        { itemType: 'Song 3' },
+        { itemType: 'Prayer of Illumination' },
+        { itemType: 'Announcements' },
+        { itemType: 'Children\'s Chat' },
+        { itemType: 'Sermon', leader: '{preacher}' },
+        { itemType: 'Communion', leader: '{preacher}' },
+        { itemType: 'Communion Song' },
+        { itemType: 'Closing Song' },
+        { itemType: 'Benediction', leader: '{preacher}' },
+        { itemType: 'Post Services' }
+      ],
+      offering: [
+        { itemType: 'Pre-Service' },
+        { itemType: 'Welcome', leader: '{leader}' },
+        { itemType: 'Opening Song' },
+        { itemType: 'Call to Worship' },
+        { itemType: 'Song 1' },
+        { itemType: 'Prayer of Invocation' },
+        { itemType: 'Song 2' },
+        { itemType: '2nd Scripture' },
+        { itemType: 'Song 3' },
+        { itemType: 'Note' },
+        { itemType: 'Song 4' },
+        { itemType: 'Prayer of Illumination' },
+        { itemType: 'Announcements' },
+        { itemType: 'Children\'s Chat' },
+        { itemType: 'Sermon', leader: '{preacher}' },
+        { itemType: 'Offering' },
+        { itemType: 'Offering Song' },
+        { itemType: 'Closing Song' },
+        { itemType: 'Benediction', leader: '{preacher}' },
+        { itemType: 'Post Services' }
+      ]
+    },
     bibleBooks: [
       ['Genesis',50],['Exodus',40],['Leviticus',27],['Numbers',36],['Deuteronomy',34],
       ['Joshua',24],['Judges',21],['Ruth',4],['1 Samuel',31],['2 Samuel',24],
@@ -26,4 +74,3 @@
     ]
   };
 </script>
-

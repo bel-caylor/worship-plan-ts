@@ -20,10 +20,21 @@ export const SERVICES_COL = {
   time: 'Time',
   type: 'ServiceType',
   leader: 'Leader',
-  sermon: 'Sermon',
+  preacher: 'Preacher',
   scripture: 'Scripture',
   scriptureText: 'Scripture Text',
   theme: 'Theme',
+  notes: 'Notes'
+} as const;
+
+// Order of Worship sheet configuration
+export const ORDER_SHEET = 'Order';
+export const ORDER_COL = {
+  serviceId: 'ServiceID',
+  order: 'Order',
+  itemType: 'ItemType',
+  detail: 'Detail',
+  leader: 'Leader',
   notes: 'Notes'
 } as const;
 

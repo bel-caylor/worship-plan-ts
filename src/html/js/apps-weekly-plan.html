@@ -1,35 +1,49 @@
 <script>
   function weeklyPlanApp() {
     return {
-      showAddService: false,
+      showDetails: false,
+      showOrder: false,
+      showScripture: true,
+      showNotes: true,
+      existingServices: [],
+      selectedServiceId: '',
       leaderChoices: [],
-      sermonChoices: [],
+      preacherChoices: [],
       leaderSelect: '',
-      sermonSelect: '',
+      preacherSelect: '',
       books: [],
       scripture: { book: 'John', chapter: 3, start: '1', end: '' },
-      form: { date: '', time: '', type: '', leader: '', sermon: '', scripture: '', theme: '', notes: '' },
+      scriptureText: '',
+      orderItemTypes: [],
+      orderRows: [],
+      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', notes: '' },
 
       init() {
         const ctx = (window.APP_CTX || {});
         const defs = ctx.defaults || {};
         this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
+        this.orderItemTypes = Array.isArray(ctx.orderItemTypes) ? ctx.orderItemTypes : ['Welcome','Call To Worship','Song','Sermon','Communion','Offering','Announcements','Benediction'];
         this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden','Belinda','Lois'];
-        this.sermonChoices = Array.isArray(ctx.sermonChoices) ? ctx.sermonChoices.slice() : ['Tom','Darden','Miguel','Alfredo'];
+        const ctxPreacherChoices = Array.isArray(ctx.preacherChoices) ? ctx.preacherChoices : ctx.sermonChoices;
+        this.preacherChoices = Array.isArray(ctxPreacherChoices) ? ctxPreacherChoices.slice() : ['Tom','Darden','Miguel','Alfredo'];
 
         this.form.date = this.nextSundayISO();
         this.form.time = defs.time || '10:00 AM';
         this.form.type = defs.serviceType || 'Worship';
         this.form.leader = defs.leader || 'Darden';
-        this.form.sermon = defs.sermon || 'Tom';
+        this.form.preacher = defs.sermon || defs.preacher || 'Tom';
         this.leaderSelect = this.form.leader;
-        this.sermonSelect = this.form.sermon;
+        this.preacherSelect = this.form.preacher;
         (async () => {
           try {
             const r = await callRpc('getServicePeople', null);
             if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a,b)=>a.localeCompare(b));
-            if (r?.preachers) this.sermonChoices = Array.from(new Set([...this.sermonChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
+            if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
           } catch (e) { /* ignore */ }
+          try {
+            const s = await callRpc('listServices', null);
+            this.existingServices = Array.isArray(s?.items) ? s.items : [];
+          } catch (_) { /* ignore */ }
           this.ensureDefaults();
           // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
           this.$nextTick(() => {
@@ -49,34 +63,129 @@
         return `${y}-${m}-${dd}`;
       },
 
-      open() {
+      // Find the last service date in the Services sheet and return the following Sunday (ISO)
+      nextServiceDateFromExistingISO() {
+        try {
+          if (!Array.isArray(this.existingServices) || this.existingServices.length === 0) return this.nextSundayISO();
+          // existingServices are sorted by ServiceID desc; try first with a valid date
+          let latest = null;
+          for (const s of this.existingServices) {
+            const ds = String(s?.date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) continue;
+            const [y, m, d] = ds.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            if (!latest || dt > latest) latest = dt;
+          }
+          if (!latest) return this.nextSundayISO();
+          // add 7 days to get the next Sunday after the latest
+          const nxt = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() + 7);
+          const y = nxt.getFullYear();
+          const m = String(nxt.getMonth() + 1).padStart(2, '0');
+          const dd = String(nxt.getDate()).padStart(2, '0');
+          return `${y}-${m}-${dd}`;
+        } catch (_) {
+          return this.nextSundayISO();
+        }
+      },
+
+      // Determine default service type from an ISO date string.
+      // Communion on 1st, 3rd, 5th Sundays; Offering on 2nd and 4th.
+      defaultServiceTypeForDateISO(iso) {
+        try {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return 'Offering';
+          const [y, m, d] = String(iso).split('-').map(Number);
+          const dt = new Date(y, m - 1, d);
+          // nth week index within the month (1..5)
+          const nth = Math.floor((dt.getDate() - 1) / 7) + 1;
+          return (nth === 1 || nth === 3 || nth === 5) ? 'Communion' : 'Offering';
+        } catch (_) {
+          return 'Offering';
+        }
+      },
+
+      newService() {
         const ctx = (window.APP_CTX || {}); const d = ctx.defaults || {};
-        this.form = { date: this.nextSundayISO(), time: (d.time||'10:00 AM'), type: (d.serviceType||'Worship'), leader: (d.leader||'Darden'), sermon: (d.sermon||'Tom'), scripture: '', theme: '', notes: '' };
+        this.selectedServiceId = '';
+        const nextDate = this.nextServiceDateFromExistingISO();
+        const defType = this.defaultServiceTypeForDateISO(nextDate);
+        this.form = { id: '', date: nextDate, time: (d.time||'10:00 AM'), type: defType, leader: (d.leader||'Darden'), preacher: (d.preacher||d.sermon||'Tom'), scripture: '', theme: '', notes: '' };
         this.ensureDefaults();
         this.scripture = { book: 'John', chapter: 3, start: '1', end: '' };
-        this.form.scripture = this.scriptureRef();
-        this.showAddService = true;
+        this.form.scripture = '';
+        this.scriptureText = '';
+        this.orderRows = [];
+        this.showOrder = false;
+        this.showScripture = true;
+        this.showNotes = true;
+        this.showDetails = true;
         this.$nextTick(() => {
-          if (this.$refs.bookSel) this.$refs.bookSel.value = this.scripture.book;
-          if (this.$refs.chapterSel) this.$refs.chapterSel.value = String(this.scripture.chapter);
           if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
         });
       },
 
-      close() {
-        this.showAddService = false;
-        this.$nextTick(() => { try { this.$refs.openBtn && this.$refs.openBtn.focus(); } catch(_) {} });
-      },
-
       async submit() {
         try {
-          await callRpc('addService', { ...this.form });
-          this.showAddService = false;
-          notify('Service added to Services sheet.', 'success');
+          const isEdit = !!this.selectedServiceId;
+          const payload = { ...this.form, scriptureText: this.scriptureText };
+          if (isEdit) payload.id = this.selectedServiceId;
+          const res = await callRpc(isEdit ? 'saveService' : 'addService', payload);
+          const newId = (res && res.id) ? res.id : '';
+          notify(isEdit ? 'Service saved.' : 'Service added.', 'success');
+          try {
+            const s = await callRpc('listServices', null);
+            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+          } catch (_) { /* ignore */ }
+          if (newId) this.selectedServiceId = newId;
+          if (!this.orderRows || this.orderRows.length === 0) {
+            this.orderRows = this.defaultOrderFor(this.form.type);
+            this.ensureOrderOptionsFromRows();
+            this.showOrder = true;
+            this.showScripture = false;
+            this.showNotes = false;
+          } else {
+            try {
+              const sid = this.selectedServiceId || newId;
+              if (sid) await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder() });
+            } catch (e2) { console.error(e2); notify('Saved service, but failed to save order.', 'error'); }
+          }
         } catch (e) {
           console.error(e);
-          notify('Failed to add service', 'error');
+          const msg = (e && e.message) ? e.message : 'Failed to save service';
+          notify(msg, 'error');
         }
+      },
+
+      loadSelected() {
+        const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
+        if (!svc) return notify('Select a service first', 'info');
+        this.form.id = svc.id || '';
+        this.form.date = svc.date || this.nextSundayISO();
+        this.form.time = svc.time || (window.APP_CTX?.defaults?.time || '10:00 AM');
+        this.form.type = svc.type || (window.APP_CTX?.defaults?.serviceType || 'Worship');
+        this.form.leader = svc.leader || (window.APP_CTX?.defaults?.leader || 'Darden');
+        this.form.preacher = svc.preacher || (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || 'Tom');
+        this.form.scripture = svc.scripture || '';
+        this.scriptureText = svc.scriptureText || '';
+        this.form.theme = svc.theme || '';
+        this.form.notes = svc.notes || '';
+        this.leaderSelect = this.leaderChoices.includes(this.form.leader) ? this.form.leader : '__custom';
+        this.preacherSelect = this.preacherChoices.includes(this.form.preacher) ? this.form.preacher : '__custom';
+        (async () => {
+          try {
+            const r = await callRpc('getOrder', this.selectedServiceId);
+            this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
+          } catch(_) {
+            this.orderRows = this.defaultOrderFor(this.form.type);
+          }
+          this.ensureOrderOptionsFromRows();
+          this.showOrder = true;
+        })();
+        this.$nextTick(() => {
+          if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
+          if (this.$refs.leaderSel) this.$refs.leaderSel.value = this.leaderSelect;
+          if (this.$refs.preacherSel) this.$refs.preacherSel.value = this.preacherSelect;
+        });
+        this.showDetails = true;
       },
 
       chapterCountFor(bookName) {
@@ -97,18 +206,97 @@
       ensureDefaults() {
         const d = (window.APP_CTX && window.APP_CTX.defaults) || {};
         const defLeader = d.leader || 'Darden';
-        const defSermon = d.sermon || 'Tom';
+        const defPreacher = d.preacher || d.sermon || 'Tom';
         if (!this.leaderChoices.includes(defLeader)) this.leaderChoices = [defLeader, ...this.leaderChoices];
-        if (!this.sermonChoices.includes(defSermon)) this.sermonChoices = [defSermon, ...this.sermonChoices];
+        if (!this.preacherChoices.includes(defPreacher)) this.preacherChoices = [defPreacher, ...this.preacherChoices];
         this.leaderSelect = defLeader;
-        this.sermonSelect = defSermon;
+        this.preacherSelect = defPreacher;
         this.form.leader = defLeader;
-        this.form.sermon = defSermon;
+        this.form.preacher = defPreacher;
         this.$nextTick(() => {
           if (this.$refs.leaderSel) this.$refs.leaderSel.value = defLeader;
-          if (this.$refs.sermonSel) this.$refs.sermonSel.value = defSermon;
+          if (this.$refs.preacherSel) this.$refs.preacherSel.value = defPreacher;
         });
-      }
+      },
+
+      async fetchScripture() {
+        try {
+          const ref = String(this.form.scripture || '').trim();
+          if (!ref) { this.scriptureText = ''; return; }
+          const prev = this.scriptureText;
+          const r = await callRpc('esvPassage', { reference: ref });
+          if (r && r.error) {
+            notify(String(r.error), 'error', 3200);
+            this.scriptureText = prev; // preserve existing text
+            return;
+          }
+          const txt = (r && r.text) ? String(r.text) : '';
+          if (!txt.trim()) {
+            notify('No passage found — check the reference.', 'error', 2600);
+            this.scriptureText = prev;
+          } else {
+            this.scriptureText = txt;
+          }
+        } catch (e) {
+          console.error(e);
+          const msg = (e && e.message) ? e.message : 'Failed to fetch scripture text';
+          notify(msg, 'error', 3200);
+        }
+      },
+
+      // Order helpers
+      defaultOrderFor(serviceType) {
+        const t = String(serviceType || '').toLowerCase();
+        const tmpl = (window.APP_CTX && window.APP_CTX.orderTemplates) || {};
+        const src = t.includes('communion') ? tmpl.communion : t.includes('offering') ? tmpl.offering : (tmpl.offering || []);
+        const arr = Array.isArray(src) ? src : [];
+        const leaderName = this.form?.leader || '';
+        const preacherName = this.form?.preacher || '';
+        const sub = (s) => {
+          const v = String(s || '');
+          if (!v) return '';
+          return v.replace('{leader}', leaderName).replace('{preacher}', preacherName);
+        };
+        return arr.map((it, idx) => ({
+          order: idx + 1,
+          itemType: String(it.itemType || ''),
+          detail: it.detail || '',
+          leader: sub(it.leader),
+          notes: it.notes || ''
+        }));
+      },
+      addOrderRow() {
+        const n = this.orderRows.length + 1;
+        this.orderRows.push({ order: n, itemType: '', detail: '', leader: '', notes: '' });
+      },
+      removeOrderRow(i) {
+        this.orderRows.splice(i, 1);
+        this.orderRows.forEach((r, idx) => (r.order = idx + 1));
+      },
+      moveOrderRow(i, dir) {
+        const j = i + dir;
+        if (j < 0 || j >= this.orderRows.length) return;
+        const tmp = this.orderRows[i];
+        this.orderRows[i] = this.orderRows[j];
+        this.orderRows[j] = tmp;
+        this.orderRows.forEach((r, idx) => (r.order = idx + 1));
+      },
+      serializedOrder() {
+        return this.orderRows.map((r, idx) => ({ order: idx + 1, itemType: r.itemType || '', detail: r.detail || '', leader: r.leader || '', notes: r.notes || '' }));
+      },
+
+      ensureOrderOptionsFromRows() {
+        try {
+          const set = new Set(this.orderItemTypes);
+          for (const r of this.orderRows) {
+            const v = String(r?.itemType || '').trim();
+            if (v && !set.has(v)) set.add(v);
+          }
+          this.orderItemTypes = Array.from(set);
+        } catch(_) {}
+      },
+
+      actionLabel() { return 'Save Service'; }
     }
   }
 </script>

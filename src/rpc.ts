@@ -1,6 +1,7 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, getServicePeople, esvPassage } from './features/services';
+import { addService, getServicePeople, esvPassage, listServices, saveService } from './features/services';
+import { getOrder, saveOrder } from './features/order';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -10,6 +11,14 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getFilesForFolderUrl(String(payload), 200);
       case 'addService':
         return addService(payload as any);
+      case 'saveService':
+        return saveService(payload as any);
+      case 'listServices':
+        return listServices();
+      case 'getOrder':
+        return getOrder(String(payload || ''));
+      case 'saveOrder':
+        return saveOrder(payload as any);
       case 'getServicePeople':
         return getServicePeople();
       case 'esvPassage':
