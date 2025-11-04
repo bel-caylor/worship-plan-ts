@@ -1,21 +1,22 @@
 <script>
-  // Alpine app for the Songs view, separated so it's available before template mounts
   function songsApp() {
-    // helpers
     const splitSeasons = (val) => String(val ?? '').split(/[\/,;|]/g).map(s => s.trim()).filter(Boolean);
     const norm = (s) => String(s || '').toLowerCase();
     const title = (s) => String(s || '').replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
+    const usageKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 
     return {
-      // data
       rows: window.__ROWS__ || [],
       filtered: [],
       selected: null,
-
-      tableHeaders: ['Song', 'Last_Used'],
+      tableHeaders: ['Song','Last_Used'],
 
       seasons: [],
       selectedSeason: '',
+      leaderOptions: [],
+      selectedLeader: '',
+      usageOptions: [],
+      selectedUsage: '',
 
       q: '',
       searchLyrics: false,
@@ -27,8 +28,6 @@
 
       mediaFiles: [],
       mediaLoading: false,
-      leaderOptions: [],
-      selectedLeader: '',
 
       fileIcon(m) {
         if (!m) return '📄';
@@ -41,34 +40,63 @@
         return '📁';
       },
 
-      init() {
-        // seasons
-        const bucket = new Map();
-        for (const r of this.rows) {
-          for (const tok of splitSeasons(r['Season'])) {
-            const k = norm(tok);
-            if (k) bucket.set(k, title(tok));
-          }
+      async init() {
+        // Fetch rows for modal reuse when not injected
+        if (!Array.isArray(this.rows) || !this.rows.length) {
+          this.loading = true;
+          try { const r = await callRpc('getSongsForView', null); if (Array.isArray(r)) this.rows = r; }
+          catch (e) { this.error = 'Failed to load songs'; }
+          finally { this.loading = false; }
         }
-        if (this.rows.some(r => !String(r['Season'] || '').trim())) bucket.set('__uncat__', 'Uncategorized');
-        this.seasons = Array.from(bucket.entries())
-          .sort((a, b) => a[1].localeCompare(b[1]))
-          .map(([key, label]) => ({ key, label }));
 
-        // leader options
-        const leaderSet = new Set();
-        for (const r of this.rows) {
-          const L = Array.isArray(r._leaders) ? r._leaders : [];
-          for (const name of L) leaderSet.add(name);
-        }
-        this.leaderOptions = Array.from(leaderSet).sort((a, b) => a.localeCompare(b));
+        this.buildFilters();
 
         this.$watch('q', () => this.render(true));
         this.$watch('selectedSeason', () => this.render(true));
         this.$watch('selectedLeader', () => this.render(true));
         this.$watch('searchLyrics', () => this.render(true));
+        this.$watch('selectedUsage', () => this.render(true));
+        this.render(true);
+      },
 
-        this.render();
+      buildFilters() {
+        // Seasons
+        const bucket = new Map();
+        for (const r of (this.rows || [])) {
+          for (const tok of splitSeasons(r['Season'])) {
+            const k = norm(tok); if (k) bucket.set(k, title(tok));
+          }
+        }
+        if ((this.rows || []).some(r => !String(r['Season'] || '').trim())) bucket.set('__uncat__', 'Uncategorized');
+        this.seasons = Array.from(bucket.entries()).sort((a,b)=>a[1].localeCompare(b[1])).map(([key,label])=>({key,label}));
+
+        // Leaders
+        const leaderSet = new Set();
+        for (const r of (this.rows || [])) {
+          const L = Array.isArray(r._leaders) ? r._leaders : [];
+          for (const name of L) leaderSet.add(name);
+        }
+        this.leaderOptions = Array.from(leaderSet).sort((a,b)=>a.localeCompare(b));
+
+        // Usage filter options
+        // Start with context-provided list, then merge in any tokens discovered in data.
+        const ctx = (window.APP_CTX || {});
+        const preferred = Array.isArray(ctx.usageFilterChoices)
+          ? ctx.usageFilterChoices
+          : [];
+        const seen = new Map(); // key -> label
+        const add = (label) => { const k = usageKey(label); if (k && !seen.has(k)) seen.set(k, label); };
+        // Preferred order first
+        for (const lab of preferred) add(lab);
+        // Discover from data by splitting comma lists
+        for (const r of (this.rows || [])) {
+          const parts = String(r['Usage'] ?? '')
+            .split(',')
+            .map(s => s.trim())
+            .filter(Boolean);
+          for (const p of parts) add(p);
+        }
+        this.usageOptions = Array.from(seen.values());
       },
 
       select(row) {
@@ -79,7 +107,7 @@
         this.mediaLoading = true;
         Promise.resolve()
           .then(() => callRpc('getFilesForFolderUrl', url))
-          .then((files) => { this.mediaFiles = Array.isArray(files) ? files : []; })
+          .then(files => { this.mediaFiles = Array.isArray(files) ? files : []; })
           .catch(() => { this.mediaFiles = []; })
           .finally(() => { this.mediaLoading = false; });
       },
@@ -88,12 +116,14 @@
 
       render(resetSelection = false) {
         const wantLeader = (this.selectedLeader || '').trim();
-        const q = this.q.toLowerCase().trim();
+        const wantUsage = (this.selectedUsage || '').trim();
+        const q = (this.q || '').toLowerCase().trim();
         const want = this.selectedSeason;
-        const baseFields = ['Song', 'Themes', 'Season', 'Keywords', 'Scriptures', 'Notes'];
-        const fields = this.searchLyrics ? [...baseFields, 'Lyrics (PD)'] : baseFields;
+        const baseFields = ['Song','Themes','Season','Keywords','Scriptures','Notes'];
+        // Support both new 'Lyrics' and legacy 'Lyrics (PD)'
+        const fields = this.searchLyrics ? [...baseFields, 'Lyrics','Lyrics (PD)'] : baseFields;
 
-        let out = this.rows.filter(r => {
+        let out = (this.rows || []).filter(r => {
           if (want) {
             const toks = splitSeasons(r['Season']).map(norm);
             const ok = want === '__uncat__' ? toks.length === 0 : toks.includes(want);
@@ -103,17 +133,22 @@
             const L = Array.isArray(r._leaders) ? r._leaders : [];
             if (!L.includes(wantLeader)) return false;
           }
-          if (!q) return true;
-          for (const f of fields) {
-            const v = r[f];
-            if (v != null && String(v).toLowerCase().includes(q)) return true;
+          if (wantUsage) {
+            const want = usageKey(wantUsage);
+            const toks = String(r['Usage'] ?? '')
+              .split(',')
+              .map(t => usageKey(t))
+              .filter(Boolean);
+            if (!toks.includes(want)) return false;
           }
+          if (!q) return true;
+          for (const f of fields) { const v = r[f]; if (v != null && String(v).toLowerCase().includes(q)) return true; }
           return false;
         });
 
         if (this.sortKey) {
           const k = this.sortKey, d = this.sortDir;
-          out = out.slice().sort((a, b) => {
+          out = out.slice().sort((a,b) => {
             const av = (a[k] ?? '').toString().toLowerCase();
             const bv = (b[k] ?? '').toString().toLowerCase();
             return av < bv ? -1 * d : av > bv ? 1 * d : 0;
@@ -129,8 +164,15 @@
         return v ?? '';
       },
 
-      async copy(text) { try { await navigator.clipboard.writeText(String(text ?? '')); } catch { } }
+      async copy(text) { try { await navigator.clipboard.writeText(String(text ?? '')); } catch { } },
+
+      applySuggestion(index, payload) {
+        try {
+          const name = (payload && payload.name) ? String(payload.name) : String(this.selected?.Song || '');
+          const ev = new CustomEvent('use-song', { detail: { index, name }, bubbles: true });
+          this.$el.dispatchEvent(ev);
+        } catch (_) { }
+      }
     }
   }
 </script>
-

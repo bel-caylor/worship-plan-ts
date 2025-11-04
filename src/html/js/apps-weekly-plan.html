@@ -5,6 +5,8 @@
       showOrder: false,
       showScripture: true,
       showNotes: true,
+      // cache + persistence
+      loadedOnce: false,
       existingServices: [],
       selectedServiceId: '',
       leaderChoices: [],
@@ -16,7 +18,26 @@
       scriptureText: '',
       orderItemTypes: [],
       orderRows: [],
-      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', notes: '' },
+      // autosave state
+      savingOrder: false,
+      saveOrderTimer: null,
+      saveOrderError: '',
+      savedAt: 0,
+      suggestOpenIndex: -1,
+      suggestions: [],
+      // for scripture suggestions inline dropdown
+      scriptureSuggestIndex: -1,
+      scriptureSuggestions: [],
+      showScriptureModal: false,
+      selectedScriptureRef: '',
+      selectedScriptureText: '',
+      selectedScriptureHtml: '',
+      _passageCache: {},
+      setAsMainScripture: false,
+      _refTimer: null,
+      showSuggestModal: false,
+      suggestTargetIndex: -1,
+      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '' },
 
       init() {
         const ctx = (window.APP_CTX || {});
@@ -34,6 +55,9 @@
         this.form.preacher = defs.sermon || defs.preacher || 'Tom';
         this.leaderSelect = this.form.leader;
         this.preacherSelect = this.form.preacher;
+        // Restore previously selected service id if present
+        try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || this.selectedServiceId; } catch(_) {}
+
         (async () => {
           try {
             const r = await callRpc('getServicePeople', null);
@@ -41,14 +65,28 @@
             if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
           } catch (e) { /* ignore */ }
           try {
+            // Use server-injected services immediately, else localStorage cache
+            if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
+              this.existingServices = window.__SERVICES__;
+            } else {
+              let cached = null; try { cached = JSON.parse(localStorage.getItem('wp.servicesCache')||'null'); } catch(_) {}
+              if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts||0) < 300000)) { // 5 min TTL
+                this.existingServices = cached.items;
+              }
+            }
             const s = await callRpc('listServices', null);
             this.existingServices = Array.isArray(s?.items) ? s.items : [];
+            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch(_) {}
           } catch (_) { /* ignore */ }
           this.ensureDefaults();
           // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
           this.$nextTick(() => {
             try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'Custom…'); } catch(_) {}
           });
+          // Auto-load previously selected service if available
+          if (this.selectedServiceId) {
+            this.$nextTick(() => { try { this.loadSelected(); } catch(_) {} });
+          }
         })();
       },
 
@@ -123,6 +161,29 @@
         });
       },
 
+      async deleteSelectedService() {
+        try {
+          const id = String(this.selectedServiceId || '').trim();
+          if (!id) { notify('Select a service first', 'info'); return; }
+          if (!confirm('Delete this service and its order?')) return;
+          await callRpc('deleteService', { id });
+          // Refresh list
+          try {
+            const s = await callRpc('listServices', null);
+            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+          } catch(_) {}
+          // Clear current form
+          this.selectedServiceId = '';
+          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time||'10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType||'Worship'), leader: (window.APP_CTX?.defaults?.leader||''), preacher: (window.APP_CTX?.defaults?.preacher||window.APP_CTX?.defaults?.sermon||''), scripture: '', theme: '', keywords: '', notes: '' };
+          this.orderRows = [];
+          this.showOrder = false;
+          notify('Service deleted.', 'success');
+        } catch (e) {
+          console.error(e);
+          notify('Failed to delete service', 'error');
+        }
+      },
+
       async submit() {
         try {
           const isEdit = !!this.selectedServiceId;
@@ -142,6 +203,8 @@
             this.showOrder = true;
             this.showScripture = false;
             this.showNotes = false;
+            // Persist initial default order to ServiceItems immediately
+            this.queueSaveOrder(true);
           } else {
             try {
               const sid = this.selectedServiceId || newId;
@@ -167,6 +230,7 @@
         this.form.scripture = svc.scripture || '';
         this.scriptureText = svc.scriptureText || '';
         this.form.theme = svc.theme || '';
+        this.form.keywords = svc.keywords || '';
         this.form.notes = svc.notes || '';
         this.leaderSelect = this.leaderChoices.includes(this.form.leader) ? this.form.leader : '__custom';
         this.preacherSelect = this.preacherChoices.includes(this.form.preacher) ? this.form.preacher : '__custom';
@@ -180,12 +244,16 @@
           this.ensureOrderOptionsFromRows();
           this.showOrder = true;
         })();
+        try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch(_) {}
         this.$nextTick(() => {
           if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
           if (this.$refs.leaderSel) this.$refs.leaderSel.value = this.leaderSelect;
           if (this.$refs.preacherSel) this.$refs.preacherSel.value = this.preacherSelect;
         });
         this.showDetails = true;
+        // Hide scripture and notes sections when loading an existing service
+        this.showScripture = false;
+        this.showNotes = false;
       },
 
       chapterCountFor(bookName) {
@@ -236,12 +304,54 @@
             this.scriptureText = prev;
           } else {
             this.scriptureText = txt;
+            // Auto-generate keywords from scripture text
+            try { this.form.keywords = this.extractKeywords(txt); } catch(_) {}
           }
         } catch (e) {
           console.error(e);
           const msg = (e && e.message) ? e.message : 'Failed to fetch scripture text';
           notify(msg, 'error', 3200);
         }
+      },
+
+      // Create a comma-separated keyword list from passage text
+      extractKeywords(text) {
+        const s = String(text || '').toLowerCase();
+        if (!s) return '';
+        // Tokenize words
+        const tokens = s.replace(/[^a-z\s']/g, ' ').split(/\s+/).map(t => t.replace(/^'+|'+$/g, '')).filter(Boolean);
+        if (!tokens.length) return '';
+        // Stop words (expanded with pronouns/prepositions like him, whoever, into)
+        const stop = new Set([
+          'the','and','of','to','in','that','it','is','for','on','with','as','at','by','be','he','she','they','we','you','i','a','an','from','this','these','those','are','was','were','his','her','their','our','your','but','not','so','or','if','then','there','here','who','whom','which','what','when','where','why','how','have','has','had','do','did','does','will','would','shall','should','can','could','may','might','let','us',
+          'him','them','me','my','mine','yours','ours','hers','theirs','whoever','whosoever','whomever','whose','into','unto','onto','upon','within','without','among','between','before','after','above','below','over','under','again','also','all','any','each','every','some','no','nor','one','thing','things', 'because'
+        ]);
+        // Lemmatization + grouping without truncation
+        const lemma = (w) => {
+          if (!w) return '';
+          // groups
+          if (/^bright(?:ness)?$/.test(w) || /^shine(?:s|r|rs|d|ing)?$/.test(w)) return 'light';
+          if (/^light(?:s|er|est|ness)?$/.test(w)) return 'light';
+          if (/^dark(?:ness|er|est|s)?$/.test(w)) return 'darkness';
+          if (/^judg(?:e|es|ed|ing|ment|ments)$/.test(w) || /^condemn(?:ed|s|ing|ation|ations)?$/.test(w)) return 'judgment';
+          if (/^believ(?:e|es|ed|ing|er|ers)?$/.test(w)) return 'believe';
+          if (/^baptiz(?:e|es|ed|ing)?$/.test(w) || /^baptism(?:s)?$/.test(w) || /^baptist(?:s)?$/.test(w)) return 'baptism';
+          if (/^come(?:s|r|rs|ing)?$/.test(w) || w === 'came') return 'come';
+          // Gentle plural handling
+          if (w.length > 4 && /s$/.test(w)) return w.replace(/s$/, '');
+          return w;
+        };
+        const counts = new Map();
+        for (const t of tokens) {
+          if (stop.has(t) || t.length < 3) continue;
+          const k = lemma(t);
+          if (!k || stop.has(k) || k.length < 3) continue;
+          counts.set(k, (counts.get(k) || 0) + 1);
+        }
+        const top = Array.from(counts.entries()).sort((a,b)=> b[1]-a[1]).slice(0, 12).map(([k]) => k);
+        // Pretty case
+        const pretty = (w) => w.replace(/^\w/, c => c.toUpperCase());
+        return top.map(pretty).join(', ');
       },
 
       // Order helpers
@@ -268,10 +378,12 @@
       addOrderRow() {
         const n = this.orderRows.length + 1;
         this.orderRows.push({ order: n, itemType: '', detail: '', leader: '', notes: '' });
+        this.queueSaveOrder(true);
       },
       removeOrderRow(i) {
         this.orderRows.splice(i, 1);
         this.orderRows.forEach((r, idx) => (r.order = idx + 1));
+        this.queueSaveOrder(true);
       },
       moveOrderRow(i, dir) {
         const j = i + dir;
@@ -280,9 +392,224 @@
         this.orderRows[i] = this.orderRows[j];
         this.orderRows[j] = tmp;
         this.orderRows.forEach((r, idx) => (r.order = idx + 1));
+        this.queueSaveOrder(true);
       },
       serializedOrder() {
-        return this.orderRows.map((r, idx) => ({ order: idx + 1, itemType: r.itemType || '', detail: r.detail || '', leader: r.leader || '', notes: r.notes || '' }));
+        return this.orderRows.map((r, idx) => ({ order: idx + 1, itemType: r.itemType || '', detail: r.detail || '', scriptureText: r.scriptureText || '', leader: r.leader || '', notes: r.notes || '' }));
+      },
+
+      slotFor(i) {
+        const t = String(this.orderRows[i]?.itemType || '').toLowerCase();
+        return t;
+      },
+      async suggestForRow(i) {
+        try {
+          const t = String(this.orderRows[i]?.itemType || '').toLowerCase();
+          const isScripture = t.includes('scripture') || t.includes('call to worship');
+          if (!isScripture) {
+            // Song suggestion via modal (existing behavior)
+            this.suggestOpenIndex = i;
+            this.suggestTargetIndex = i;
+            const slot = this.slotFor(i);
+            const theme = String(this.form.theme || '');
+            const scripture = String(this.scriptureText || this.form.scripture || '');
+            const res = await callRpc('suggestSongs', { theme, scripture, slot, k: 6 });
+            this.suggestions = Array.isArray(res?.items) ? res.items : [];
+            this.showSuggestModal = true;
+            this.$nextTick(() => { try { const app = this.$refs.suggestApp; if(app && app.__x && app.__x.$data){ app.__x.$data.q = (this.form.theme||''); app.__x.$data.render(true); } } catch(_) {} });
+            return;
+          }
+
+          // Scripture suggestions based on adjacent songs
+          const neighbors = this.adjacentSongs(i);
+          const names = neighbors.filter(Boolean);
+          if (!names.length) { notify('Add songs before/after to suggest scripture.', 'info'); return; }
+          const songs = await this.getSongsCache();
+          const refs = new Set();
+          const findRow = (name) => this.findSongRowByName(name, songs);
+          for (const n of names) {
+            const row = findRow(n);
+            const scr = row ? this.field(row, ['scriptures','scripture refs','scripture']) : '';
+            scr.split(/[,;|\n]+/).map(s => s.trim()).filter(Boolean).forEach(v => refs.add(v));
+          }
+          // Also ask AI using a precise server fetch of fields
+          try {
+            const fetch = await callRpc('getSongFields', { names, fields: ['Lyrics','Themes'] });
+            const items = Array.isArray(fetch?.items) ? fetch.items : [];
+            const songPayload = names.map(n => {
+              const it = items.find(x => String(x?.name || '').toLowerCase() === String(n).toLowerCase()) || items.find(x => String(x?.name || '').toLowerCase().includes(String(n).toLowerCase())) || null;
+              const lyrics = it && it.fields ? String(it.fields['Lyrics'] || '') : '';
+              return { name: n, lyrics };
+            });
+            try {
+              const withLyrics = songPayload.filter(s => (s.lyrics||'').trim()).length;
+              notify(`AI payload songs: ${songPayload.length}, with lyrics: ${withLyrics}`,'info',1200);
+            } catch(_) {}
+            const ai = await callRpc('aiScripturesForLyrics', { songs: songPayload, theme: String(this.form.theme||''), k: 8 });
+            const aiRefs = Array.isArray(ai?.refs) ? ai.refs : [];
+            for (const v of aiRefs) refs.add(String(v));
+            try { if (typeof notify === 'function') notify(`AI refs: ${aiRefs.length}`,'info',1600); } catch(_) {}
+          } catch(_) {}
+          this.scriptureSuggestions = Array.from(refs.values()).slice(0, 16);
+          if (!this.scriptureSuggestions.length) { notify('No scripture references found from nearby songs.', 'info'); return; }
+          this.scriptureSuggestIndex = i;
+          this.openScriptureModal();
+        } catch (e) {
+          console.error(e);
+          notify('Failed to build suggestions', 'error');
+        }
+      },
+
+      adjacentSongs(i) {
+        const isSong = (t) => /song\b|closing song|opening song|communion song|offering song/i.test(String(t||''));
+        let prev = '', next = '';
+        for (let j = i - 1; j >= 0; j--) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail||'').trim()) { prev = String(r.detail); break; } }
+        for (let j = i + 1; j < this.orderRows.length; j++) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail||'').trim()) { next = String(r.detail); break; } }
+        return [prev, next];
+      },
+
+      async getSongsCache() {
+        if (Array.isArray(this._songsCache)) return this._songsCache;
+        try { const r = await callRpc('getSongsForView', null); this._songsCache = Array.isArray(r) ? r : []; } catch(_) { this._songsCache = []; }
+        return this._songsCache;
+      },
+
+      applyScriptureSuggestion(i, ref) {
+        try { this.orderRows[i].detail = String(ref || ''); this.scriptureSuggestIndex = -1; this.scriptureSuggestions = []; } catch(_) {}
+        this.queueSaveOrder(true);
+      },
+
+      openScriptureModal() {
+        try {
+          this.selectedScriptureRef = String(this.scriptureSuggestions[0] || '');
+          this.selectedScriptureText = '';
+          this.showScriptureModal = true;
+          // Suggest default for checkbox based on row type
+          try {
+            const t = String(this.orderRows[this.scriptureSuggestIndex]?.itemType || '').toLowerCase();
+            this.setAsMainScripture = t.includes('scripture');
+          } catch(_) { this.setAsMainScripture = false; }
+          this.$nextTick(() => { this.fetchPassage(this.selectedScriptureRef); });
+        } catch(_) { this.showScriptureModal = true; }
+      },
+
+      async fetchPassage(ref) {
+        const key = String(ref || '').trim();
+        if (!key) { this.selectedScriptureText = ''; return; }
+        if (this._passageCache && this._passageCache[key]) { this.selectedScriptureText = this._passageCache[key]; return; }
+        try {
+          const r = await callRpc('esvPassage', { reference: key });
+          const txt = (r && r.text) ? String(r.text) : '';
+          const html = (r && r.html) ? String(r.html) : '';
+          this.selectedScriptureText = txt;
+          this.selectedScriptureHtml = html;
+          try { this._passageCache[key] = txt; } catch(_) {}
+        } catch(_) { this.selectedScriptureText = ''; }
+      },
+
+      chooseScripture() {
+        const i = this.scriptureSuggestIndex;
+        if (i < 0) { this.showScriptureModal = false; return; }
+        const ref = String(this.selectedScriptureRef || '');
+        if (ref) this.applyScriptureSuggestion(i, ref);
+        if (this.setAsMainScripture) {
+          this.form.scripture = ref;
+          this.scriptureText = String(this.selectedScriptureText || '');
+        }
+        this.showScriptureModal = false;
+      },
+
+      refChanged() {
+        try { if (this._refTimer) clearTimeout(this._refTimer); } catch(_) {}
+        this._refTimer = setTimeout(() => this.fetchPassage(this.selectedScriptureRef), 500);
+      },
+
+      // Helper to read a row field with flexible header names
+      field(row, candidates) {
+        if (!row) return '';
+        const keys = Object.keys(row);
+        const L = keys.map(k => k.toLowerCase());
+        for (const cand of candidates) {
+          const i = L.indexOf(String(cand).toLowerCase());
+          if (i >= 0) return String(row[keys[i]] ?? '');
+        }
+        // fallback: partial contains match
+        for (const cand of candidates) {
+          const ci = L.findIndex(k => k.includes(String(cand).toLowerCase()));
+          if (ci >= 0) return String(row[keys[ci]] ?? '');
+        }
+        return '';
+      },
+
+      normalizeTitle(s) {
+        let t = String(s || '').toLowerCase();
+        t = t.replace(/\([^)]*\)|\[[^\]]*\]/g, ' '); // remove () or [] content
+        t = t.replace(/\+sp|\+es/g, ' ');              // drop language tags like (+Sp)
+        t = t.replace(/[^a-z0-9\s]/g, ' ');
+        t = t.replace(/\s+/g, ' ').trim();
+        return t;
+      },
+
+      findSongRowByName(name, songs) {
+        const q = this.normalizeTitle(name);
+        if (!q) return null;
+        let best = null; let bestScore = 0;
+        for (const r of (songs || [])) {
+          const t = this.normalizeTitle((r && (r.Song || r['song'] || r['Title'])) || '');
+          if (!t) continue;
+          if (t === q) return r; // exact
+          if (t.includes(q) || q.includes(t)) {
+            const sc = Math.min(t.length, q.length) / Math.max(t.length, q.length);
+            if (sc > bestScore) { best = r; bestScore = sc; }
+            continue;
+          }
+          const A = new Set(t.split(' '));
+          const B = new Set(q.split(' '));
+          let inter = 0; for (const x of A) if (B.has(x)) inter++;
+          const union = A.size + B.size - inter;
+          const j = union ? inter / union : 0;
+          if (j > bestScore) { best = r; bestScore = j; }
+        }
+        return best;
+      },
+
+      normalizeTitle(s) {
+        return String(s || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      },
+
+      findSongRowByName(name, songs) {
+        const q = this.normalizeTitle(name);
+        if (!q) return null;
+        let best = null; let bestScore = 0;
+        for (const r of (songs || [])) {
+          const t = this.normalizeTitle((r && (r.Song || r['song'] || r['Title'])) || '');
+          if (!t) continue;
+          if (t === q) return r; // exact
+          // two-way contains
+          if (t.includes(q) || q.includes(t)) {
+            const sc = Math.min(t.length, q.length) / Math.max(t.length, q.length);
+            if (sc > bestScore) { best = r; bestScore = sc; }
+            continue;
+          }
+          // token overlap
+          const A = new Set(t.split(' '));
+          const B = new Set(q.split(' '));
+          let inter = 0; for (const x of A) if (B.has(x)) inter++;
+          const union = A.size + B.size - inter;
+          const j = union ? inter / union : 0;
+          if (j > bestScore) { best = r; bestScore = j; }
+        }
+        return bestScore >= 0.45 ? best : best; // return best anyway for debugging
+      },
+      applySuggestion(i, s) {
+        this.orderRows[i].detail = s?.name || '';
+        this.suggestOpenIndex = -1;
+        this.suggestions = [];
+        this.queueSaveOrder(true);
       },
 
       ensureOrderOptionsFromRows() {
@@ -297,6 +624,29 @@
       },
 
       actionLabel() { return 'Save Service'; }
+
+      ,queueSaveOrder(immediate = false) {
+        try { if (this.saveOrderTimer) { clearTimeout(this.saveOrderTimer); this.saveOrderTimer = null; } } catch(_) {}
+        if (!this.selectedServiceId) return; // need a service id first
+        if (immediate) { this.persistOrder(); return; }
+        this.saveOrderTimer = setTimeout(() => this.persistOrder(), 800);
+      }
+
+      ,async persistOrder() {
+        if (!this.selectedServiceId) return;
+        this.savingOrder = true;
+        this.saveOrderError = '';
+        try {
+          const sid = this.selectedServiceId;
+          await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder() });
+          this.savedAt = Date.now();
+        } catch (e) {
+          console.error(e);
+          this.saveOrderError = (e && e.message) ? e.message : 'Failed to save order';
+        } finally {
+          this.savingOrder = false;
+        }
+      }
     }
   }
 </script>

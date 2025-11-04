@@ -15,6 +15,10 @@ const common = {
 // Top-level wrappers so google.script.run can find callable server functions
 function rpc(input){ return global.rpc.apply(global, arguments); }
 function getFilesForFolderUrl(url, limit){ return global.getFilesForFolderUrl.apply(global, arguments); }
+// Also expose menu helpers so Sheets sees them
+function onOpen(){ return global.onOpen.apply(global, arguments); }
+function showMenuNow(){ return global.showMenuNow.apply(global, arguments); }
+function setupMenuTrigger(){ return global.setupMenuTrigger.apply(global, arguments); }
 ` },
   sourcemap: false,
   minify: false,

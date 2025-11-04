@@ -38,6 +38,17 @@
                 </select>
             </label>
 
+            <!-- Usage dropdown -->
+            <label class="text-sm">
+                Usage:
+                <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
+                    <option value="">All usage</option>
+                    <template x-for="u in usageOptions" :key="u">
+                        <option :value="u" x-text="u"></option>
+                    </template>
+                </select>
+            </label>
+
 
             <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length} shown`"></span>
             <span class="text-sm italic text-gray-500" x-show="loading">Loading…</span>
@@ -159,13 +170,13 @@
 
                     <!-- LYRICS -->
                     <div class="mt-4">
-                        <div class="flex items-center justify-between mb-1">
-                            <div class="text-sm font-medium text-gray-700">Lyrics</div>
-                            <button type="button" class="text-sm underline"
-                                @click="copy(selected['Lyrics (PD)'])">Copy</button>
-                        </div>
-                        <pre class="bg-gray-50 border rounded p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap"
-                            x-text="selected?.['Lyrics (PD)'] || '(No lyrics)'"></pre>
+                            <div class="flex items-center justify-between mb-1">
+                                <div class="text-sm font-medium text-gray-700">Lyrics</div>
+                                <button type="button" class="text-sm underline"
+                                    @click="copy(selected.Lyrics || selected['Lyrics (PD)'])">Copy</button>
+                            </div>
+                            <pre class="bg-gray-50 border rounded p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap"
+                                x-text="selected?.Lyrics || selected?.['Lyrics (PD)'] || '(No lyrics)'"></pre>
                     </div>
                 </div>
 
@@ -175,8 +186,4 @@
         </div>
     </div>
 
-    </body>
-
-    <? != HtmlService.createHtmlOutputFromFile( 'js/apps/songs-app').getContent(); ?>
-    </script>
-
+    

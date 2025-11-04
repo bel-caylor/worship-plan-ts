@@ -16,6 +16,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   // HTML app
   const tpl = HtmlService.createTemplateFromFile('index');
   tpl.rowsData = getSongsWithLinksForView();
+  try { tpl.servicesData = listServices(); } catch (_) { tpl.servicesData = { items: [] }; }
   try {
     // Provide the deployed Web App base URL to client for fetch fallbacks
     // Note: returns null when not deployed as a Web App

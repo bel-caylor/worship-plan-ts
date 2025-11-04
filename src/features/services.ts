@@ -1,5 +1,5 @@
 // src/features/services.ts
-import { SERVICES_SHEET, PLANNER_SHEET, SERVICES_COL } from '../constants';
+import { SERVICES_SHEET, PLANNER_SHEET, SERVICES_COL, ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
 
 export type AddServiceInput = {
@@ -48,6 +48,7 @@ export function addService(input: AddServiceInput) {
     return i2 >= 0 ? i2 : -1;
   })();
   const themeIdx = col(SERVICES_COL.theme);
+  const keywordsIdx = col(SERVICES_COL.keywords);
   const notesIdx = col(SERVICES_COL.notes);
 
   // Build a deterministic ServiceID from date + time, e.g., 2025-11-02_10am
@@ -142,6 +143,7 @@ export function addService(input: AddServiceInput) {
     // ignore fetch failures; leave cell blank
   }
   if (themeIdx >= 0) vals[themeIdx] = input.theme ?? '';
+  if (keywordsIdx >= 0) (vals as any)[keywordsIdx] = (input as any).keywords ?? '';
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
 
   const lock = LockService.getDocumentLock();
@@ -161,6 +163,96 @@ export function listServices() {
   const lastCol = sh.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return { items: [] };
 
+  // Try cached response keyed by sheet shape (lastRow/lastCol)
+  try {
+    const ver = `${lastRow}-${lastCol}`;
+    const cache = CacheService.getDocumentCache();
+    const cached = cache.get('listServices:v1');
+    if (cached) {
+      const obj = JSON.parse(cached);
+      if (obj && obj.ver === ver && Array.isArray(obj.items)) {
+        return { items: obj.items };
+      }
+    }
+    const result = (() => {
+      // fallthrough to compute fresh
+      const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+      const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      const idIdx = col(SERVICES_COL.id);
+      const dateIdx = col(SERVICES_COL.date);
+      const timeIdx = col(SERVICES_COL.time);
+      const typeIdx = col(SERVICES_COL.type);
+      const leaderIdx = col(SERVICES_COL.leader);
+      const preacherIdx = col(SERVICES_COL.preacher);
+      const scriptureIdx = col(SERVICES_COL.scripture);
+      const scriptureTextIdx = (() => {
+        const i1 = col(SERVICES_COL.scriptureText);
+        if (i1 >= 0) return i1;
+        const i2 = col('ScriptureText');
+        return i2 >= 0 ? i2 : -1;
+      })();
+      const themeIdx = col(SERVICES_COL.theme);
+      const notesIdx = col(SERVICES_COL.notes);
+
+      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      const toISO = (v: any) => {
+        try {
+          if (v instanceof Date && !isNaN(v.getTime())) {
+            const y = v.getFullYear();
+            const m = String(v.getMonth() + 1).padStart(2, '0');
+            const d = String(v.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+          }
+          const s = String(v ?? '').trim();
+          if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+          return s;
+        } catch (_) {
+          return String(v ?? '')
+        }
+      };
+      const toTime = (v: any) => {
+        try {
+          if (v instanceof Date && !isNaN(v.getTime())) {
+            const tz = Session.getScriptTimeZone?.() || 'Etc/UTC';
+            return Utilities.formatDate(v, tz as string, 'h:mm a');
+          }
+          const s = String(v ?? '').trim();
+          // If it's already a friendly time string, keep it
+          if (!s) return '';
+          const m = s.match(/^(\d{1,2})(?::(\d{2}))(?:\s*:(\d{2}))?\s*(AM|PM)?$/i);
+          if (m) {
+            const mm = m[2] || '00';
+            const ap = (m[4] || '').toUpperCase();
+            const hh = m[1];
+            return `${hh}:${mm}${ap ? ' ' + ap : ''}`.trim();
+          }
+          return s;
+        } catch(_) {
+          return String(v ?? '');
+        }
+      };
+
+      const items = body.map(r => ({
+        id: idIdx >= 0 ? String(r[idIdx] ?? '') : '',
+        date: dateIdx >= 0 ? toISO(r[dateIdx]) : '',
+        time: timeIdx >= 0 ? toTime(r[timeIdx]) : '',
+        type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
+        leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
+        preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
+        scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
+        scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
+        theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
+        notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
+      }));
+
+      const toKey = (it: any) => (it.id && String(it.id)) || `${it.date || ''} ${it.time || ''}`;
+      items.sort((a, b) => String(toKey(b)).localeCompare(String(toKey(a))));
+      return { items };
+    })();
+    try { CacheService.getDocumentCache().put('listServices:v1', JSON.stringify({ ver, items: result.items }), 300); } catch(_) {}
+    return result;
+  } catch (_) { /* ignore cache errors */ }
+
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
   const idIdx = col(SERVICES_COL.id);
@@ -177,6 +269,7 @@ export function listServices() {
     return i2 >= 0 ? i2 : -1;
   })();
   const themeIdx = col(SERVICES_COL.theme);
+  const keywordsIdx = col(SERVICES_COL.keywords);
   const notesIdx = col(SERVICES_COL.notes);
 
   const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
@@ -228,6 +321,7 @@ export function listServices() {
     scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
     scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
     theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
+    keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
     notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
   }));
 
@@ -259,6 +353,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
     return i2 >= 0 ? i2 : -1;
   })();
   const themeIdx = col(SERVICES_COL.theme);
+  const keywordsIdx = col(SERVICES_COL.keywords);
   const notesIdx = col(SERVICES_COL.notes);
 
   // Compute an ID from provided date/time just like addService
@@ -335,6 +430,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
     }
   } catch (_) { /* ignore */ }
   if (themeIdx >= 0) vals[themeIdx] = input.theme ?? '';
+  if (keywordsIdx >= 0) (vals as any)[keywordsIdx] = (input as any).keywords ?? '';
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
 
   // Find row by originalId (preferred) or by computedId
@@ -371,6 +467,49 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   } finally {
     lock.releaseLock();
   }
+}
+
+export function deleteService(input: { id?: string } | string) {
+  const id = typeof input === 'string' ? input : String((input as any)?.id || '').trim();
+  const serviceId = String(id || '').trim();
+  if (!serviceId) throw new Error('id required');
+
+  // Delete row from Services and any related rows from Order
+  // Services
+  const sh = getSheetByName(SERVICES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idIdx = col(SERVICES_COL.id);
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  try {
+    if (idIdx >= 0 && lastRow >= 2) {
+      const ids = sh.getRange(2, idIdx + 1, lastRow - 1, 1).getValues().map(r => String(r[0] ?? '').trim());
+      for (let i = ids.length - 1; i >= 0; i--) {
+        if (ids[i] === serviceId) sh.deleteRow(2 + i);
+      }
+    }
+  } finally {
+    lock.releaseLock();
+  }
+
+  // Related order rows
+  try {
+    const oh = getSheetByName(ORDER_SHEET);
+    const oLastRow = oh.getLastRow();
+    const oLastCol = oh.getLastColumn();
+    const oHeaders = oh.getRange(1, 1, 1, oLastCol).getValues()[0].map(v => String(v ?? '').trim());
+    const oCol = (name: string) => oHeaders.findIndex(h => h.toLowerCase() === name.toLowerCase());
+    const serviceIdx = oCol(ORDER_COL.serviceId);
+    if (serviceIdx >= 0 && oLastRow >= 2) {
+      const ids = oh.getRange(2, serviceIdx + 1, oLastRow - 1, 1).getValues().map(r => String(r[0] ?? '').trim());
+      for (let i = ids.length - 1; i >= 0; i--) if (ids[i] === serviceId) oh.deleteRow(2 + i);
+    }
+  } catch (_) { /* ignore */ }
+
+  return { ok: true };
 }
 
 export function getServicePeople() {
@@ -433,14 +572,14 @@ export function getServicePeople() {
   };
 }
 
-export function esvPassage(input: { reference: string }) {
+export function esvPassage(input: { reference: string, html?: boolean }) {
   const reference = String(input?.reference || '').trim();
   if (!reference) return { reference, text: '' };
 
   const props = PropertiesService.getScriptProperties();
   const token = String(props.getProperty('ESV_API_TOKEN') || '');
   if (!token) {
-    return { reference, text: '', error: 'ESV_API_TOKEN not set in Script Properties' };
+    return { reference, text: '', html: '', error: 'ESV_API_TOKEN not set in Script Properties' };
   }
 
   const url = 'https://api.esv.org/v3/passage/text/?' +
@@ -462,5 +601,21 @@ export function esvPassage(input: { reference: string }) {
   // Normalize whitespace: trim, collapse 3+ newlines to 2, normalize CRLF
   text = text.replace(/\r\n?/g, '\n');
   text = text.replace(/\n{3,}/g, '\n\n').trim();
-  return { reference, text };
+  let html = '';
+  try {
+    const hurl = 'https://api.esv.org/v3/passage/html/?' +
+      'q=' + encodeURIComponent(reference) +
+      '&include-passage-references=false' +
+      '&include-footnotes=false' +
+      '&include-headings=false' +
+      '&include-short-copyright=false' +
+      '&include-verse-numbers=true' +
+      '&inline-styles=false';
+    const hres = UrlFetchApp.fetch(hurl, { headers: { Authorization: 'Token ' + token } });
+    const hdata = JSON.parse(hres.getContentText());
+    html = (hdata && hdata.passages && hdata.passages[0]) ? String(hdata.passages[0]) : '';
+    // Basic cleanup: remove outer wrappers if present
+    html = html.replace(/<p class=".*?">/g, '<p>').replace(/<h\d[^>]*>.*?<\/h\d>/g, '');
+  } catch (_) { /* ignore html errors */ }
+  return { reference, text, html };
 }

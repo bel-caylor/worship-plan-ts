@@ -24,6 +24,7 @@ export function getOrder(serviceId: string) {
   const orderIdx = col(ORDER_COL.order);
   const typeIdx = col(ORDER_COL.itemType);
   const detailIdx = col(ORDER_COL.detail);
+  const scriptureTextIdx = col(ORDER_COL.scriptureText);
   const leaderIdx = col(ORDER_COL.leader);
   const notesIdx = col(ORDER_COL.notes);
 
@@ -36,6 +37,8 @@ export function getOrder(serviceId: string) {
       order: orderIdx >= 0 ? Number(r[orderIdx] ?? 0) : 0,
       itemType: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
       detail: detailIdx >= 0 ? String(r[detailIdx] ?? '') : '',
+      // @ts-ignore include optional field
+      scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
       leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
       notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
     });
@@ -57,35 +60,67 @@ export function saveOrder(input: { serviceId: string; items: OrderItem[] }) {
   const orderIdx = col(ORDER_COL.order);
   const typeIdx = col(ORDER_COL.itemType);
   const detailIdx = col(ORDER_COL.detail);
+  const scriptureTextIdx = col(ORDER_COL.scriptureText);
   const leaderIdx = col(ORDER_COL.leader);
   const notesIdx = col(ORDER_COL.notes);
 
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
   try {
-    // Remove existing rows for this service, bottom-up
+    // Efficient in-place update: reuse existing rows for this service where possible
     const lastRow = sh.getLastRow();
+    const existing: { sheetRow: number; order: number }[] = [];
+    const byOrder = new Map<number, number>(); // order -> sheetRow
     if (lastRow >= 2 && serviceIdx >= 0) {
-      const ids = sh.getRange(2, serviceIdx + 1, lastRow - 1, 1).getValues().map(r => String(r[0] ?? '').trim());
-      for (let i = ids.length - 1; i >= 0; i--) {
-        if (ids[i] === serviceId) sh.deleteRow(2 + i);
+      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      for (let i = 0; i < body.length; i++) {
+        const row = body[i];
+        const sid = String(row[serviceIdx] ?? '').trim();
+        if (sid !== serviceId) continue;
+        const ord = orderIdx >= 0 ? Number(row[orderIdx] ?? 0) : 0;
+        const sheetRow = 2 + i;
+        existing.push({ sheetRow, order: ord });
+        if (!isNaN(ord) && ord > 0 && !byOrder.has(ord)) byOrder.set(ord, sheetRow);
       }
     }
-    // Append new rows
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
+
+    const unused = new Set(existing.map(e => e.sheetRow));
+    const pickVals = (it: OrderItem & { scriptureText?: string }, idx: number) => {
       const vals: any[] = Array.from({ length: lastCol }, () => '');
       if (serviceIdx >= 0) vals[serviceIdx] = serviceId;
-      if (orderIdx >= 0) vals[orderIdx] = Number(it.order ?? i + 1);
+      if (orderIdx >= 0) vals[orderIdx] = Number(it.order ?? idx + 1);
       if (typeIdx >= 0) vals[typeIdx] = it.itemType ?? '';
       if (detailIdx >= 0) vals[detailIdx] = it.detail ?? '';
+      if (scriptureTextIdx >= 0) vals[scriptureTextIdx] = it.scriptureText ?? '';
       if (leaderIdx >= 0) vals[leaderIdx] = it.leader ?? '';
       if (notesIdx >= 0) vals[notesIdx] = it.notes ?? '';
-      sh.appendRow(vals);
+      return vals;
+    };
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      const desiredOrder = Number(it.order ?? i + 1);
+      let targetRow = byOrder.get(desiredOrder) || null;
+      if (!targetRow) {
+        // reuse any unused existing row for this service
+        const firstUnused = Array.from(unused.values())[0];
+        if (firstUnused) targetRow = firstUnused;
+      }
+      const vals = pickVals(it, i);
+      if (targetRow) {
+        sh.getRange(targetRow, 1, 1, lastCol).setValues([vals]);
+        unused.delete(targetRow);
+      } else {
+        // append if none to reuse
+        sh.appendRow(vals);
+      }
     }
+
+    // Remove any leftover rows for this service (extras)
+    const toDelete = Array.from(unused.values()).sort((a, b) => b - a);
+    for (const r of toDelete) sh.deleteRow(r);
   } finally {
     lock.releaseLock();
   }
   return { ok: true };
 }
-

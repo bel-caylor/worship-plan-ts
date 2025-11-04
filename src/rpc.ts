@@ -1,7 +1,9 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, getServicePeople, esvPassage, listServices, saveService } from './features/services';
+import { addService, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
 import { getOrder, saveOrder } from './features/order';
+import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields } from './features/songs';
+import { aiScripturesForLyrics } from './util/ai';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -13,12 +15,21 @@ export function rpc(input: { method: string; payload: unknown }) {
         return addService(payload as any);
       case 'saveService':
         return saveService(payload as any);
+      case 'deleteService':
+        return deleteService(payload as any);
       case 'listServices':
         return listServices();
       case 'getOrder':
         return getOrder(String(payload || ''));
       case 'saveOrder':
         return saveOrder(payload as any);
+      case 'suggestSongs':
+        return suggestSongs(payload as any);
+      case 'getSongsForView': return getSongsWithLinksForView();
+      case 'getSongFields': return getSongFields(payload as any);
+      case 'aiScripturesForLyrics':
+        return aiScripturesForLyrics(payload as any);
+      case 'rebuildSongUsage': return rebuildSongUsageFromPlanner();
       case 'getServicePeople':
         return getServicePeople();
       case 'esvPassage':
@@ -33,3 +44,4 @@ export function rpc(input: { method: string; payload: unknown }) {
     throw new Error(msg);
   }
 }
+

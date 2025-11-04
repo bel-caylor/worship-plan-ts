@@ -24,16 +24,18 @@ export const SERVICES_COL = {
   scripture: 'Scripture',
   scriptureText: 'Scripture Text',
   theme: 'Theme',
+  keywords: 'Keywords',
   notes: 'Notes'
 } as const;
 
 // Order of Worship sheet configuration
-export const ORDER_SHEET = 'Order';
+export const ORDER_SHEET = 'ServiceItems';
 export const ORDER_COL = {
   serviceId: 'ServiceID',
   order: 'Order',
   itemType: 'ItemType',
   detail: 'Detail',
+  scriptureText: 'ScriptureText',
   leader: 'Leader',
   notes: 'Notes'
 } as const;

@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Songs</title>
+  <title>Worship Planner</title>
 
   <?!= HtmlService.createHtmlOutputFromFile('styles').getContent(); ?>
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -12,8 +12,12 @@
   <script id="rows-json" type="application/json">
     <?!= JSON.stringify(rowsData).replace(/<\//g, '<\\/') ?>
   </script>
+  <script id="services-json" type="application/json">
+    <?!= JSON.stringify((servicesData && servicesData.items) ? servicesData.items : []).replace(/<\//g, '<\\/') ?>
+  </script>
   <script>
     window.__ROWS__ = JSON.parse(document.getElementById('rows-json').textContent);
+    try { window.__SERVICES__ = JSON.parse(document.getElementById('services-json').textContent); } catch(_) { window.__SERVICES__ = []; }
     // console.info('rows loaded:', Array.isArray(window.__ROWS__) && window.__ROWS__.length);
     // Prefer server-provided Web App URL; fallback to current location
     window.__BASE__ = <?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?> || (location.origin + location.pathname);
@@ -30,16 +34,16 @@
   <!-- Topbar -->
   <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
 
-  <!-- ========== ROUTED VIEWS (mounted only when active) ========== -->
+  <!-- Views stay mounted; tabs toggle visibility to preserve state -->
   <main class="h-[calc(100vh-56px)] overflow-hidden">
     <div class="h-full">
       <template x-if="route==='songs'">
         <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
       </template>
 
-      <template x-if="route==='plan'">
+      <div x-show="route==='plan'" class="h-full">
         <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
-      </template>
+      </div>
 
       <template x-if="route==='usage'">
         <?!= HtmlService.createHtmlOutputFromFile('usage-log').getContent(); ?>
@@ -51,9 +55,9 @@
   <script>
     function app() {
       return {
-        route: 'songs',
+        route: 'plan',
         init() {
-          const parse = () => this.route = (location.hash.replace('#/', '') || 'songs');
+          const parse = () => this.route = (location.hash.replace('#/', '') || 'plan');
           window.addEventListener('hashchange', parse);
           parse();
         }
