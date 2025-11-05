@@ -41,3 +41,14 @@ export const ORDER_COL = {
 } as const;
 
 export type Row = Record<string, unknown>;
+
+export const ROLES_SHEET = 'Roles';
+export const ROLES_COL = {
+  email: 'Email',
+  permissions: 'Permissions',
+  first: 'First',
+  last: 'Last',
+  team: 'Team',
+  role: 'Role',
+  spanish: 'Spanish'
+} as const;

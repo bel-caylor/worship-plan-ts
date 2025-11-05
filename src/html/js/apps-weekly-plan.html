@@ -4,7 +4,8 @@
       showDetails: false,
       showOrder: false,
       showScripture: true,
-      showNotes: true,
+      loadingServices: true,
+      loadingOrder: false,
       // cache + persistence
       loadedOnce: false,
       existingServices: [],
@@ -18,7 +19,12 @@
       scriptureText: '',
       orderItemTypes: [],
       orderRows: [],
-      // autosave state
+      // service detail autosave
+      savingDetails: false,
+      saveDetailsTimer: null,
+      detailsError: '',
+      detailsDirty: false,
+      // order autosave state
       savingOrder: false,
       saveOrderTimer: null,
       saveOrderError: '',
@@ -33,20 +39,27 @@
       selectedScriptureText: '',
       selectedScriptureHtml: '',
       _passageCache: {},
-      setAsMainScripture: false,
+      isScriptureEditing: false,
+      isScriptureEditing: false,
+      scriptureSearchTheme: '',
+      scriptureSearchKeywords: '',
+      scriptureSearchPrimary: '',
+      scriptureSearchPending: false,
+      scriptureSearchError: '',
       _refTimer: null,
       showSuggestModal: false,
       suggestTargetIndex: -1,
+      loadingSuggestion: false,
       form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '' },
 
       init() {
         const ctx = (window.APP_CTX || {});
         const defs = ctx.defaults || {};
         this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
-        this.orderItemTypes = Array.isArray(ctx.orderItemTypes) ? ctx.orderItemTypes : ['Welcome','Call To Worship','Song','Sermon','Communion','Offering','Announcements','Benediction'];
-        this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden','Belinda','Lois'];
+        this.orderItemTypes = Array.isArray(ctx.orderItemTypes) ? ctx.orderItemTypes : ['Welcome', 'Call To Worship', 'Song', 'Sermon', 'Communion', 'Offering', 'Announcements', 'Benediction'];
+        this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden', 'Belinda', 'Lois'];
         const ctxPreacherChoices = Array.isArray(ctx.preacherChoices) ? ctx.preacherChoices : ctx.sermonChoices;
-        this.preacherChoices = Array.isArray(ctxPreacherChoices) ? ctxPreacherChoices.slice() : ['Tom','Darden','Miguel','Alfredo'];
+        this.preacherChoices = Array.isArray(ctxPreacherChoices) ? ctxPreacherChoices.slice() : ['Tom', 'Darden', 'Miguel', 'Alfredo'];
 
         this.form.date = this.nextSundayISO();
         this.form.time = defs.time || '10:00 AM';
@@ -55,39 +68,97 @@
         this.form.preacher = defs.sermon || defs.preacher || 'Tom';
         this.leaderSelect = this.form.leader;
         this.preacherSelect = this.form.preacher;
+        this.ensureSuggestStore();
+        this.loadingServices = true;
         // Restore previously selected service id if present
-        try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || this.selectedServiceId; } catch(_) {}
+        try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || ''; } catch (_) { }
 
         (async () => {
           try {
             const r = await callRpc('getServicePeople', null);
-            if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a,b)=>a.localeCompare(b));
-            if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a,b)=>a.localeCompare(b));
+            if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a, b) => a.localeCompare(b));
+            if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a, b) => a.localeCompare(b));
           } catch (e) { /* ignore */ }
           try {
             // Use server-injected services immediately, else localStorage cache
             if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
               this.existingServices = window.__SERVICES__;
             } else {
-              let cached = null; try { cached = JSON.parse(localStorage.getItem('wp.servicesCache')||'null'); } catch(_) {}
-              if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts||0) < 300000)) { // 5 min TTL
+              let cached = null; try { cached = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
+              if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < 300000)) { // 5 min TTL
                 this.existingServices = cached.items;
               }
             }
             const s = await callRpc('listServices', null);
             this.existingServices = Array.isArray(s?.items) ? s.items : [];
-            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch(_) {}
+            if (!this.existingServices.length) {
+              this.newService();
+            } else if (this.selectedServiceId && !this.detailsDirty) {
+              const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
+              if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
+            }
+            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
           } catch (_) { /* ignore */ }
           this.ensureDefaults();
           // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
           this.$nextTick(() => {
-            try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'Custom…'); } catch(_) {}
+            try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'Custom…'); } catch (_) { }
           });
           // Auto-load previously selected service if available
-          if (this.selectedServiceId) {
-            this.$nextTick(() => { try { this.loadSelected(); } catch(_) {} });
+          this.$nextTick(() => {
+            try {
+              if (!this.selectedServiceId) {
+                // nothing selected yet; stay blank
+                return;
+              }
+              // Ensure the selected ID actually exists before loading; otherwise clear it.
+              const existsNow = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
+              if (existsNow) {
+                this.loadSelected();
+              } else {
+                this.selectedServiceId = '';
+                try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
+              }
+            } catch (_) { }
+          });
+        })().finally(() => { this.loadingServices = false; });
+      },
+
+      ensureSuggestStore() {
+        try {
+          if (!window.Alpine || typeof window.Alpine.store !== 'function') return;
+          if (!window.Alpine.store('suggestDefaults')) {
+            window.Alpine.store('suggestDefaults', {
+              seed: '',
+              leader: '',
+              usage: '',
+              allowChristmas: true,
+              updatedAt: 0
+            });
           }
-        })();
+        } catch (_) { }
+      },
+
+      updateSuggestDefaults(index = this.suggestTargetIndex) {
+        try {
+          if (!window.Alpine || typeof window.Alpine.store !== 'function') return;
+          if (!window.Alpine.store('suggestDefaults')) this.ensureSuggestStore();
+          const store = window.Alpine.store('suggestDefaults');
+          if (!store) return;
+          const seed = [this.form.theme || '', this.form.keywords || '']
+            .map(s => String(s || '').trim())
+            .filter(Boolean)
+            .join(', ');
+          const row = index != null && index >= 0 ? this.orderRows[index] : null;
+          const payload = {
+            seed,
+            leader: String(this.form.leader || ''),
+            usage: this.usageFromItemType(String(row?.itemType || '')),
+            allowChristmas: this.isAdventChristmas(this.form.date),
+            updatedAt: Date.now()
+          };
+          Object.assign(store, payload);
+        } catch (_) { }
       },
 
       nextSundayISO() {
@@ -143,10 +214,19 @@
 
       newService() {
         const ctx = (window.APP_CTX || {}); const d = ctx.defaults || {};
+        try {
+          if (this.saveDetailsTimer) {
+            clearTimeout(this.saveDetailsTimer);
+            this.saveDetailsTimer = null;
+          }
+        } catch (_) { }
+        this.detailsDirty = false;
+        this.detailsError = '';
+        this.savingDetails = false;
         this.selectedServiceId = '';
         const nextDate = this.nextServiceDateFromExistingISO();
         const defType = this.defaultServiceTypeForDateISO(nextDate);
-        this.form = { id: '', date: nextDate, time: (d.time||'10:00 AM'), type: defType, leader: (d.leader||'Darden'), preacher: (d.preacher||d.sermon||'Tom'), scripture: '', theme: '', notes: '' };
+        this.form = { id: '', date: nextDate, time: (d.time || '10:00 AM'), type: defType, leader: (d.leader || 'Darden'), preacher: (d.preacher || d.sermon || 'Tom'), scripture: '', theme: '', keywords: '', notes: '' };
         this.ensureDefaults();
         this.scripture = { book: 'John', chapter: 3, start: '1', end: '' };
         this.form.scripture = '';
@@ -154,10 +234,9 @@
         this.orderRows = [];
         this.showOrder = false;
         this.showScripture = true;
-        this.showNotes = true;
         this.showDetails = true;
         this.$nextTick(() => {
-          if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
+          if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch (_) { }
         });
       },
 
@@ -168,13 +247,16 @@
           if (!confirm('Delete this service and its order?')) return;
           await callRpc('deleteService', { id });
           // Refresh list
+          this.loadingServices = true;
           try {
             const s = await callRpc('listServices', null);
             this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
-          } catch(_) {}
+          } catch (_) { /* ignore */ } finally {
+            this.loadingServices = false;
+          }
           // Clear current form
           this.selectedServiceId = '';
-          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time||'10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType||'Worship'), leader: (window.APP_CTX?.defaults?.leader||''), preacher: (window.APP_CTX?.defaults?.preacher||window.APP_CTX?.defaults?.sermon||''), scripture: '', theme: '', keywords: '', notes: '' };
+          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '' };
           this.orderRows = [];
           this.showOrder = false;
           notify('Service deleted.', 'success');
@@ -192,17 +274,21 @@
           const res = await callRpc(isEdit ? 'saveService' : 'addService', payload);
           const newId = (res && res.id) ? res.id : '';
           notify(isEdit ? 'Service saved.' : 'Service added.', 'success');
+          this.loadingServices = true;
           try {
             const s = await callRpc('listServices', null);
             this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
-          } catch (_) { /* ignore */ }
+          } catch (_) { /* ignore */ } finally {
+            this.loadingServices = false;
+          }
           if (newId) this.selectedServiceId = newId;
+          this.detailsDirty = false;
+          this.detailsError = '';
           if (!this.orderRows || this.orderRows.length === 0) {
             this.orderRows = this.defaultOrderFor(this.form.type);
             this.ensureOrderOptionsFromRows();
             this.showOrder = true;
             this.showScripture = false;
-            this.showNotes = false;
             // Persist initial default order to ServiceItems immediately
             this.queueSaveOrder(true);
           } else {
@@ -218,15 +304,21 @@
         }
       },
 
-      loadSelected() {
-        const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
-        if (!svc) return notify('Select a service first', 'info');
+      applyServiceDetails(svc, opts = {}) {
+        if (!svc) return;
+        const { force = false, focus = false, resetDirty = false } = opts || {};
+        if (!force && this.detailsDirty) return;
+        const defaults = (window.APP_CTX && window.APP_CTX.defaults) || {};
+        const fallbackTime = defaults.time || '10:00 AM';
+        const fallbackType = defaults.serviceType || 'Worship';
+        const fallbackLeader = defaults.leader || 'Darden';
+        const fallbackPreacher = defaults.preacher || defaults.sermon || 'Tom';
         this.form.id = svc.id || '';
         this.form.date = svc.date || this.nextSundayISO();
-        this.form.time = svc.time || (window.APP_CTX?.defaults?.time || '10:00 AM');
-        this.form.type = svc.type || (window.APP_CTX?.defaults?.serviceType || 'Worship');
-        this.form.leader = svc.leader || (window.APP_CTX?.defaults?.leader || 'Darden');
-        this.form.preacher = svc.preacher || (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || 'Tom');
+        this.form.time = svc.time || fallbackTime;
+        this.form.type = svc.type || fallbackType;
+        this.form.leader = svc.leader || fallbackLeader;
+        this.form.preacher = svc.preacher || fallbackPreacher;
         this.form.scripture = svc.scripture || '';
         this.scriptureText = svc.scriptureText || '';
         this.form.theme = svc.theme || '';
@@ -234,26 +326,44 @@
         this.form.notes = svc.notes || '';
         this.leaderSelect = this.leaderChoices.includes(this.form.leader) ? this.form.leader : '__custom';
         this.preacherSelect = this.preacherChoices.includes(this.form.preacher) ? this.form.preacher : '__custom';
+        if (resetDirty) this.detailsDirty = false;
+        this.$nextTick(() => {
+          try {
+            if (focus && this.$refs.dateInput) this.$refs.dateInput.focus();
+          } catch (_) { }
+          if (this.$refs.leaderSel) this.$refs.leaderSel.value = this.leaderSelect;
+          if (this.$refs.preacherSel) this.$refs.preacherSel.value = this.preacherSelect;
+        });
+      },
+
+      loadSelected() {
+        try {
+          if (this.saveDetailsTimer) {
+            clearTimeout(this.saveDetailsTimer);
+            this.saveDetailsTimer = null;
+          }
+        } catch (_) { }
+        this.detailsDirty = false;
+        this.detailsError = '';
+        this.savingDetails = false;
+        const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
+        if (!svc) return notify('Select a service first', 'info');
+        this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
+        this.loadingOrder = true;
         (async () => {
           try {
             const r = await callRpc('getOrder', this.selectedServiceId);
             this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
-          } catch(_) {
+          } catch (_) {
             this.orderRows = this.defaultOrderFor(this.form.type);
           }
           this.ensureOrderOptionsFromRows();
           this.showOrder = true;
-        })();
-        try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch(_) {}
-        this.$nextTick(() => {
-          if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch(_) {}
-          if (this.$refs.leaderSel) this.$refs.leaderSel.value = this.leaderSelect;
-          if (this.$refs.preacherSel) this.$refs.preacherSel.value = this.preacherSelect;
-        });
+        })().finally(() => { this.loadingOrder = false; });
+        try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch (_) { }
         this.showDetails = true;
-        // Hide scripture and notes sections when loading an existing service
+        // Hide scripture section when loading an existing service
         this.showScripture = false;
-        this.showNotes = false;
       },
 
       chapterCountFor(bookName) {
@@ -300,12 +410,13 @@
           }
           const txt = (r && r.text) ? String(r.text) : '';
           if (!txt.trim()) {
-            notify('No passage found — check the reference.', 'error', 2600);
+            notify('No passage found - check the reference.', 'error', 2600);
             this.scriptureText = prev;
           } else {
             this.scriptureText = txt;
             // Auto-generate keywords from scripture text
-            try { this.form.keywords = this.extractKeywords(txt); } catch(_) {}
+            try { this.form.keywords = this.extractKeywords(txt); } catch (_) { }
+            this.queueSaveDetails(true);
           }
         } catch (e) {
           console.error(e);
@@ -323,8 +434,8 @@
         if (!tokens.length) return '';
         // Stop words (expanded with pronouns/prepositions like him, whoever, into)
         const stop = new Set([
-          'the','and','of','to','in','that','it','is','for','on','with','as','at','by','be','he','she','they','we','you','i','a','an','from','this','these','those','are','was','were','his','her','their','our','your','but','not','so','or','if','then','there','here','who','whom','which','what','when','where','why','how','have','has','had','do','did','does','will','would','shall','should','can','could','may','might','let','us',
-          'him','them','me','my','mine','yours','ours','hers','theirs','whoever','whosoever','whomever','whose','into','unto','onto','upon','within','without','among','between','before','after','above','below','over','under','again','also','all','any','each','every','some','no','nor','one','thing','things', 'because'
+          'the', 'and', 'of', 'to', 'in', 'that', 'it', 'is', 'for', 'on', 'with', 'as', 'at', 'by', 'be', 'he', 'she', 'they', 'we', 'you', 'i', 'a', 'an', 'from', 'this', 'these', 'those', 'are', 'was', 'were', 'his', 'her', 'their', 'our', 'your', 'but', 'not', 'so', 'or', 'if', 'then', 'there', 'here', 'who', 'whom', 'which', 'what', 'when', 'where', 'why', 'how', 'have', 'has', 'had', 'do', 'did', 'does', 'will', 'would', 'shall', 'should', 'can', 'could', 'may', 'might', 'let', 'us',
+          'him', 'them', 'me', 'my', 'mine', 'yours', 'ours', 'hers', 'theirs', 'whoever', 'whosoever', 'whomever', 'whose', 'into', 'unto', 'onto', 'upon', 'within', 'without', 'among', 'between', 'before', 'after', 'above', 'below', 'over', 'under', 'again', 'also', 'all', 'any', 'each', 'every', 'some', 'no', 'nor', 'one', 'thing', 'things', 'because'
         ]);
         // Lemmatization + grouping without truncation
         const lemma = (w) => {
@@ -348,11 +459,76 @@
           if (!k || stop.has(k) || k.length < 3) continue;
           counts.set(k, (counts.get(k) || 0) + 1);
         }
-        const top = Array.from(counts.entries()).sort((a,b)=> b[1]-a[1]).slice(0, 12).map(([k]) => k);
+        const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k]) => k);
         // Pretty case
         const pretty = (w) => w.replace(/^\w/, c => c.toUpperCase());
         return top.map(pretty).join(', ');
       },
+
+      formattedDateTime() {
+        const dateStr = String(this.form?.date || '').trim();
+        const timeStr = String(this.form?.time || '').trim();
+        const idStr = String(this.form?.id || '').trim();
+        let prettyDate = '';
+        let prettyTime = '';
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          try {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            prettyDate = new Intl.DateTimeFormat('en-US', {
+              month: 'long',
+              day: 'numeric',
+              year: 'numeric'
+            }).format(new Date(y, m - 1, d));
+          } catch (_) {
+            prettyDate = dateStr;
+          }
+        } else {
+          prettyDate = dateStr;
+        }
+
+        if (timeStr) {
+          const match = timeStr.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+          if (match) {
+            const minutes = match[2] || '00';
+            const meridiem = match[3].toUpperCase();
+            const hour = parseInt(match[1], 10);
+            prettyTime = minutes !== '00' ? `${hour}:${minutes} ${meridiem}` : `${hour} ${meridiem}`;
+          } else {
+            prettyTime = timeStr;
+          }
+        }
+
+        const idTime = (() => {
+          if (!idStr) return '';
+          const m = idStr.match(/_(\d{1,2})(?::?(\d{2}))?(am|pm)\b/i);
+          if (!m) return '';
+          const hour = parseInt(m[1], 10);
+          const minutes = m[2] || '';
+          const meridiem = m[3].toUpperCase();
+          return minutes ? `${hour}:${minutes} ${meridiem}` : `${hour} ${meridiem}`;
+        })();
+
+        const normalize = (s) => String(s || '').replace(/[^0-9a-z]/gi, '').toLowerCase();
+        if (!prettyTime && idTime) {
+          prettyTime = idTime;
+        } else if (prettyTime && idTime && normalize(prettyTime) !== normalize(idTime)) {
+          prettyTime = idTime;
+        }
+
+        return { date: prettyDate, time: prettyTime };
+      },
+
+      formattedDateTimeHtml() {
+        const { date, time } = this.formattedDateTime();
+        return [date, time].filter(Boolean).join('<br>');
+      },
+
+      formattedDateTimePlain() {
+        const { date, time } = this.formattedDateTime();
+        return [date, time].filter(Boolean).join(' ');
+      },
+
 
       // Order helpers
       defaultOrderFor(serviceType) {
@@ -403,6 +579,9 @@
         return t;
       },
       async suggestForRow(i) {
+        if (this.loadingSuggestion) return;
+        this.loadingSuggestion = true;
+        this.suggestTargetIndex = i;
         try {
           const t = String(this.orderRows[i]?.itemType || '').toLowerCase();
           const isScripture = t.includes('scripture') || t.includes('call to worship');
@@ -415,113 +594,302 @@
             const scripture = String(this.scriptureText || this.form.scripture || '');
             const res = await callRpc('suggestSongs', { theme, scripture, slot, k: 6 });
             this.suggestions = Array.isArray(res?.items) ? res.items : [];
+            this.updateSuggestDefaults(i);
             this.showSuggestModal = true;
-            this.$nextTick(() => { try { const app = this.$refs.suggestApp; if(app && app.__x && app.__x.$data){ app.__x.$data.q = (this.form.theme||''); app.__x.$data.render(true); } } catch(_) {} });
             return;
           }
 
-          // Scripture suggestions based on adjacent songs
+          // Scripture suggestions based on adjacent songs or service context
           const neighbors = this.adjacentSongs(i);
           const names = neighbors.filter(Boolean);
-          if (!names.length) { notify('Add songs before/after to suggest scripture.', 'info'); return; }
-          const songs = await this.getSongsCache();
           const refs = new Set();
-          const findRow = (name) => this.findSongRowByName(name, songs);
-          for (const n of names) {
-            const row = findRow(n);
-            const scr = row ? this.field(row, ['scriptures','scripture refs','scripture']) : '';
-            scr.split(/[,;|\n]+/).map(s => s.trim()).filter(Boolean).forEach(v => refs.add(v));
-          }
-          // Also ask AI using a precise server fetch of fields
-          try {
-            const fetch = await callRpc('getSongFields', { names, fields: ['Lyrics','Themes'] });
-            const items = Array.isArray(fetch?.items) ? fetch.items : [];
-            const songPayload = names.map(n => {
-              const it = items.find(x => String(x?.name || '').toLowerCase() === String(n).toLowerCase()) || items.find(x => String(x?.name || '').toLowerCase().includes(String(n).toLowerCase())) || null;
-              const lyrics = it && it.fields ? String(it.fields['Lyrics'] || '') : '';
-              return { name: n, lyrics };
-            });
+          let songPayload = [];
+          if (names.length) {
+            const songs = await this.getSongsCache();
+            const findRow = (name) => this.findSongRowByName(name, songs);
+            for (const n of names) {
+              const row = findRow(n);
+              const scr = row ? this.field(row, ['scriptures', 'scripture refs', 'scripture']) : '';
+              scr.split(/[,;|\n]+/).map(s => s.trim()).filter(Boolean).forEach(v => refs.add(v));
+            }
             try {
-              const withLyrics = songPayload.filter(s => (s.lyrics||'').trim()).length;
-              notify(`AI payload songs: ${songPayload.length}, with lyrics: ${withLyrics}`,'info',1200);
-            } catch(_) {}
-            const ai = await callRpc('aiScripturesForLyrics', { songs: songPayload, theme: String(this.form.theme||''), k: 8 });
-            const aiRefs = Array.isArray(ai?.refs) ? ai.refs : [];
-            for (const v of aiRefs) refs.add(String(v));
-            try { if (typeof notify === 'function') notify(`AI refs: ${aiRefs.length}`,'info',1600); } catch(_) {}
-          } catch(_) {}
-          this.scriptureSuggestions = Array.from(refs.values()).slice(0, 16);
-          if (!this.scriptureSuggestions.length) { notify('No scripture references found from nearby songs.', 'info'); return; }
+              const fetch = await callRpc('getSongFields', { names, fields: ['Lyrics', 'Themes'] });
+              const items = Array.isArray(fetch?.items) ? fetch.items : [];
+              songPayload = names.map(n => {
+                const it = items.find(x => String(x?.name || '').toLowerCase() === String(n).toLowerCase()) || items.find(x => String(x?.name || '').toLowerCase().includes(String(n).toLowerCase())) || null;
+                const lyrics = it && it.fields ? String(it.fields['Lyrics'] || '') : '';
+                return { name: n, lyrics };
+              });
+              try {
+                const withLyrics = songPayload.filter(s => (s.lyrics || '').trim()).length;
+                notify(`AI payload songs: ${songPayload.length}, with lyrics: ${withLyrics}`, 'info', 1200);
+              } catch (_) { }
+            } catch (err) {
+              console.error('Failed to pull song lyrics for scripture ideas', err);
+            }
+          } else {
+            try { notify('Using service theme and keywords for scripture ideas.', 'info', 1600); } catch (_) { }
+          }
+
+          if (songPayload.length) {
+            try {
+              const lyricRefs = await this.requestScriptureIdeas({
+                songs: songPayload,
+                theme: this.form.theme,
+                keywords: this.form.keywords,
+                primaryScripture: this.form.scripture,
+                reason: 'lyrics',
+                limit: 12
+              });
+              lyricRefs.forEach(v => refs.add(String(v)));
+              try { notify(`AI refs from lyrics: ${lyricRefs.length}`, 'info', 1400); } catch (_) { }
+            } catch (err) {
+              console.error('AI lyric scripture fetch failed', err);
+            }
+          }
+
+          if (!refs.size) {
+            try {
+              const fallbackRefs = await this.requestScriptureIdeas({
+                songs: [],
+                theme: this.form.theme,
+                keywords: this.form.keywords,
+                primaryScripture: this.form.scripture,
+                reason: songPayload.length ? 'lyrics-fallback' : 'context',
+                limit: 12
+              });
+              fallbackRefs.forEach(v => refs.add(String(v)));
+              if (fallbackRefs.length) {
+                try { notify(`AI refs from service context: ${fallbackRefs.length}`, 'info', 1600); } catch (_) { }
+              }
+            } catch (err) {
+              console.error('AI fallback scripture fetch failed', err);
+            }
+          }
+
+          const seedRefs = Array.from(refs.values());
+          const additions = this.mergeScriptureSuggestions(seedRefs, { reset: true });
           this.scriptureSuggestIndex = i;
-          this.openScriptureModal();
+          this.prepareScriptureSearchDefaults();
+          let defaultRef = additions[0] || String(this.orderRows[i]?.detail || '').trim() || this.mainScriptureRef();
+          if (!defaultRef && this.scriptureSuggestions.length) defaultRef = this.scriptureSuggestions[0];
+          this.openScriptureModal({ defaultRef, autoFetch: !!defaultRef });
+          if (!this.scriptureSuggestions.length && !defaultRef) {
+            this.scriptureSearchError = 'No ideas yet. Adjust theme/keywords and try again.';
+          }
         } catch (e) {
           console.error(e);
           notify('Failed to build suggestions', 'error');
+        } finally {
+          this.loadingSuggestion = false;
         }
       },
 
       adjacentSongs(i) {
-        const isSong = (t) => /song\b|closing song|opening song|communion song|offering song/i.test(String(t||''));
+        const isSong = (t) => /song\b|closing song|opening song|communion song|offering song/i.test(String(t || ''));
         let prev = '', next = '';
-        for (let j = i - 1; j >= 0; j--) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail||'').trim()) { prev = String(r.detail); break; } }
-        for (let j = i + 1; j < this.orderRows.length; j++) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail||'').trim()) { next = String(r.detail); break; } }
+        for (let j = i - 1; j >= 0; j--) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail || '').trim()) { prev = String(r.detail); break; } }
+        for (let j = i + 1; j < this.orderRows.length; j++) { const r = this.orderRows[j]; if (r && isSong(r.itemType) && String(r.detail || '').trim()) { next = String(r.detail); break; } }
         return [prev, next];
       },
 
       async getSongsCache() {
         if (Array.isArray(this._songsCache)) return this._songsCache;
-        try { const r = await callRpc('getSongsForView', null); this._songsCache = Array.isArray(r) ? r : []; } catch(_) { this._songsCache = []; }
+        try { const r = await callRpc('getSongsForView', null); this._songsCache = Array.isArray(r) ? r : []; } catch (_) { this._songsCache = []; }
         return this._songsCache;
       },
 
       applyScriptureSuggestion(i, ref) {
-        try { this.orderRows[i].detail = String(ref || ''); this.scriptureSuggestIndex = -1; this.scriptureSuggestions = []; } catch(_) {}
+        try { this.orderRows[i].detail = String(ref || ''); this.scriptureSuggestIndex = -1; this.scriptureSuggestions = []; } catch (_) { }
         this.queueSaveOrder(true);
       },
 
-      openScriptureModal() {
+      prepareScriptureSearchDefaults() {
+        this.scriptureSearchTheme = String(this.form.theme || '');
+        this.scriptureSearchKeywords = String(this.form.keywords || '');
+        this.scriptureSearchPrimary = this.mainScriptureRef();
+        this.scriptureSearchError = '';
+      },
+
+      async requestScriptureIdeas({ songs = [], theme = '', keywords = '', primaryScripture = '', reason = 'manual', limit = 12 } = {}) {
+        const payload = {
+          songs: Array.isArray(songs) ? songs : [],
+          theme: String(theme || ''),
+          keywords: String(keywords || ''),
+          primaryScripture: String(primaryScripture || ''),
+          k: Number.isFinite(limit) ? limit : 12,
+          reason
+        };
+        const res = await callRpc('aiScripturesForLyrics', payload);
+        const refs = Array.isArray(res?.refs) ? res.refs : [];
+        return refs.map(r => String(r || '').trim()).filter(Boolean);
+      },
+
+      async refreshScriptureIdeas(reason = 'manual') {
+        if (this.scriptureSearchPending) return;
+        this.scriptureSearchError = '';
+        this.scriptureSearchPending = true;
         try {
-          this.selectedScriptureRef = String(this.scriptureSuggestions[0] || '');
-          this.selectedScriptureText = '';
+          const refs = await this.requestScriptureIdeas({
+            songs: [],
+            theme: this.scriptureSearchTheme || this.form.theme,
+            keywords: this.scriptureSearchKeywords || this.form.keywords,
+            primaryScripture: this.scriptureSearchPrimary || this.form.scripture,
+            reason,
+            limit: 16
+          });
+          const additions = this.mergeScriptureSuggestions(refs, { reset: false });
+          if (additions.length) {
+            this.selectedScriptureRef = additions[0];
+            this.selectedScriptureText = '';
+            this.selectedScriptureHtml = '';
+            this.$nextTick(() => this.fetchPassage(this.selectedScriptureRef));
+            this.isScriptureEditing = false;
+          } else if (!this.selectedScriptureRef) {
+            const fallbackRef = this.scriptureSuggestions[0] || this.mainScriptureRef();
+            if (fallbackRef) {
+              this.selectedScriptureRef = fallbackRef;
+              this.$nextTick(() => this.fetchPassage(this.selectedScriptureRef));
+              this.isScriptureEditing = false;
+            } else {
+              this.selectedScriptureHtml = '';
+              this.isScriptureEditing = true;
+            }
+          }
+          if (!additions.length) {
+            if (!this.scriptureSuggestions.length) {
+              this.scriptureSearchError = 'No passages returned. Try adjusting keywords or theme.';
+            } else {
+              this.scriptureSearchError = 'No new passages returned; existing references kept.';
+            }
+          }
+        } catch (err) {
+          const msg = (err && err.message) ? err.message : 'Failed to fetch scripture ideas';
+          this.scriptureSearchError = msg;
+          try { if (typeof notify === 'function') notify(msg, 'error'); } catch (_) { }
+        } finally {
+          this.scriptureSearchPending = false;
+        }
+      },
+
+      openScriptureModal({ defaultRef = '', autoFetch = true } = {}) {
+        try {
+          this.selectedScriptureRef = String(defaultRef || '');
+          const cached = this.selectedScriptureRef && this._passageCache ? this._passageCache[this.selectedScriptureRef] : null;
+          if (cached) {
+            this.selectedScriptureText = String(cached.text || '');
+            this.selectedScriptureHtml = String(cached.html || '');
+          } else {
+            this.selectedScriptureText = '';
+            this.selectedScriptureHtml = '';
+          }
           this.showScriptureModal = true;
-          // Suggest default for checkbox based on row type
-          try {
-            const t = String(this.orderRows[this.scriptureSuggestIndex]?.itemType || '').toLowerCase();
-            this.setAsMainScripture = t.includes('scripture');
-          } catch(_) { this.setAsMainScripture = false; }
-          this.$nextTick(() => { this.fetchPassage(this.selectedScriptureRef); });
-        } catch(_) { this.showScriptureModal = true; }
+          this.isScriptureEditing = !this.selectedScriptureHtml && !!this.selectedScriptureText;
+          if (!this.selectedScriptureRef) this.isScriptureEditing = true;
+          if (autoFetch && this.selectedScriptureRef) {
+            this.$nextTick(() => { this.fetchPassage(this.selectedScriptureRef); });
+          }
+        } catch (_) { this.showScriptureModal = true; }
       },
 
       async fetchPassage(ref) {
         const key = String(ref || '').trim();
-        if (!key) { this.selectedScriptureText = ''; return; }
-        if (this._passageCache && this._passageCache[key]) { this.selectedScriptureText = this._passageCache[key]; return; }
+        const wasEditing = this.isScriptureEditing;
+        if (!key) {
+          this.selectedScriptureText = '';
+          this.selectedScriptureHtml = '';
+          this.isScriptureEditing = true;
+          return;
+        }
+        const cached = this._passageCache && this._passageCache[key];
+        if (cached) {
+          this.selectedScriptureText = String(cached.text || '');
+          this.selectedScriptureHtml = String(cached.html || '');
+          this.isScriptureEditing = wasEditing;
+          return;
+        }
         try {
           const r = await callRpc('esvPassage', { reference: key });
           const txt = (r && r.text) ? String(r.text) : '';
           const html = (r && r.html) ? String(r.html) : '';
           this.selectedScriptureText = txt;
           this.selectedScriptureHtml = html;
-          try { this._passageCache[key] = txt; } catch(_) {}
-        } catch(_) { this.selectedScriptureText = ''; }
+          try { this._passageCache[key] = { text: txt, html }; } catch (_) { }
+          this.isScriptureEditing = wasEditing;
+        } catch (err) {
+          console.error('Failed to fetch passage', err);
+          this.selectedScriptureText = '';
+          this.selectedScriptureHtml = '';
+          this.isScriptureEditing = true;
+        }
       },
 
       chooseScripture() {
         const i = this.scriptureSuggestIndex;
         if (i < 0) { this.showScriptureModal = false; return; }
         const ref = String(this.selectedScriptureRef || '');
-        if (ref) this.applyScriptureSuggestion(i, ref);
-        if (this.setAsMainScripture) {
-          this.form.scripture = ref;
-          this.scriptureText = String(this.selectedScriptureText || '');
+        if (ref) {
+          this.applyScriptureSuggestion(i, ref);
+          try { this.orderRows[i].scriptureText = String(this.selectedScriptureText || ''); } catch (_) { }
+          this.queueSaveOrder(true);
         }
         this.showScriptureModal = false;
       },
 
+      toggleScriptureEditing() {
+        this.isScriptureEditing = !this.isScriptureEditing;
+        if (this.isScriptureEditing) {
+          this.$nextTick(() => {
+            try {
+              const el = this.$refs?.scriptureEditor;
+              if (el && typeof el.focus === 'function') el.focus();
+            } catch (_) { }
+          });
+        }
+      },
+
       refChanged() {
-        try { if (this._refTimer) clearTimeout(this._refTimer); } catch(_) {}
+        try { if (this._refTimer) clearTimeout(this._refTimer); } catch (_) { }
+        this.selectedScriptureHtml = '';
+        if (!this.isScriptureEditing) this.selectedScriptureText = '';
         this._refTimer = setTimeout(() => this.fetchPassage(this.selectedScriptureRef), 500);
+      },
+
+      customScriptureEdited() {
+        try {
+          if (this.selectedScriptureRef) {
+            this._passageCache[this.selectedScriptureRef] = { text: this.selectedScriptureText || '', html: '' };
+          }
+        } catch (_) { }
+        this.selectedScriptureHtml = '';
+        this.isScriptureEditing = true;
+      },
+
+      mainScriptureRef() {
+        return String(this.form?.scripture || '').trim();
+      },
+
+      normalizeRef(ref) {
+        return String(ref || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      },
+
+      mergeScriptureSuggestions(newRefs, { reset = false } = {}) {
+        const base = reset ? [] : (Array.isArray(this.scriptureSuggestions) ? [...this.scriptureSuggestions] : []);
+        const seen = new Set(base.map(r => this.normalizeRef(r)));
+        const mainNorm = this.normalizeRef(this.mainScriptureRef());
+        const added = [];
+        for (const ref of Array.isArray(newRefs) ? newRefs : []) {
+          const norm = this.normalizeRef(ref);
+          if (!norm) continue;
+          if (norm === mainNorm) continue;
+          if (seen.has(norm)) continue;
+          seen.add(norm);
+          const clean = String(ref).trim();
+          base.push(clean);
+          added.push(clean);
+        }
+        this.scriptureSuggestions = base.slice(0, 40);
+        return added;
       },
 
       // Helper to read a row field with flexible header names
@@ -606,10 +974,72 @@
         return bestScore >= 0.45 ? best : best; // return best anyway for debugging
       },
       applySuggestion(i, s) {
-        this.orderRows[i].detail = s?.name || '';
+        const chosen = s?.name || '';
+        this.orderRows[i].detail = chosen;
         this.suggestOpenIndex = -1;
         this.suggestions = [];
         this.queueSaveOrder(true);
+        this.bumpSongUsage(chosen);
+      },
+
+      async bumpSongUsage(name) {
+        try {
+          const songName = String(name || '').trim();
+          if (!songName) return;
+          const date = String(this.form?.date || '').trim();
+          const res = await callRpc('updateSongUsage', { name: songName, date });
+          const target = this.normalizeTitle(songName);
+          const applyPatch = (row) => {
+            if (!row) return;
+            const title = this.normalizeTitle((row && (row.Song || row['song'] || row['Title'])) || '');
+            if (title === target) {
+              if (res && res.lastUsed) row.Last_Used = res.lastUsed;
+              if (res && typeof res.uses === 'number') row.Uses = res.uses;
+              if (res && res.years) row.Years_Used = res.years;
+            }
+          };
+          if (Array.isArray(window.__ROWS__)) {
+            window.__ROWS__.forEach(applyPatch);
+          }
+          const modal = this.$refs?.suggestApp;
+          const store = modal && modal.__x ? modal.__x.$data : null;
+          if (store) {
+            try {
+              if (Array.isArray(store.rows)) store.rows.forEach(applyPatch);
+              if (Array.isArray(store.filtered)) store.filtered.forEach(applyPatch);
+              if (typeof store.render === 'function') store.render(false);
+            } catch (_) { }
+          }
+        } catch (e) {
+          console.error('Failed to update song usage', e);
+        }
+      },
+
+      isAdventChristmas(dateISO) {
+        try {
+          const s = String(dateISO || '').trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+          const [y, m, d] = s.split('-').map(Number);
+          if (m === 12) return true;
+          if (m === 11 && d >= 27) return true;
+          if (m === 1 && d <= 6) return true;
+          return false;
+        } catch (_) {
+          return false;
+        }
+      },
+
+      usageFromItemType(label) {
+        const s = String(label || '').toLowerCase();
+        if (!s) return '';
+        if (s.includes('call to worship') || s.includes('opening')) return 'Call to Worship';
+        if (/\bsong\s*2\b/.test(s)) return 'Song2';
+        if (/\bsong\s*3\b/.test(s)) return 'Song3';
+        if (/\bsong\s*4\b/.test(s)) return 'Song4';
+        if (s.includes('communion')) return 'Communion';
+        if (s.includes('offering')) return 'Offering';
+        if (s.includes('closing')) return 'Closing';
+        return '';
       },
 
       ensureOrderOptionsFromRows() {
@@ -620,19 +1050,105 @@
             if (v && !set.has(v)) set.add(v);
           }
           this.orderItemTypes = Array.from(set);
-        } catch(_) {}
+        } catch (_) { }
       },
 
-      actionLabel() { return 'Save Service'; }
+      updateCachedService(id, patch) {
+        try {
+          const targetId = String(id || '').trim();
+          if (!targetId) return;
+          let found = false;
+          const next = (Array.isArray(this.existingServices) ? this.existingServices : []).map((svc) => {
+            if (svc && svc.id === targetId) {
+              found = true;
+              return { ...svc, ...patch };
+            }
+            return svc;
+          });
+          if (found) {
+            this.existingServices = next;
+            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
+            if (targetId === this.selectedServiceId) {
+              const updated = next.find(svc => svc && svc.id === targetId);
+              if (updated) this.applyServiceDetails(updated, { force: true, focus: false });
+            }
+          }
+        } catch (_) { }
+      },
 
-      ,queueSaveOrder(immediate = false) {
-        try { if (this.saveOrderTimer) { clearTimeout(this.saveOrderTimer); this.saveOrderTimer = null; } } catch(_) {}
+      queueSaveDetails(immediate = false) {
+        try {
+          if (this.saveDetailsTimer) {
+            clearTimeout(this.saveDetailsTimer);
+            this.saveDetailsTimer = null;
+          }
+        } catch (_) { }
+        if (!this.selectedServiceId) return;
+        this.detailsDirty = true;
+        if (immediate) {
+          this.persistDetails();
+          return;
+        }
+        this.saveDetailsTimer = setTimeout(() => this.persistDetails(), 600);
+      },
+
+      async persistDetails() {
+        try {
+          if (this.saveDetailsTimer) {
+            clearTimeout(this.saveDetailsTimer);
+            this.saveDetailsTimer = null;
+          }
+        } catch (_) { }
+        if (!this.selectedServiceId) return;
+        this.savingDetails = true;
+        this.detailsError = '';
+        const payload = { ...this.form, id: this.selectedServiceId, scriptureText: this.scriptureText };
+        try {
+          const res = await callRpc('saveService', payload);
+          const newId = res?.id || this.selectedServiceId;
+          if (newId && newId !== this.selectedServiceId) {
+            this.selectedServiceId = newId;
+          }
+          const patch = {
+            date: this.form.date,
+            time: this.form.time,
+            type: this.form.type,
+            leader: this.form.leader,
+            preacher: this.form.preacher,
+            scripture: this.form.scripture,
+            scriptureText: this.scriptureText,
+            theme: this.form.theme,
+            keywords: this.form.keywords,
+            notes: this.form.notes
+          };
+          this.updateCachedService(newId, patch);
+          this.detailsDirty = false;
+          this.savedAt = Date.now();
+        } catch (e) {
+          console.error(e);
+          const msg = (e && e.message) ? e.message : 'Failed to save service details';
+          this.detailsError = msg;
+          try { notify(msg, 'error'); } catch (_) { }
+        } finally {
+          this.savingDetails = false;
+        }
+      },
+
+      actionLabel() { return 'Save Service'; },
+
+      queueSaveOrder(immediate = false) {
+        try {
+          if (this.saveOrderTimer) {
+            clearTimeout(this.saveOrderTimer);
+            this.saveOrderTimer = null;
+          }
+        } catch (_) { }
         if (!this.selectedServiceId) return; // need a service id first
         if (immediate) { this.persistOrder(); return; }
         this.saveOrderTimer = setTimeout(() => this.persistOrder(), 800);
-      }
+      },
 
-      ,async persistOrder() {
+      async persistOrder() {
         if (!this.selectedServiceId) return;
         this.savingOrder = true;
         this.saveOrderError = '';
@@ -650,3 +1166,7 @@
     }
   }
 </script>
+
+
+
+

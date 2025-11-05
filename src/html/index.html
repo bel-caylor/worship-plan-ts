@@ -25,6 +25,7 @@
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('apps-team').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-weekly-plan').getContent(); ?>
 
 </head>
@@ -45,9 +46,9 @@
         <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
       </div>
 
-      <template x-if="route==='usage'">
-        <?!= HtmlService.createHtmlOutputFromFile('usage-log').getContent(); ?>
-      </template>
+      <div x-show="route==='team'" class="h-full">
+        <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
+      </div>
     </div>
   </main>
 
@@ -57,7 +58,11 @@
       return {
         route: 'plan',
         init() {
-          const parse = () => this.route = (location.hash.replace('#/', '') || 'plan');
+          const allowed = new Set(['plan','songs','team']);
+          const parse = () => {
+            const next = location.hash.replace('#/', '') || 'plan';
+            this.route = allowed.has(next) ? next : 'plan';
+          };
           window.addEventListener('hashchange', parse);
           parse();
         }

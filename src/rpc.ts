@@ -2,8 +2,9 @@
 import { getFilesForFolderUrl } from './util/drive';
 import { addService, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
 import { getOrder, saveOrder } from './features/order';
-import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields } from './features/songs';
+import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
+import { listRoles, updateRoleEntry, addRoleEntry } from './features/roles';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -27,6 +28,7 @@ export function rpc(input: { method: string; payload: unknown }) {
         return suggestSongs(payload as any);
       case 'getSongsForView': return getSongsWithLinksForView();
       case 'getSongFields': return getSongFields(payload as any);
+      case 'updateSongUsage': return updateSongRecency(payload as any);
       case 'aiScripturesForLyrics':
         return aiScripturesForLyrics(payload as any);
       case 'rebuildSongUsage': return rebuildSongUsageFromPlanner();
@@ -34,6 +36,12 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getServicePeople();
       case 'esvPassage':
         return esvPassage(payload as any);
+      case 'listRoles':
+        return listRoles();
+      case 'updateRoleEntry':
+        return updateRoleEntry(payload as any);
+      case 'addRoleEntry':
+        return addRoleEntry(payload as any);
       default:
         throw new Error(`Unknown RPC method: ${method}`);
     }

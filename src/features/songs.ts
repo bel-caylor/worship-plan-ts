@@ -8,6 +8,129 @@ import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
 
+type UpdateSongUsageInput = {
+  name?: string;
+  date?: string;
+  incrementUses?: boolean;
+};
+
+function normalizeSongTitle(s: string) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
+    .replace(/\+sp|\+es/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function toSheetDate(input: string) {
+  const s = String(input || '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [yy, mm, dd] = s.split('-').map(Number);
+    return new Date(Date.UTC(yy, mm - 1, dd));
+  }
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    }
+  } catch (_) { /* ignore */ }
+  return s;
+}
+
+export function updateSongRecency(input: UpdateSongUsageInput) {
+  const nameRaw = String(input?.name || '').trim();
+  if (!nameRaw) throw new Error('Song name required');
+
+  const sh = getSheetByName(SONG_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return { updated: false };
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (label: string) => headers.findIndex(h => h.toLowerCase() === label.toLowerCase());
+
+  const nameIdx = col(SONG_COL_NAME) >= 0 ? col(SONG_COL_NAME) : headers.findIndex(h => /song/i.test(h));
+  if (nameIdx < 0) throw new Error('Song column not found');
+
+  const lastUsedIdx = (() => {
+    const direct = col('Last_Used');
+    if (direct >= 0) return direct;
+    const spaced = col('Last Used');
+    if (spaced >= 0) return spaced;
+    return headers.findIndex(h => h.toLowerCase().includes('last') && h.toLowerCase().includes('used'));
+  })();
+  const usesIdx = (() => {
+    const plain = col('Uses');
+    if (plain >= 0) return plain;
+    return headers.findIndex(h => h.toLowerCase() === 'use count' || h.toLowerCase().includes('uses'));
+  })();
+  const yearsIdx = (() => {
+    const plain = col('Years_Used');
+    if (plain >= 0) return plain;
+    const spaced = col('Years Used');
+    if (spaced >= 0) return spaced;
+    return headers.findIndex(h => h.toLowerCase().includes('years') && h.toLowerCase().includes('used'));
+  })();
+
+  const dataRange = sh.getRange(2, 1, lastRow - 1, lastCol);
+  const values = dataRange.getValues();
+
+  const target = normalizeSongTitle(nameRaw);
+  let matchIdx = -1;
+  for (let r = 0; r < values.length; r++) {
+    const rawName = String(values[r][nameIdx] ?? '').trim();
+    if (!rawName) continue;
+    if (normalizeSongTitle(rawName) === target) {
+      matchIdx = r;
+      break;
+    }
+  }
+
+  if (matchIdx < 0) return { updated: false };
+
+  const absoluteRow = matchIdx + 2;
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  try {
+    let lastUsedDate = '';
+    if (lastUsedIdx >= 0 && input?.date) {
+      const val = toSheetDate(input.date);
+      sh.getRange(absoluteRow, lastUsedIdx + 1).setValue(val);
+      lastUsedDate = String(input.date || '');
+    }
+    let usesCount: number | undefined;
+    if (usesIdx >= 0 && (input?.incrementUses ?? true)) {
+      const current = Number(values[matchIdx][usesIdx]) || 0;
+      usesCount = current + 1;
+      sh.getRange(absoluteRow, usesIdx + 1).setValue(usesCount);
+    }
+    if (yearsIdx >= 0 && input?.date) {
+      const current = String(values[matchIdx][yearsIdx] ?? '').trim();
+      const year = String(input.date).slice(0, 4);
+      if (year && /^\d{4}$/.test(year)) {
+        const parts = current ? current.split(',').map(s => s.trim()).filter(Boolean) : [];
+        if (!parts.includes(year)) {
+          parts.push(year);
+          parts.sort((a, b) => Number(a) - Number(b));
+          sh.getRange(absoluteRow, yearsIdx + 1).setValue(parts.join(', '));
+        }
+      }
+    }
+    return {
+      updated: true,
+      lastUsed: lastUsedDate || input?.date || '',
+      uses: usesCount
+    };
+  } finally {
+    lock.releaseLock();
+  }
+
+  return { updated: true, lastUsed: input?.date || '' };
+}
+
 
 export function linkSongMedia() {
     const sh = getSheetByName(SONG_SHEET);

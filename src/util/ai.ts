@@ -1,11 +1,19 @@
 // src/util/ai.ts
-import { Row } from '../constants';
-
 type SongLite = { name: string; lyrics?: string };
 
-export function aiScripturesForLyrics(input: { songs: SongLite[]; theme?: string; k?: number }) {
+export function aiScripturesForLyrics(input: {
+  songs?: SongLite[];
+  theme?: string;
+  keywords?: string;
+  primaryScripture?: string;
+  k?: number;
+  reason?: string;
+}) {
   const songs = Array.isArray(input?.songs) ? input.songs : [];
   const theme = String(input?.theme || '').trim();
+  const keywords = String(input?.keywords || '').trim();
+  const primary = String(input?.primaryScripture || '').trim();
+  const reason = String(input?.reason || '').trim();
   const k = Number(input?.k ?? 8);
 
   const key = String(PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY') || '').trim();
@@ -17,9 +25,15 @@ export function aiScripturesForLyrics(input: { songs: SongLite[]; theme?: string
     if (lyr.length > 1200) lyr = lyr.slice(0, 1200) + '...';
     return `- ${name}: ${lyr || '(no lyrics available)'}\n`;
   };
-  const songsBlock = songs.map(summarize).join('');
-  const sys = `You are a helpful worship-planning assistant. Suggest concise Scripture references (book chapter:verses) that complement the provided song lyrics and theme. Prioritize clarity and relevance, avoid duplicates.`;
-  const user = `Songs and lyrics:\n${songsBlock}\nTheme: ${theme || '(none)'}\n\nReturn a JSON array of up to ${k} references, example: ["John 1:1-5", "Psalm 27:1"].`;
+  const songsBlock = songs.length ? songs.map(summarize).join('') : '(no song lyrics provided)';
+  const contextLines: string[] = [];
+  if (theme) contextLines.push(`Theme: ${theme}`);
+  if (keywords) contextLines.push(`Keywords: ${keywords}`);
+  if (primary) contextLines.push(`Main Scripture: ${primary}`);
+  const contextBlock = contextLines.length ? contextLines.join('\n') : '(no additional context)';
+  const reasonLine = reason ? `Reason: ${reason}` : '';
+  const sys = `You are a helpful worship-planning assistant. Suggest concise Scripture references (book chapter:verses) that complement the provided songs and planning context. Prioritize clarity and relevance, avoid duplicates.`;
+  const user = `Songs and lyrics:\n${songsBlock}\n\nPlanning context:\n${contextBlock}\n${reasonLine ? `\n${reasonLine}\n` : '\n'}Return a JSON array of up to ${k} references, example: ["John 1:1-5", "Psalm 27:1"].`;
 
   // Local heuristic fallback using keywords in lyrics/theme
   const deriveRefs = (): string[] => {
@@ -34,10 +48,11 @@ export function aiScripturesForLyrics(input: { songs: SongLite[]; theme?: string
       { keys: [/free(dom)?/, /chains?\s+fell|set\s+free/], refs: ['Galatians 5:1','John 8:36'] },
       { keys: [/ancient\s+of\s+days/], refs: ['Daniel 7:9-14'] },
     ];
-    const text = [songs.map(s => (s.lyrics || '')).join('\n\n'), theme].join('\n').toLowerCase();
+    const text = [songs.map(s => (s.lyrics || '')).join('\n\n'), theme, keywords, primary].join('\n').toLowerCase();
     const out: string[] = [];
     const seen = new Set<string>();
     const push = (r: string) => { const v = r.trim(); const key = v.toLowerCase(); if (v && !seen.has(key)) { seen.add(key); out.push(v); } };
+    if (primary) push(primary);
     for (const m of map) {
       if (m.keys.some(rx => rx.test(text))) m.refs.forEach(push);
       if (out.length >= k) break;

@@ -27,6 +27,56 @@ function normalizeDisplayName(s: string): string {
     .join(' ');
 }
 
+function toSheetDateValue(input: any): Date | string {
+  try {
+    const safeDate = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d, 12, 0, 0));
+    if (input instanceof Date && !isNaN(input.getTime())) {
+      return safeDate(input.getFullYear(), input.getMonth(), input.getDate());
+    }
+    const s = String(input ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [yy, mm, dd] = s.split('-').map(Number);
+      return safeDate(yy, mm - 1, dd);
+    }
+    return s;
+  } catch (_) {
+    return String(input ?? '');
+  }
+}
+
+function deriveKeywords(text: any): string {
+  const s = String(text || '').toLowerCase();
+  if (!s) return '';
+  const tokens = s.replace(/[^a-z\s']/g, ' ').split(/\s+/).map(t => t.replace(/^'+|'+$/g, '')).filter(Boolean);
+  if (!tokens.length) return '';
+  const stop = new Set([
+    'the','and','of','to','in','that','it','is','for','on','with','as','at','by','be','he','she','they','we','you','i','a','an','from','this','these','those','are','was','were','his','her','their','our','your','but','not','so','or','if','then','there','here','who','whom','which','what','when','where','why','how','have','has','had','do','did','does','will','would','shall','should','can','could','may','might','let','us',
+    'him','them','me','my','mine','yours','ours','hers','theirs','whoever','whosoever','whomever','whose','into','unto','onto','upon','within','without','among','between','before','after','above','below','over','under','again','also','all','any','each','every','some','no','nor','one','thing','things','because'
+  ]);
+  const lemma = (w: string): string => {
+    if (!w) return '';
+    if (/^bright(?:ness)?$/.test(w) || /^shine(?:s|r|rs|d|ing)?$/.test(w)) return 'light';
+    if (/^light(?:s|er|est|ness)?$/.test(w)) return 'light';
+    if (/^dark(?:ness|er|est|s)?$/.test(w)) return 'darkness';
+    if (/^judg(?:e|es|ed|ing|ment|ments)$/.test(w) || /^condemn(?:ed|s|ing|ation|ations)?$/.test(w)) return 'judgment';
+    if (/^believ(?:e|es|ed|ing|er|ers)?$/.test(w)) return 'believe';
+    if (/^baptiz(?:e|es|ed|ing)?$/.test(w) || /^baptism(?:s)?$/.test(w) || /^baptist(?:s)?$/.test(w)) return 'baptism';
+    if (/^come(?:s|r|rs|ing)?$/.test(w) || w === 'came') return 'come';
+    if (w.length > 4 && /s$/.test(w)) return w.replace(/s$/, '');
+    return w;
+  };
+  const counts = new Map<string, number>();
+  for (const t of tokens) {
+    if (stop.has(t) || t.length < 3) continue;
+    const k = lemma(t);
+    if (!k || stop.has(k) || k.length < 3) continue;
+    counts.set(k, (counts.get(k) || 0) + 1);
+  }
+  const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([k]) => k);
+  const pretty = (w: string) => w.replace(/^\w/, c => c.toUpperCase());
+  return top.map(pretty).join(', ');
+}
+
 export function addService(input: AddServiceInput) {
   const sh = getSheetByName(SERVICES_SHEET);
 
@@ -143,7 +193,14 @@ export function addService(input: AddServiceInput) {
     // ignore fetch failures; leave cell blank
   }
   if (themeIdx >= 0) vals[themeIdx] = input.theme ?? '';
-  if (keywordsIdx >= 0) (vals as any)[keywordsIdx] = (input as any).keywords ?? '';
+  if (keywordsIdx >= 0) {
+    const provided = String((input as any).keywords ?? '').trim();
+    const textSource = provided
+      ? ''
+      : (scriptureTextIdx >= 0 ? String(vals[scriptureTextIdx] ?? '') : String((input as any).scriptureText ?? ''));
+    const keywords = provided || deriveKeywords(textSource);
+    (vals as any)[keywordsIdx] = keywords;
+  }
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
 
   const lock = LockService.getDocumentLock();
@@ -154,6 +211,7 @@ export function addService(input: AddServiceInput) {
     lock.releaseLock();
   }
 
+  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
   return { id: computedId };
 }
 
@@ -165,7 +223,10 @@ export function listServices() {
 
   // Try cached response keyed by sheet shape (lastRow/lastCol)
   try {
-    const ver = `${lastRow}-${lastCol}`;
+    const updatedAt = (() => {
+      try { return SpreadsheetApp.getActive().getLastUpdated()?.getTime() || 0; } catch (_) { return 0; }
+    })();
+    const ver = `${lastRow}-${lastCol}-${updatedAt}`;
     const cache = CacheService.getDocumentCache();
     const cached = cache.get('listServices:v1');
     if (cached) {
@@ -192,6 +253,7 @@ export function listServices() {
         return i2 >= 0 ? i2 : -1;
       })();
       const themeIdx = col(SERVICES_COL.theme);
+      const keywordsIdx = col(SERVICES_COL.keywords);
       const notesIdx = col(SERVICES_COL.notes);
 
       const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
@@ -242,6 +304,7 @@ export function listServices() {
         scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
         scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
         theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
+        keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
         notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
       }));
 
@@ -404,15 +467,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   // Build row data according to headers
   const vals: any[] = Array.from({ length: lastCol }, () => '');
   if (idIdx >= 0) vals[idIdx] = newId;
-  if (dateIdx >= 0) {
-    const d = String(input.date || '').trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
-      const [y, m, day] = d.split('-').map(Number);
-      vals[dateIdx] = new Date(y, (m - 1), day);
-    } else {
-      vals[dateIdx] = d;
-    }
-  }
+  if (dateIdx >= 0) vals[dateIdx] = toSheetDateValue(input.date);
   if (timeIdx >= 0) vals[timeIdx] = input.time ?? '';
   if (typeIdx >= 0) vals[typeIdx] = input.type ?? '';
   if (leaderIdx >= 0) vals[leaderIdx] = normalizeDisplayName(input.leader ?? '');
@@ -430,7 +485,14 @@ export function saveService(input: AddServiceInput & { id?: string }) {
     }
   } catch (_) { /* ignore */ }
   if (themeIdx >= 0) vals[themeIdx] = input.theme ?? '';
-  if (keywordsIdx >= 0) (vals as any)[keywordsIdx] = (input as any).keywords ?? '';
+  if (keywordsIdx >= 0) {
+    const provided = String((input as any).keywords ?? '').trim();
+    const textSource = provided
+      ? ''
+      : (scriptureTextIdx >= 0 ? String(vals[scriptureTextIdx] ?? '') : String((input as any).scriptureText ?? ''));
+    const keywords = provided || deriveKeywords(textSource);
+    (vals as any)[keywordsIdx] = keywords;
+  }
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
 
   // Find row by originalId (preferred) or by computedId
@@ -454,19 +516,20 @@ export function saveService(input: AddServiceInput & { id?: string }) {
 
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
+  let resultId = newId;
   try {
     if (rowIdx >= 0) {
       // Update the existing row (rowIdx maps to sheet row = 2 + rowIdx)
       sh.getRange(2 + rowIdx, 1, 1, lastCol).setValues([vals]);
-      return { id: newId };
     } else {
       // Fallback to add if not found
       sh.appendRow(vals);
-      return { id: newId };
     }
   } finally {
     lock.releaseLock();
   }
+  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
+  return { id: resultId };
 }
 
 export function deleteService(input: { id?: string } | string) {
@@ -509,6 +572,7 @@ export function deleteService(input: { id?: string } | string) {
     }
   } catch (_) { /* ignore */ }
 
+  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
   return { ok: true };
 }
 

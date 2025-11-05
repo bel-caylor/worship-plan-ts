@@ -1,6 +1,6 @@
 <script>
   function songsApp() {
-    const splitSeasons = (val) => String(val ?? '').split(/[\/,;|]/g).map(s => s.trim()).filter(Boolean);
+    const splitSeasons = (val) => String(val ?? '').split(/[\/ ,;|]/g).map(s => s.trim()).filter(Boolean);
     const norm = (s) => String(s || '').toLowerCase();
     const title = (s) => String(s || '').replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
     const usageKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -18,9 +18,11 @@
       usageOptions: [],
       selectedUsage: '',
 
+      opts: { allowChristmas: true },
+
       q: '',
-      searchLyrics: false,
-      sortKey: 'Song',
+      searchLyrics: true,
+      sortKey: 'Last_Used',
       sortDir: 1,
 
       loading: false,
@@ -29,24 +31,19 @@
       mediaFiles: [],
       mediaLoading: false,
 
-      fileIcon(m) {
-        if (!m) return '📄';
-        if (m.startsWith('audio/')) return '🎵';
-        if (m.startsWith('video/')) return '🎬';
-        if (m === 'application/pdf') return '📄';
-        if (m.includes('presentation')) return '📽️';
-        if (m.includes('spreadsheet')) return '📈';
-        if (m.includes('document')) return '📄';
-        return '📁';
-      },
+      _defaultsTs: 0,
 
       async init() {
-        // Fetch rows for modal reuse when not injected
         if (!Array.isArray(this.rows) || !this.rows.length) {
           this.loading = true;
-          try { const r = await callRpc('getSongsForView', null); if (Array.isArray(r)) this.rows = r; }
-          catch (e) { this.error = 'Failed to load songs'; }
-          finally { this.loading = false; }
+          try {
+            const r = await callRpc('getSongsForView', null);
+            if (Array.isArray(r)) this.rows = r;
+          } catch (e) {
+            this.error = 'Failed to load songs';
+          } finally {
+            this.loading = false;
+          }
         }
 
         this.buildFilters();
@@ -57,10 +54,25 @@
         this.$watch('searchLyrics', () => this.render(true));
         this.$watch('selectedUsage', () => this.render(true));
         this.render(true);
+
+        this.syncDefaults(true);
+        try {
+          this.$watch(
+            () => {
+              try {
+                return window.Alpine && typeof window.Alpine.store === 'function'
+                  ? (window.Alpine.store('suggestDefaults')?.updatedAt || 0)
+                  : 0;
+              } catch (_) {
+                return 0;
+              }
+            },
+            () => this.syncDefaults()
+          );
+        } catch (_) {}
       },
 
       buildFilters() {
-        // Seasons
         const bucket = new Map();
         for (const r of (this.rows || [])) {
           for (const tok of splitSeasons(r['Season'])) {
@@ -70,7 +82,6 @@
         if ((this.rows || []).some(r => !String(r['Season'] || '').trim())) bucket.set('__uncat__', 'Uncategorized');
         this.seasons = Array.from(bucket.entries()).sort((a,b)=>a[1].localeCompare(b[1])).map(([key,label])=>({key,label}));
 
-        // Leaders
         const leaderSet = new Set();
         for (const r of (this.rows || [])) {
           const L = Array.isArray(r._leaders) ? r._leaders : [];
@@ -78,17 +89,14 @@
         }
         this.leaderOptions = Array.from(leaderSet).sort((a,b)=>a.localeCompare(b));
 
-        // Usage filter options
-        // Start with context-provided list, then merge in any tokens discovered in data.
         const ctx = (window.APP_CTX || {});
-        const preferred = Array.isArray(ctx.usageFilterChoices)
-          ? ctx.usageFilterChoices
-          : [];
-        const seen = new Map(); // key -> label
-        const add = (label) => { const k = usageKey(label); if (k && !seen.has(k)) seen.set(k, label); };
-        // Preferred order first
+        const preferred = Array.isArray(ctx.usageFilterChoices) ? ctx.usageFilterChoices : [];
+        const seen = new Map();
+        const add = (label) => {
+          const k = usageKey(label);
+          if (k && !seen.has(k)) seen.set(k, label);
+        };
         for (const lab of preferred) add(lab);
-        // Discover from data by splitting comma lists
         for (const r of (this.rows || [])) {
           const parts = String(r['Usage'] ?? '')
             .split(',')
@@ -112,15 +120,27 @@
           .finally(() => { this.mediaLoading = false; });
       },
 
-      sort(h) { this.sortKey === h ? this.sortDir *= -1 : (this.sortKey = h, this.sortDir = 1); this.render(true); },
+      sort(h) {
+        this.sortKey === h ? this.sortDir *= -1 : (this.sortKey = h, this.sortDir = 1);
+        this.render(true);
+      },
+
+      headerLabel(key) {
+        return key === 'Last_Used' ? 'Last Used' : key;
+      },
+
+      headerIcon(key) {
+        if (this.sortKey !== key) return '&#8597;';
+        return this.sortDir === 1 ? '&#9650;' : '&#9660;';
+      },
 
       render(resetSelection = false) {
         const wantLeader = (this.selectedLeader || '').trim();
         const wantUsage = (this.selectedUsage || '').trim();
         const q = (this.q || '').toLowerCase().trim();
+        const tokens = q ? q.split(/[,\s]+/).map(t => t.trim()).filter(Boolean) : [];
         const want = this.selectedSeason;
         const baseFields = ['Song','Themes','Season','Keywords','Scriptures','Notes'];
-        // Support both new 'Lyrics' and legacy 'Lyrics (PD)'
         const fields = this.searchLyrics ? [...baseFields, 'Lyrics','Lyrics (PD)'] : baseFields;
 
         let out = (this.rows || []).filter(r => {
@@ -128,6 +148,10 @@
             const toks = splitSeasons(r['Season']).map(norm);
             const ok = want === '__uncat__' ? toks.length === 0 : toks.includes(want);
             if (!ok) return false;
+          }
+          if (this.opts && this.opts.allowChristmas === false) {
+            const seasonText = String(r['Season'] || '').toLowerCase();
+            if (/(christ|advent)/.test(seasonText)) return false;
           }
           if (wantLeader) {
             const L = Array.isArray(r._leaders) ? r._leaders : [];
@@ -141,14 +165,33 @@
               .filter(Boolean);
             if (!toks.includes(want)) return false;
           }
-          if (!q) return true;
-          for (const f of fields) { const v = r[f]; if (v != null && String(v).toLowerCase().includes(q)) return true; }
+          if (!tokens.length) return true;
+          for (const f of fields) {
+            const v = r[f];
+            if (v != null) {
+              const val = String(v).toLowerCase();
+              for (const tok of tokens) {
+                if (val.includes(tok)) return true;
+              }
+            }
+          }
           return false;
         });
 
         if (this.sortKey) {
           const k = this.sortKey, d = this.sortDir;
+          const toTime = (v) => {
+            if (v instanceof Date) return v.getTime();
+            const s = String(v || '').trim();
+            const d1 = new Date(s);
+            return isNaN(d1.getTime()) ? Number.POSITIVE_INFINITY : d1.getTime();
+          };
           out = out.slice().sort((a,b) => {
+            if (k === 'Last_Used') {
+              const at = toTime(a[k]);
+              const bt = toTime(b[k]);
+              return (at - bt) * d;
+            }
             const av = (a[k] ?? '').toString().toLowerCase();
             const bv = (b[k] ?? '').toString().toLowerCase();
             return av < bv ? -1 * d : av > bv ? 1 * d : 0;
@@ -160,7 +203,10 @@
       },
 
       format(v) {
-        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) { const d = new Date(v); return d.toLocaleDateString(); }
+        if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+          const d = new Date(v);
+          return d.toLocaleDateString();
+        }
         return v ?? '';
       },
 
@@ -172,6 +218,103 @@
           const ev = new CustomEvent('use-song', { detail: { index, name }, bubbles: true });
           this.$el.dispatchEvent(ev);
         } catch (_) { }
+      },
+
+      searchTokens() {
+        return Array.from(
+          new Set(
+            String(this.q || '')
+              .split(/[,\s]+/)
+              .map(t => t.trim())
+              .filter(Boolean)
+              .map(t => t.toLowerCase())
+          )
+        );
+      },
+
+      escapeHtml(str) {
+        return String(str || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+      },
+
+      highlightedLyrics() {
+        const base = this.selected?.Lyrics || this.selected?.['Lyrics (PD)'] || '';
+        if (!base) return this.escapeHtml('(No lyrics)');
+        const tokens = this.searchTokens();
+        let html = this.escapeHtml(base);
+        if (tokens.length) {
+          const parts = tokens
+            .map(tok => tok.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+            .filter(Boolean);
+          if (parts.length) {
+            const rx = new RegExp(`(${parts.join('|')})`, 'gi');
+            html = html.replace(rx, '<mark>$1</mark>');
+          }
+        }
+        return html;
+      },
+
+      applyDefaults(payload = {}) {
+        const data = (payload && typeof payload === 'object') ? payload : {};
+        const has = (k) => Object.prototype.hasOwnProperty.call(data, k);
+        const normalize = (v) => typeof v === 'string' ? v : '';
+        const ensureOption = (list, value) => {
+          if (!value) return Array.isArray(list) ? list : [];
+          const arr = Array.isArray(list) ? list.slice() : [];
+          if (!arr.includes(value)) arr.unshift(value);
+          return arr;
+        };
+
+        let shouldRender = false;
+
+        if (has('allowChristmas')) {
+          const flag = !!data.allowChristmas;
+          if (!this.opts || this.opts.allowChristmas !== flag) {
+            this.opts = Object.assign({}, this.opts || {}, { allowChristmas: flag });
+            shouldRender = true;
+          }
+        } else if (data.options && typeof data.options === 'object') {
+          this.opts = Object.assign({}, this.opts || {}, data.options);
+          shouldRender = true;
+        }
+
+        if (has('seed')) {
+          const next = normalize(data.seed);
+          if (this.q !== next) this.q = next;
+        }
+
+        if (has('leader')) {
+          const leader = normalize(data.leader);
+          this.leaderOptions = ensureOption(this.leaderOptions, leader);
+          if (this.selectedLeader !== leader) this.selectedLeader = leader;
+        }
+
+        if (has('usage')) {
+          const usage = normalize(data.usage);
+          this.usageOptions = ensureOption(this.usageOptions, usage);
+          if (this.selectedUsage !== usage) this.selectedUsage = usage;
+        }
+
+        if (shouldRender) this.render(true);
+      },
+
+      syncDefaults(force = false) {
+        try {
+          if (!window.Alpine || typeof window.Alpine.store !== 'function') return;
+          const store = window.Alpine.store('suggestDefaults');
+          if (!store) return;
+          const ts = Number(store.updatedAt || 0);
+          if (!force && ts === this._defaultsTs) return;
+          this._defaultsTs = ts;
+          this.applyDefaults({
+            seed: store.seed ?? '',
+            leader: store.leader ?? '',
+            usage: store.usage ?? '',
+            allowChristmas: store.allowChristmas
+          });
+        } catch (_) {}
       }
     }
   }

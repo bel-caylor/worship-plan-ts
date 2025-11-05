@@ -1,0 +1,365 @@
+<script>
+  const TEAM_ROLE_PRESETS = {
+    Worship: ['Leader', 'Guitar', 'Bass', 'Mandolin', 'Keyboard', 'Drums', 'Vocals'],
+    Kids: ['Preschool Teacher', 'Toddler Teacher', 'Preschool Helper', 'Toddler Helper', 'Kids Teacher', 'Kids Helper'],
+    Hospitality: ['Greeter', 'Usher', 'Coffee Team', 'Parking', 'Security']
+  };
+
+  function teamApp() {
+    return {
+      activeTab: 'roles',
+      loading: true,
+      error: '',
+      roles: [],
+      teamOptions: [],
+      permissionsOptions: ['subscriber', 'editor', 'administrator'],
+      search: '',
+      teamFilter: '',
+      selectedEmail: '',
+      editTeam: '',
+      rolePresets: TEAM_ROLE_PRESETS,
+      roleSelections: {},
+      teamSelections: {},
+      editPermissions: '',
+      spanishChecked: false,
+      saving: false,
+      savedAt: 0,
+      presetLookup: {},
+      showNewMemberModal: false,
+      newMemberSaving: false,
+      newMemberError: '',
+      newMember: {
+        email: '',
+        first: '',
+        last: '',
+        permissions: 'subscriber'
+      },
+
+      init() {
+        this.computePresetLookup();
+        this.refresh();
+      },
+
+      computePresetLookup() {
+        const map = {};
+        Object.values(this.rolePresets).forEach(list => {
+          list.forEach(role => {
+            map[this.normalize(role)] = role;
+          });
+        });
+        this.presetLookup = map;
+      },
+
+      normalize(value) {
+        return String(value || '').trim().toLowerCase();
+      },
+
+      splitList(value) {
+        return String(value || '')
+          .split(/[,;|]/)
+          .map(s => s.trim())
+          .filter(Boolean);
+      },
+
+      normalizeList(value) {
+        const arr = this.splitList(value);
+        arr.sort((a, b) => a.localeCompare(b));
+        return arr.join('||');
+      },
+
+      teamKey(value) {
+        return this.normalize(value);
+      },
+
+      teamList() {
+        const lookup = new Map();
+        const add = (value) => {
+          const key = this.teamKey(value);
+          if (!key) return;
+          if (!lookup.has(key)) {
+            lookup.set(key, String(value || '').trim());
+          }
+        };
+        (Array.isArray(this.teamOptions) ? this.teamOptions : []).forEach(add);
+        Object.keys(this.rolePresets || {}).forEach(add);
+        (Array.isArray(this.roles) ? this.roles : []).forEach(row => {
+          this.splitList(row?.teamRaw || '').forEach(add);
+        });
+        return Array.from(lookup.values()).sort((a, b) => a.localeCompare(b));
+      },
+
+      buildRoleString() {
+        const pick = [];
+        Object.entries(this.roleSelections || {}).forEach(([role, checked]) => {
+          if (checked) pick.push(role);
+        });
+        
+        const map = new Map();
+        [...pick].forEach(role => {
+          if (!role) return;
+          map.set(role.toLowerCase(), role.trim());
+        });
+        const result = Array.from(map.values()).sort((a, b) => a.localeCompare(b));
+        return result.join(', ');
+      },
+
+      buildTeamString() {
+        return this.selectedTeams().join(', ');
+      },
+
+      get selected() {
+        return this.roles.find(r => r.email === this.selectedEmail) || null;
+      },
+
+      get dirty() {
+        const sel = this.selected;
+        if (!sel) return false;
+        const rolesChanged = this.normalizeList(sel.role || '') !== this.normalizeList(this.buildRoleString());
+        const teamsChanged = this.normalizeList(sel.teamRaw || '') !== this.normalizeList(this.buildTeamString());
+        const permsChanged = (sel.permissions || '').trim() !== this.editPermissions.trim();
+        const spanishChanged = (String(sel.spanish || '').trim().toUpperCase() === 'Y') !== this.spanishChecked;
+        return rolesChanged || teamsChanged || permsChanged || spanishChanged;
+      },
+
+      filteredRoles() {
+        const q = this.search.trim().toLowerCase();
+        const team = this.teamFilter.trim().toLowerCase();
+        return this.roles.filter(r => {
+          const matchesTeam = !team || r.teams.some(t => t.toLowerCase() === team);
+          if (!matchesTeam) return false;
+          if (!q) return true;
+          const haystack = [
+            r.first,
+            r.last,
+            r.email,
+            r.role,
+            r.teamRaw,
+            r.permissions
+          ]
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+      },
+
+      async refresh() {
+        await this.loadRoles();
+      },
+
+      ensurePermissionOption(value) {
+        const val = String(value || '').trim();
+        if (!val) return;
+        const exists = this.permissionsOptions.some(opt => opt.toLowerCase() === val.toLowerCase());
+        if (!exists) {
+          this.permissionsOptions = [...this.permissionsOptions, val].sort((a, b) => a.localeCompare(b));
+        }
+      },
+
+      async loadRoles() {
+        this.loading = true;
+        this.error = '';
+        try {
+          const res = await callRpc('listRoles', null);
+          this.roles = Array.isArray(res?.items) ? res.items : [];
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams : [];
+
+          const permMap = new Map();
+          ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
+          this.roles.forEach(r => {
+            const val = String(r.permissions || '').trim();
+            if (val) permMap.set(val.toLowerCase(), val);
+          });
+          this.permissionsOptions = Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
+
+          if (this.selectedEmail) {
+            this.select(this.selectedEmail);
+          }
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Failed to load team.';
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      select(email) {
+        const row = this.roles.find(r => r.email === email);
+        if (!row) return;
+        this.selectedEmail = row.email;
+        this.editTeam = row.teamRaw || '';
+        const teamSelections = {};
+        this.splitList(row.teamRaw || '').forEach(team => {
+          if (!team) return;
+          const key = this.teamKey(team);
+          if (!key) return;
+          teamSelections[key] = team.trim();
+        });
+        this.teamSelections = teamSelections;
+        this.editTeam = this.buildTeamString();
+        const roleSelections = {};
+        const leftovers = [];
+        this.splitList(row.role || '').forEach(role => {
+          const canonical = this.presetLookup[this.normalize(role)];
+          if (canonical) {
+            roleSelections[canonical] = true;
+          } else {
+            leftovers.push(role);
+          }
+        });
+        this.roleSelections = roleSelections;
+        
+        this.editPermissions = (row.permissions || '').trim();
+        this.ensurePermissionOption(this.editPermissions);
+        this.spanishChecked = String(row.spanish || '').trim().toUpperCase() === 'Y';
+        this.savedAt = 0;
+      },
+
+      resetEdits() {
+        if (this.selectedEmail) this.select(this.selectedEmail);
+      },
+
+      setRole(role, checked) {
+        const next = { ...this.roleSelections };
+        if (checked) next[role] = true;
+        else delete next[role];
+        this.roleSelections = next;
+      },
+
+      toggleTeam(team, checked) {
+        const next = { ...this.teamSelections };
+        const key = this.teamKey(team);
+        if (!key) return;
+        if (checked) next[key] = String(team || '').trim();
+        else delete next[key];
+        this.teamSelections = next;
+        this.editTeam = this.buildTeamString();
+      },
+
+      selectedTeams() {
+        return Object.values(this.teamSelections || {}).sort((a, b) => a.localeCompare(b));
+      },
+
+      isTeamSelected(team) {
+        const key = this.teamKey(team);
+        if (!key) return false;
+        return Boolean(this.teamSelections && this.teamSelections[key]);
+      },
+
+      async save() {
+        const sel = this.selected;
+        if (!sel || this.saving || !this.dirty) return;
+        this.saving = true;
+        this.error = '';
+        try {
+          const payload = {
+            email: sel.email,
+            team: this.buildTeamString(),
+            role: this.buildRoleString(),
+            permissions: this.editPermissions.trim(),
+            spanish: this.spanishChecked ? 'Y' : ''
+          };
+          const res = await callRpc('updateRoleEntry', payload);
+          this.roles = Array.isArray(res?.items) ? res.items : this.roles;
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams : this.teamOptions;
+          this.permissionsOptions = (() => {
+            const permMap = new Map();
+            ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
+            this.roles.forEach(r => {
+              const val = String(r.permissions || '').trim();
+              if (val) permMap.set(val.toLowerCase(), val);
+            });
+            return Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
+          })();
+          this.select(sel.email);
+          this.savedAt = Date.now();
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Failed to save changes.';
+        } finally {
+          this.saving = false;
+        }
+      },
+
+      formatPermission(p) {
+        if (!p) return '(none)';
+        return p.replace(/\b\w/g, c => c.toUpperCase());
+      },
+
+      timeAgo(ts) {
+        if (!ts) return '';
+        const diff = Math.max(0, Date.now() - ts);
+        if (diff < 1000) return 'just now';
+        const minutes = Math.floor(diff / 60000);
+        if (minutes < 1) return 'just now';
+        if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+        const days = Math.floor(hours / 24);
+        return `${days} day${days === 1 ? '' : 's'} ago`;
+      },
+
+      openNewMember() {
+        this.newMember = { email: '', first: '', last: '', permissions: 'subscriber' };
+        this.newMemberError = '';
+        this.teamSelections = {};
+        this.editTeam = '';
+        this.showNewMemberModal = true;
+        this.$nextTick(() => {
+          try { this.$refs?.newMemberEmail?.focus(); } catch (_) {}
+        });
+      },
+
+      closeNewMember() {
+        if (this.newMemberSaving) return;
+        this.showNewMemberModal = false;
+      },
+
+      async createMember() {
+        if (this.newMemberSaving) return;
+        const email = String(this.newMember.email || '').trim();
+        const first = String(this.newMember.first || '').trim();
+        const last = String(this.newMember.last || '').trim();
+        if (!email) { this.newMemberError = 'Email is required.'; return; }
+        if (!first) { this.newMemberError = 'First name is required.'; return; }
+        if (!last) { this.newMemberError = 'Last name is required.'; return; }
+        this.newMemberSaving = true;
+        this.newMemberError = '';
+        try {
+          const payload = {
+            email,
+            first,
+            last,
+            permissions: this.newMember.permissions || '',
+            team: '',
+            role: '',
+            spanish: ''
+          };
+          const res = await callRpc('addRoleEntry', payload);
+          this.roles = Array.isArray(res?.items) ? res.items : this.roles;
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams : this.teamOptions;
+          this.permissionsOptions = (() => {
+            const permMap = new Map();
+            ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
+            this.roles.forEach(r => {
+              const val = String(r.permissions || '').trim();
+              if (val) permMap.set(val.toLowerCase(), val);
+            });
+            return Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
+          })();
+          this.showNewMemberModal = false;
+          this.select(email);
+          this.savedAt = Date.now();
+        } catch (e) {
+          console.error(e);
+          this.newMemberError = (e && e.message) ? e.message : 'Failed to add member.';
+        } finally {
+          this.newMemberSaving = false;
+        }
+      }
+    };
+  }
+</script>
+
+
+
+

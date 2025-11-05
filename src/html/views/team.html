@@ -1,0 +1,194 @@
+<div x-data="teamApp()" x-init="init()" class="h-full flex flex-col">
+  <div class="border-b px-4 pt-3 flex items-center gap-3 bg-gray-100 relative">
+    <div class="flex items-center gap-1 text-sm z-10">
+      <button type="button"
+        class="px-3 py-1 rounded-t-md  transition border-t border-x"
+        :class="activeTab==='roles'
+          ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+        @click="activeTab='roles'">
+        Roles
+      </button>
+      <!-- Future tabs can be added here -->
+    </div>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-2 absolute bottom-1 right-4">
+      <span class="text-sm text-red-600" x-text="error" x-show="error"></span>
+      <button type="button" class="px-2 py-1 text-sm border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+        :disabled="loading"
+        @click="refresh()">Refresh</button>
+    </div>
+  </div>
+
+  <div class="flex-1 min-h-0 flex" x-show="activeTab==='roles'" x-cloak>
+    <!-- Left column: list -->
+    <div class="w-[360px] flex-shrink-0 border-r flex flex-col min-h-0">
+      <div class="p-3 space-y-2 border-b">
+        <button type="button" class="w-full px-3 py-2 text-sm font-medium border rounded bg-white hover:bg-blue-50" @click="openNewMember()">+ Add Member</button>
+        <input type="search" class="w-full border rounded px-3 py-2 text-sm"
+          placeholder="Search team members"
+          x-model.debounce.250ms="search" />
+        <select class="w-full border rounded px-2 py-1 text-sm" x-model="teamFilter">
+          <option value="">All teams</option>
+          <template x-for="t in teamOptions" :key="t">
+            <option :value="t" x-text="t"></option>
+          </template>
+        </select>
+      </div>
+      <div class="flex-1 min-h-0 overflow-auto">
+        <div class="p-4 text-sm text-gray-500" x-show="loading">Loading team...</div>
+        <div class="p-4 text-sm text-gray-500" x-show="!loading && !filteredRoles().length">No matches.</div>
+        <ul>
+          <template x-for="person in filteredRoles()" :key="person.email">
+            <li class="border-b px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm"
+              :class="selectedEmail === person.email ? 'bg-blue-50 border-l-4 border-blue-400' : ''"
+              @click="select(person.email)">
+              <div class="font-medium" x-text="person.first + ' ' + person.last"></div>
+              <div class="text-xs text-gray-500" x-text="person.email"></div>
+              <div class="text-xs text-gray-600 mt-1" x-show="person.teamRaw">
+                <span class="font-medium">Teams:</span>
+                <span x-text="person.teamRaw"></span>
+              </div>
+              <div class="text-xs text-gray-600 truncate" x-show="person.role">
+                <span class="font-medium">Roles:</span>
+                <span x-text="person.role"></span>
+              </div>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Right column: detail -->
+    <div class="flex-1 min-h-0 flex flex-col">
+      <div class="p-4 text-sm" x-show="selected">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="text-xl font-semibold" x-text="selected?.first + ' ' + selected?.last"></h3>
+            <div class="text-sm text-gray-600" x-text="selected?.email"></div>
+            <div class="mt-2 text-xs inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-800 rounded"
+              x-show="selected?.permissions">
+              <span class="font-semibold uppercase tracking-wide" x-text="selected?.permissions"></span>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500" x-show="selected?.spanish">
+            Spanish: <span class="font-semibold" x-text="selected?.spanish"></span>
+          </div>
+        </div>
+
+        <div class="mt-4 space-y-6 max-w-3xl">
+        <div class="space-y-3">
+          <span class="font-medium text-gray-700">Teams</span>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <template x-for="team in teamList()" :key="team">
+              <label class="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" :checked="isTeamSelected(team)" @change="toggleTeam(team, $event.target.checked)" />
+                <span x-text="team"></span>
+              </label>
+            </template>
+          </div>
+        </div>
+
+          <div class="space-y-4">
+            <div class="flex items-center justify-between text-sm">
+              <span class="font-medium text-gray-700">Roles</span>
+
+            </div>
+            <template x-for="(roles, teamName) in rolePresets" :key="teamName">
+              <div class="border rounded px-3 py-2" x-show="isTeamSelected(teamName)">
+                <div class="flex items-center justify-between text-sm font-semibold">
+                  <span x-text="teamName"></span>
+                  <span class="text-xs text-indigo-600"
+                    x-show="isTeamSelected(teamName)">On team</span>
+                </div>
+                <div class="mt-2 grid gap-2 sm:grid-cols-2">
+                  <template x-for="role in roles" :key="role">
+                    <label class="inline-flex items-center gap-2 text-sm">
+                      <input type="checkbox"
+                        :checked="roleSelections[role] || false"
+                        @change="setRole(role, $event.target.checked)" />
+                      <span x-text="role"></span>
+                    </label>
+                  </template>
+                </div>
+              </div>
+            </template>
+            </div>
+
+          <div class="grid gap-4 sm:grid-cols-2 max-w-xl">
+            <label class="flex items-center gap-2 text-sm mt-1 sm:mt-6">
+              <input type="checkbox" x-model="spanishChecked" />
+              <span>Spanish speaker</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="mt-4 flex items-center gap-2">
+          <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            :disabled="saving || !dirty"
+            @click="save()">Save Changes</button>
+          <button type="button" class="px-3 py-1.5 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
+            :disabled="saving || !dirty"
+            @click="resetEdits()">Discard</button>
+          <span class="text-sm text-green-700" x-show="!saving && savedAt" x-text="'Saved ' + timeAgo(savedAt)"></span>
+          <span class="text-sm text-gray-600" x-show="saving">Saving...</span>
+        </div>
+      </div>
+      <div class="p-6 text-gray-500" x-show="!selected && !loading">
+        Select a team member to view and edit their roles.
+      </div>
+    </div>
+  </div>
+
+  <!-- New member modal -->
+  <div x-cloak x-show="showNewMemberModal" class="fixed inset-0 z-50 flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/40" @click="closeNewMember()"></div>
+    <div class="relative bg-white rounded shadow-lg w-full max-w-md p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Add Team Member</h3>
+        <button type="button" class="text-sm text-gray-500 hover:text-gray-800" @click="closeNewMember()">Close</button>
+      </div>
+      <div class="space-y-3 text-sm">
+        <div class="flex gap-3">
+          <label class="flex-1">
+            <span class="font-medium text-gray-700">First name</span>
+            <input type="text" class="mt-1 w-full border rounded px-3 py-2" x-model="newMember.first" />
+          </label>
+          <label class="flex-1">
+            <span class="font-medium text-gray-700">Last name</span>
+            <input type="text" class="mt-1 w-full border rounded px-3 py-2" x-model="newMember.last" />
+          </label>
+        </div>
+        <label class="block">
+          <span class="font-medium text-gray-700">Email</span>
+          <input type="email" class="mt-1 w-full border rounded px-3 py-2" x-model="newMember.email" x-ref="newMemberEmail" />
+        </label>
+        <label class="block">
+          <span class="font-medium text-gray-700">Permissions</span>
+          <select class="mt-1 w-full border rounded px-2 py-1" x-model="newMember.permissions">
+            <template x-for="perm in permissionsOptions" :key="'new-'+perm">
+              <option :value="perm" x-text="formatPermission(perm)"></option>
+            </template>
+          </select>
+        </label>
+        <div class="text-sm text-red-600" x-text="newMemberError" x-show="newMemberError"></div>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button type="button" class="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
+          :disabled="newMemberSaving"
+          @click="closeNewMember()">Cancel</button>
+        <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="newMemberSaving"
+          @click="createMember()">
+          <span x-show="!newMemberSaving">Add Member</span>
+          <span x-show="newMemberSaving">Saving...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+
+
+
