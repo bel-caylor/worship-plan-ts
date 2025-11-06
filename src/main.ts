@@ -1,6 +1,6 @@
 import { doGet } from './http';
 import { onOpen as menuOnOpen, showMenuNow as menuShow, setupMenuTrigger as menuSetup } from './menu';
-import { linkSongMedia, rebuildSongUsageFromPlanner } from './features/songs';
+import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from './features/songs';
 import { buildLeadersFromPlanner } from './features/leaders';
 import { getFilesForFolderUrl } from './util/drive';
 import { rpc } from './rpc';
@@ -27,6 +27,7 @@ global.getFilesForFolderUrl = getFilesForFolderUrl;
 global.linkSongMedia = linkSongMedia;
 global.buildLeadersFromPlanner = buildLeadersFromPlanner;
 global.rebuildSongUsageFromPlanner = rebuildSongUsageFromPlanner;
+global.syncSongsFromDrive = syncSongsFromDrive;
 
 global.onOpen = onOpen;
 global.showMenuNow = showMenuNow;

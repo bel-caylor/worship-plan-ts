@@ -43,9 +43,21 @@ export function listAudioInFolder(folderId: string, limit: number) {
 
 export function getFilesForFolderUrl(folderUrl: string, limit: number = 200) {
     if (!folderUrl) return [];
-    const m = /\/folders\/([A-Za-z0-9_-]+)/.exec(folderUrl);
-    if (!m) return [];
-    const folder = DriveApp.getFolderById(m[1]);
+    const extractId = (url: string) => {
+        const direct = /\/folders\/([A-Za-z0-9_-]+)/.exec(url);
+        if (direct) return direct[1];
+        const query = /[?&]id=([A-Za-z0-9_-]+)/.exec(url);
+        if (query) return query[1];
+        return null;
+    };
+    const folderId = extractId(folderUrl);
+    if (!folderId) return [];
+    let folder: GoogleAppsScript.Drive.Folder;
+    try {
+        folder = DriveApp.getFolderById(folderId);
+    } catch (_) {
+        return [];
+    }
     const out: Array<{ name: string; url: string; mimeType: string }> = [];
     const it = folder.getFiles();
     while (it.hasNext() && out.length < limit) {
@@ -59,14 +71,22 @@ export function getFilesForFolderUrl(folderUrl: string, limit: number = 200) {
 export function findBestFolderForSong(songName: string, rootId: string) {
   const folders = ensureFolderCache(rootId);
   const normSong = normalize(songName);
+  const songTokens = new Set(normSong.split(' ').filter(Boolean));
   const exact = folders.find(f => normalize(f.name) === normSong);
   if (exact) return { ...exact, score: 1 };
   const contains = folders.find(f => normalize(f.name).includes(normSong));
   if (contains) return { ...contains, score: 0.9 };
-  let best: any=null;
+  let best: { id: string; name: string; url: string; score: number; overlap: number } | null = null;
   for (const f of folders) {
-    const s = similarity(normalize(f.name), normSong);
-    if (!best || s > best.score) best = { ...f, score: s };
+    const normalizedName = normalize(f.name);
+    const s = similarity(normalizedName, normSong);
+    const folderTokens = new Set(normalizedName.split(' ').filter(Boolean));
+    let overlap = 0;
+    for (const tok of songTokens) if (folderTokens.has(tok)) overlap++;
+    if (!best || s > best.score) best = { ...f, score: s, overlap };
   }
-  return best && best.score >= 0.35 ? best : null;
+  if (!best) return null;
+  if (best.score >= 0.65) return best;
+  if (best.overlap > 0) return best;
+  return null;
 }

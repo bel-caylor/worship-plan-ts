@@ -138,31 +138,27 @@
                         <div class="text-sm font-medium text-gray-700 mb-1">Media</div>
 
                         <div x-show="selected?._folderUrl" class="mb-2">
-                            <a class="inline-flex items-center gap-1 px-2 py-1 border rounded hover:bg-gray-50"
+                            <a class="inline-flex items-center gap-2 px-2 py-1 border rounded hover:bg-gray-50"
                                 :href="selected._folderUrl" target="_blank" rel="noopener">
-                                📁 <span>Open Folder</span>
+                                <span class="font-semibold text-sm">Open Folder</span>
                             </a>
                         </div>
 
-                        <div x-show="mediaLoading" class="text-sm text-gray-500">Loading files…</div>
+                        <div x-show="mediaLoading" class="text-sm text-gray-500">Loading files...</div>
 
                         <ul x-show="!mediaLoading && mediaFiles.length" class="space-y-1">
-                            <template x-for="({name,url,mimeType}, i) in mediaFiles" :key="i">
+                            <template x-for="(file, i) in mediaFiles" :key="i">
                                 <li>
-                                    <a class="underline" :href="url" target="_blank" rel="noopener">
-                                        <span x-text="fileIcon(mimeType)"></span>
-                                        <span x-text="name"></span>
+                                    <a class="text-blue-600 hover:text-blue-800 hover:underline" :href="file.url" target="_blank" rel="noopener">
+                                        <span x-text="fileIcon(file.mimeType)"></span>
+                                        <span x-text="friendlyMediaName(file)"></span>
                                     </a>
                                 </li>
                             </template>
                         </ul>
 
-                        <div x-show="!mediaLoading && !mediaFiles.length" class="text-sm text-gray-500">
-                            No files in folder.
-                        </div>
+                        <div x-show="!mediaLoading && !mediaFiles.length" class="text-sm text-gray-500" x-text="mediaMessage || 'No files in folder.'"></div>
                     </div>
-
-
 
                     <!-- NOTES -->
                     <div class="mt-3" x-show="selected?.Notes">

@@ -7,6 +7,7 @@ import {
 import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
+import { aiSongMetadata } from '../util/ai';
 
 type UpdateSongUsageInput = {
   name?: string;
@@ -134,9 +135,29 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
 
 export function linkSongMedia() {
     const sh = getSheetByName(SONG_SHEET);
-    const { headers, colMap } = getHeaders(sh);
-    ensureColumn(sh, headers, colMap, FOLDER_LINK_COL);
-    ensureColumn(sh, headers, colMap, AUDIO_LINKS_COL);
+    const details = getHeaders(sh);
+    const headers = details.headers;
+    const colMap = details.colMap;
+
+    if (!Object.prototype.hasOwnProperty.call(colMap, FOLDER_LINK_COL)) {
+        ensureColumn(sh, headers, colMap, FOLDER_LINK_COL);
+    }
+
+    const folderColIdx = colMap[FOLDER_LINK_COL] ?? -1;
+    const audioColIdx = colMap[AUDIO_LINKS_COL] ?? -1;
+    const songColIdx = colMap[SONG_COL_NAME] ?? -1;
+    const spColIdx = colMap[SP_COL_NAME] ?? -1;
+
+    if (songColIdx < 0) {
+        SpreadsheetApp.getActive().toast('Songs sheet is missing Song column.', 'Worship Planner', 4);
+    return;
+}
+
+
+    if (folderColIdx < 0 && audioColIdx < 0) {
+        SpreadsheetApp.getActive().toast('No media columns present; nothing to update.', 'Worship Planner', 4);
+        return;
+    }
 
     const lastRow = sh.getLastRow();
     if (lastRow < 2) return;
@@ -144,20 +165,20 @@ export function linkSongMedia() {
     const rng = sh.getRange(2, 1, lastRow - 1, sh.getLastColumn());
     const values = rng.getValues();
 
-    // Prepare a RichText builder range for audio links
-    const audioCol = colMap[AUDIO_LINKS_COL] + 1; // 1-based col index in sheet
-    const folderCol = colMap[FOLDER_LINK_COL] + 1;
+    const folderCol = folderColIdx >= 0 ? folderColIdx + 1 : null;
+    const audioCol = audioColIdx >= 0 ? audioColIdx + 1 : null;
 
     const lock = LockService.getDocumentLock();
     lock.waitLock(30000);
     try {
         for (let i = 0; i < values.length; i++) {
             const row = values[i];
-            const song = String(row[colMap[SONG_COL_NAME]] || '').trim();
+            const song = String(row[songColIdx] || '').trim();
             if (!song) continue;
 
-            // Find best matching folder for this song
-            const isSpanish = String(row[colMap[SP_COL_NAME]] || '').trim().toUpperCase() === 'Y';
+            const isSpanish = spColIdx >= 0
+                ? String(row[spColIdx] || '').trim().toUpperCase() === 'Y'
+                : false;
             const rootIdForRow = isSpanish ? SPANISH_ROOT_ID : ROOT_FOLDER_ID;
             const match = findBestFolderForSong(song, rootIdForRow);
             let folderUrl = '';
@@ -166,39 +187,43 @@ export function linkSongMedia() {
             if (match) {
                 folderUrl = match.url;
 
-                // List audio files in that folder
-                const audioFiles = listAudioInFolder(match.id, MAX_AUDIO_LINKS);
-                if (audioFiles.length) {
-                    const builder = SpreadsheetApp.newRichTextValue();
-                    let text = '';
-                    const runs: { start: number; end: number; url: string }[] = [];
-                    audioFiles.forEach((f, idx) => {
-                        const label = f.name;
-                        const start = text.length;
-                        text += label + (idx < audioFiles.length - 1 ? '\n' : '');
-                        runs.push({ start, end: start + label.length, url: f.url });
-                    });
-                    builder.setText(text);
-                    runs.forEach(r => builder.setLinkUrl(r.start, r.end, r.url));
-                    audioRich = builder.build();
+                if (audioCol != null) {
+                    const audioFiles = listAudioInFolder(match.id, MAX_AUDIO_LINKS);
+                    if (audioFiles.length) {
+                        const builder = SpreadsheetApp.newRichTextValue();
+                        let text = '';
+                        const runs: { start: number; end: number; url: string }[] = [];
+                        audioFiles.forEach((f, idx) => {
+                            const label = f.name;
+                            const start = text.length;
+                            text += label + (idx < audioFiles.length - 1 ? '\n' : '');
+                            runs.push({ start, end: start + label.length, url: f.url });
+                        });
+                        builder.setText(text);
+                        runs.forEach(r => builder.setLinkUrl(r.start, r.end, r.url));
+                        audioRich = builder.build();
+                    }
                 }
             }
 
-            // Write to the sheet (Folder URL as hyperlink; Audio as rich text)
             const rowIndex = 2 + i;
 
-            if (folderUrl) {
-                sh.getRange(rowIndex, folderCol).setFormula(`=HYPERLINK("${folderUrl}","Open Folder")`);
-            } else {
-                sh.getRange(rowIndex, folderCol).clearContent();
+            if (folderCol != null) {
+                if (folderUrl) {
+                    sh.getRange(rowIndex, folderCol).setFormula(`=HYPERLINK("${folderUrl}","Open Folder")`);
+                } else {
+                    sh.getRange(rowIndex, folderCol).clearContent();
+                }
             }
 
-            const audioCell = sh.getRange(rowIndex, audioCol);
-            if (audioRich) {
-                audioCell.setRichTextValue(audioRich);
-                audioCell.setWrap(true);
-            } else {
-                audioCell.clearContent();
+            if (audioCol != null) {
+                const audioCell = sh.getRange(rowIndex, audioCol);
+                if (audioRich) {
+                    audioCell.setRichTextValue(audioRich);
+                    audioCell.setWrap(true);
+                } else {
+                    audioCell.clearContent();
+                }
             }
         }
     } finally {
@@ -206,6 +231,431 @@ export function linkSongMedia() {
     }
 
     SpreadsheetApp.getActive().toast('Linking complete', 'Worship Planner', 4);
+}
+
+
+type FolderFileDetails = {
+  id: string;
+  name: string;
+  url: string;
+  mimeType: string;
+  created: Date | null;
+};
+
+type FolderCandidate = {
+  id: string;
+  name: string;
+  url: string;
+  path: string[];
+  files: FolderFileDetails[];
+  flags: {
+    isSpanish: boolean;
+    forcedSeason?: string;
+    isChristmas?: boolean;
+  };
+};
+
+type SyncOptions = {
+  dryRun?: boolean;
+  limit?: number;
+  reset?: boolean;
+  maxRuntimeMs?: number;
+};
+
+export function syncSongsFromDrive(options?: SyncOptions) {
+  const sh = getSheetByName(SONG_SHEET);
+  const details = getHeaders(sh);
+  const headers = details.headers;
+  const colMap = details.colMap;
+  const required = [FOLDER_LINK_COL, 'Lyrics', 'Themes', 'Season', 'Keywords', 'Scriptures', 'First_Used', SP_COL_NAME];
+  for (const label of required) ensureColumn(sh, headers, colMap, label);
+  const lastCol = headers.length;
+  const lastRow = sh.getLastRow();
+  let existingValues: any[][] = [];
+  let existingFormulas: string[][] = [];
+  if (lastRow > 1) {
+    const existingRange = sh.getRange(2, 1, lastRow - 1, lastCol);
+    existingValues = existingRange.getValues();
+    existingFormulas = existingRange.getFormulas();
+  }
+  const existingIndex = buildExistingSongIndex(existingValues, existingFormulas, colMap);
+
+  const candidates = gatherSongFolderCandidates();
+  const limit = Math.max(0, Number(options?.limit || 0));
+  const pending: any[][] = [];
+  let added = 0;
+  let skipped = 0;
+  let processed = 0;
+  const errors: string[] = [];
+  const stateKey = 'SONG_SYNC_CURSOR';
+  const scriptProps = PropertiesService.getScriptProperties();
+  const previousState = options?.reset ? null : loadSyncState(scriptProps, stateKey);
+  const resumeId = previousState?.lastId || '';
+  const startIndex = resumeId ? Math.max(0, candidates.findIndex(c => c.id === resumeId) + 1) : 0;
+  const maxRuntime = Math.max(60_000, Number(options?.maxRuntimeMs || (4.5 * 60 * 1000)));
+  const startedAt = Date.now();
+
+  const total = candidates.length;
+  const stepRangeStart = Math.max(2, lastRow + 1);
+  let nextWriteRow = stepRangeStart;
+  const flushRows = () => {
+    if (!pending.length || options?.dryRun) return;
+    const rng = sh.getRange(nextWriteRow, 1, pending.length, lastCol);
+    rng.setValues(pending.splice(0, pending.length));
+    nextWriteRow += rng.getNumRows();
+  };
+
+  let resumeNeeded = false;
+  let lastProcessedId = resumeId;
+  for (let idx = startIndex; idx < candidates.length; idx++) {
+    const candidate = candidates[idx];
+    const elapsed = Date.now() - startedAt;
+    if (elapsed >= maxRuntime) {
+      resumeNeeded = true;
+      break;
+    }
+    if (limit && added >= limit) break;
+    processed++;
+
+    const displayName = cleanSongTitle(candidate.name);
+    if (!displayName) continue;
+
+    const normName = normalizeSongTitle(displayName);
+    const folderId = candidate.id;
+    const existing = existingIndex.get(normName);
+    if (existing && existing.has(folderId)) {
+      skipped++;
+      lastProcessedId = candidate.id;
+      continue;
+    }
+
+    const bestFile = pickLyricsFile(candidate.files);
+    const lyrics = bestFile ? readLyricsFromFile(bestFile) : '';
+    const hints: string[] = [];
+    if (candidate.path.length) hints.push(`Folder path: ${candidate.path.join(' / ')}`);
+    if (candidate.flags?.isSpanish) hints.push('Spanish language');
+    if (candidate.flags?.isChristmas) hints.push('Christmas / Advent song');
+    if (bestFile) hints.push(`Source file: ${bestFile.name}`);
+    const forcedSeason = candidate.flags?.forcedSeason || (candidate.flags?.isChristmas ? 'Christmas' : '');
+    const metadata = aiSongMetadata({
+      name: displayName,
+      lyrics,
+      hints,
+      forcedSeason: forcedSeason || undefined,
+      kScriptures: 5
+    });
+    if (metadata.error) errors.push(`${displayName}: ${metadata.error}`);
+
+    const firstUsed = oldestFileDate(candidate.files);
+    const row = new Array(lastCol).fill('');
+    row[colMap[SONG_COL_NAME]] = displayName;
+    if (colMap[FOLDER_LINK_COL] != null) row[colMap[FOLDER_LINK_COL]] = makeFolderHyperlink(candidate.url);
+    if (colMap['Lyrics'] != null) row[colMap['Lyrics']] = lyrics;
+    if (colMap['Themes'] != null) row[colMap['Themes']] = metadata.themes.join(', ');
+    const seasonRaw = forcedSeason || metadata.season || '';
+    const seasonValue = /christmas/i.test(seasonRaw) ? 'Christmas' : 'General';
+    if (colMap['Season'] != null) row[colMap['Season']] = seasonValue;
+    if (colMap['Keywords'] != null) row[colMap['Keywords']] = metadata.keywords.join(', ');
+    if (colMap['Scriptures'] != null) row[colMap['Scriptures']] = metadata.scriptures.join(', ');
+    if (colMap['First_Used'] != null) row[colMap['First_Used']] = firstUsed || '';
+    if (colMap[SP_COL_NAME] != null && candidate.flags?.isSpanish) row[colMap[SP_COL_NAME]] = 'Y';
+
+    pending.push(row);
+    if (pending.length >= 20) flushRows();
+    added++;
+    if (!existingIndex.has(normName)) existingIndex.set(normName, new Set());
+    existingIndex.get(normName)!.add(folderId);
+    lastProcessedId = candidate.id;
+  }
+
+  flushRows();
+
+  if (resumeNeeded && processed === 0) {
+    // If we resumed but processed nothing (e.g., startIndex beyond list), reset.
+    resumeNeeded = false;
+    lastProcessedId = '';
+  }
+  if (resumeNeeded) {
+    saveSyncState(scriptProps, stateKey, { lastId: lastProcessedId || candidates[candidates.length - 1]?.id || '', at: Date.now() });
+  } else {
+    clearSyncState(scriptProps, stateKey);
+  }
+
+  const summary = {
+    added,
+    skipped,
+    processed,
+    scanned: total,
+    dryRun: !!options?.dryRun,
+    resumeNeeded,
+    resumeId: resumeNeeded ? lastProcessedId : undefined,
+    errors
+  };
+  try {
+    const suffix = resumeNeeded ? ' (paused, run again to continue)' : '';
+    SpreadsheetApp.getActive().toast(`Songs sync: +${added} / skipped ${skipped}${suffix}`);
+  } catch (_) {}
+  return summary;
+}
+
+function loadSyncState(props: GoogleAppsScript.Properties.Properties, key: string) {
+  try {
+    const raw = props.getProperty(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveSyncState(props: GoogleAppsScript.Properties.Properties, key: string, state: Record<string, unknown>) {
+  try { props.setProperty(key, JSON.stringify(state)); } catch (_) {}
+}
+
+function clearSyncState(props: GoogleAppsScript.Properties.Properties, key: string) {
+  try { props.deleteProperty(key); } catch (_) {}
+}
+
+function buildExistingSongIndex(rows: any[][], formulas: string[][], colMap: Record<string, number>) {
+  const out = new Map<string, Set<string>>();
+  const nameIdx = colMap[SONG_COL_NAME];
+  const folderIdx = colMap[FOLDER_LINK_COL];
+  if (nameIdx == null) return out;
+  for (let r = 0; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    const title = String(row[nameIdx] ?? '').trim();
+    if (!title) continue;
+    const norm = normalizeSongTitle(title);
+    if (!out.has(norm)) out.set(norm, new Set());
+    const formulaRow = Array.isArray(formulas?.[r]) ? formulas[r] : [];
+    const folderFormula = folderIdx != null ? String(formulaRow[folderIdx] ?? '') : '';
+    const folderValue = folderIdx != null ? row[folderIdx] : '';
+    const folderUrl = extractFolderUrl(folderValue, folderFormula);
+    const folderId = folderUrl ? extractFolderId(folderUrl) : '';
+    out.get(norm)!.add(folderId || '');
+  }
+  return out;
+}
+
+type FolderStackItem = {
+  folder: GoogleAppsScript.Drive.Folder;
+  path: string[];
+  isSpanish: boolean;
+  forcedSeason?: string;
+  depth: number;
+};
+
+function gatherSongFolderCandidates(): FolderCandidate[] {
+  const roots = [
+    { id: ROOT_FOLDER_ID, isSpanish: false },
+    { id: SPANISH_ROOT_ID, isSpanish: true }
+  ];
+  const seen = new Set<string>();
+  const out: FolderCandidate[] = [];
+  for (const root of roots) {
+    if (!root.id) continue;
+    let folder: GoogleAppsScript.Drive.Folder;
+    try {
+      folder = DriveApp.getFolderById(root.id);
+    } catch (_) {
+      continue;
+    }
+    const stack: FolderStackItem[] = [{
+      folder,
+      path: [folder.getName()],
+      isSpanish: root.isSpanish,
+      forcedSeason: undefined,
+      depth: 0
+    }];
+    while (stack.length) {
+      const current = stack.pop()!;
+      const name = current.folder.getName();
+      const normalizedPath = current.path.map(p => p.toLowerCase());
+      const isChristmas = normalizedPath.some(seg => seg.includes('advent') || seg.includes('christmas') || seg.includes('navidad'));
+      const isSpanish = current.isSpanish || normalizedPath.some(seg => seg.includes('spanish') || seg.includes('espanol') || seg.includes('español'));
+      const forcedSeason = current.forcedSeason || (isChristmas ? 'Christmas' : undefined);
+      const files = listFolderFiles(current.folder);
+      const include = current.depth > 0 && !isCategoryFolder(name) && files.length > 0;
+      if (include) {
+        const id = current.folder.getId();
+        if (!seen.has(id)) {
+          seen.add(id);
+          out.push({
+            id,
+            name,
+            url: current.folder.getUrl(),
+            path: current.path.slice(1),
+            files,
+            flags: {
+              isSpanish,
+              forcedSeason,
+              isChristmas
+            }
+          });
+        }
+      }
+      const children = listChildFolders(current.folder);
+      for (const child of children) {
+        stack.push({
+          folder: child,
+          path: [...current.path, child.getName()],
+          isSpanish,
+          forcedSeason,
+          depth: current.depth + 1
+        });
+      }
+    }
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
+function listChildFolders(folder: GoogleAppsScript.Drive.Folder) {
+  const out: GoogleAppsScript.Drive.Folder[] = [];
+  const it = folder.getFolders();
+  while (it.hasNext()) out.push(it.next());
+  return out;
+}
+
+function listFolderFiles(folder: GoogleAppsScript.Drive.Folder) {
+  const out: FolderFileDetails[] = [];
+  const it = folder.getFiles();
+  while (it.hasNext()) {
+    const file = it.next();
+    out.push({
+      id: file.getId(),
+      name: file.getName(),
+      url: file.getUrl(),
+      mimeType: file.getMimeType(),
+      created: file.getDateCreated()
+    });
+  }
+  return out;
+}
+
+function isCategoryFolder(name: string) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return true;
+  if (trimmed.startsWith('+')) return true;
+  return false;
+}
+
+function cleanSongTitle(raw: string) {
+  let name = String(raw || '').replace(/\s+/g, ' ').trim();
+  name = name.replace(/^\d+[\s._-]+/, '').trim();
+  if (!name) return String(raw || '').trim();
+  return name;
+}
+
+function pickLyricsFile(files: FolderFileDetails[]) {
+  let best: FolderFileDetails | null = null;
+  let bestScore = -1;
+  for (const file of files) {
+    const score = scoreLyricsFile(file);
+    if (score > bestScore) {
+      best = file;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function scoreLyricsFile(file: FolderFileDetails) {
+  const name = String(file?.name || '').toLowerCase();
+  const mime = String(file?.mimeType || '').toLowerCase();
+  let score = 0;
+  if (!name) return 0;
+  if (/lyrics?/.test(name) || /letras?/.test(name)) score += 5;
+  if (/(^|[\s_-])w($|[\s_-])/i.test(file.name)) score += 3;
+  if (/words?/.test(name) || /palabras/.test(name)) score += 2;
+  if (mime.includes('application/vnd.google-apps.document')) score += 2;
+  if (mime.includes('text')) score += 1;
+  return score;
+}
+
+function readLyricsFromFile(file: FolderFileDetails) {
+  if (!file) return '';
+  const mime = String(file.mimeType || '').toLowerCase();
+  try {
+    if (mime === 'application/vnd.google-apps.document') {
+      const doc = DocumentApp.openById(file.id);
+      const text = doc.getBody().getText();
+      return cleanLyricsText(text, file.name);
+    }
+    if (mime.startsWith('text/')) {
+      const blob = DriveApp.getFileById(file.id).getBlob();
+      return cleanLyricsText(blob.getDataAsString(), file.name);
+    }
+  } catch (err) {
+    try { Logger.log(`Lyrics read error (${file.name}): ${(err as any)?.message}`); } catch (_) {}
+  }
+  return '';
+}
+
+function cleanLyricsText(text: string, songName: string) {
+  const titleNorm = normalizeSongTitle(songName);
+  const lines = String(text || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map(l => l.replace(/\uFEFF/g, '').trim());
+  const out: string[] = [];
+  for (const line of lines) {
+    if (!line && !out.length) continue;
+    const norm = normalizeSongTitle(line);
+    if (!out.length) {
+      if (!line) continue;
+      if (norm && norm === titleNorm) continue;
+      if (/^title[:\s]/i.test(line)) continue;
+      if (/^lyrics?$/i.test(line)) continue;
+      if (/^words? and music/i.test(line)) continue;
+    }
+    if (/ccli|copyright|all rights reserved/i.test(line)) continue;
+    out.push(line);
+  }
+  const clean = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return clean;
+}
+
+function oldestFileDate(files: FolderFileDetails[]) {
+  let best: Date | null = null;
+  for (const file of files) {
+    if (!file.created) continue;
+    if (!best || file.created.getTime() < best.getTime()) {
+      best = file.created;
+    }
+  }
+  return best;
+}
+
+function extractFolderId(url: string) {
+  if (!url) return '';
+  const direct = /\/folders\/([A-Za-z0-9_-]+)/.exec(url);
+  if (direct) return direct[1];
+  const query = /[?&]id=([A-Za-z0-9_-]+)/.exec(url);
+  if (query) return query[1];
+  return '';
+}
+
+function extractFolderUrl(value: unknown, formula: string) {
+  if (formula && /^=HYPERLINK\(/i.test(formula)) {
+    const m = /=HYPERLINK\(\s*"([^"]+)"/i.exec(formula);
+    if (m) return m[1];
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed) || trimmed.includes('drive.google.com')) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
+function makeFolderHyperlink(url: string, label = 'Open Folder') {
+  if (!url) return '';
+  const safeUrl = url.replace(/"/g, '');
+  const safeLabel = label.replace(/"/g, '');
+  return `=HYPERLINK("${safeUrl}","${safeLabel || 'Open Folder'}")`;
 }
 
 export function getSongsWithLinksForView(): Row[] {
@@ -221,6 +671,8 @@ export function getSongsWithLinksForView(): Row[] {
     const colMap: Record<string, number> = {};
     headers.forEach((h, i) => (colMap[h] = i));
 
+    const songColIdx = colMap[SONG_COL_NAME] ?? -1;
+    const spColIdx = colMap[SP_COL_NAME] ?? -1;
     const fCol = colMap[FOLDER_LINK_COL] ?? -1;
     const leaderColIdx =
         (colMap[TARGET_LEADER_COL] ?? -1) >= 0
@@ -243,14 +695,31 @@ export function getSongsWithLinksForView(): Row[] {
         if (fCol >= 0) {
             const rt = rich[r][fCol];
             try {
-                // @ts-ignore
-                const url = rt && typeof rt.getLinkUrl === 'function' ? rt.getLinkUrl() : null;
-                if (url) folderUrl = url;
-            } catch { }
+                if (rt && typeof rt.getLinkUrl === 'function') {
+                    const directUrl = rt.getLinkUrl();
+                    if (directUrl) folderUrl = directUrl;
+                }
+                if (!folderUrl && rt && typeof rt.getRuns === 'function') {
+                    const runs = rt.getRuns();
+                    if (Array.isArray(runs)) {
+                        for (const run of runs) {
+                            try {
+                                const runUrl = typeof run.getLinkUrl === 'function' ? run.getLinkUrl() : null;
+                                if (runUrl) { folderUrl = runUrl; break; }
+                            } catch (_) { /* ignore */ }
+                        }
+                    }
+                }
+            } catch (_) { /* ignore */ }
             if (!folderUrl) {
                 const f = formulas[r][fCol];
                 const m = /^=HYPERLINK\("([^"]+)"/i.exec(String(f || ''));
                 if (m) folderUrl = m[1];
+            }
+            if (!folderUrl) {
+                const raw = String(values[r][fCol] ?? '');
+                const match = raw.match(/https:\/\/drive\.google\.com\/[^\s"]+/);
+                if (match) folderUrl = match[0];
             }
         }
         (rowObj as any)._folderUrl = folderUrl || null;
@@ -265,6 +734,7 @@ export function getSongsWithLinksForView(): Row[] {
 
     return out;
 }
+
 
 // Return selected fields for specific song names (robust matching)
 export function getSongFields(input: { names?: string[]; fields?: string[] }) {

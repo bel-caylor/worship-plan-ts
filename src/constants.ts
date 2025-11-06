@@ -52,3 +52,20 @@ export const ROLES_COL = {
   role: 'Role',
   spanish: 'Spanish'
 } as const;
+
+export const WEEKLY_TEAMS_SHEET = 'WeeklyTeams';
+export const WEEKLY_TEAMS_COL = {
+  team: 'Team',
+  teamName: 'TeamName',
+  description: 'Description'
+} as const;
+
+export const WEEKLY_TEAM_ROLES_SHEET = 'WeeklyTeamRoles';
+export const WEEKLY_TEAM_ROLES_COL = {
+  team: 'Team',
+  teamName: 'TeamName',
+  roleType: 'RoleType',
+  roleName: 'Role',
+  memberEmail: 'MemberEmail',
+  memberName: 'MemberName'
+} as const;

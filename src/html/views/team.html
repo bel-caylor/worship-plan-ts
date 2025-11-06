@@ -9,7 +9,14 @@
         @click="activeTab='roles'">
         Roles
       </button>
-      <!-- Future tabs can be added here -->
+      <button type="button"
+        class="px-3 py-1 rounded-t-md transition border-t border-x"
+        :class="activeTab==='weeklyTeams'
+          ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+        @click="activeTab='weeklyTeams'">
+        Weekly Teams
+      </button>
     </div>
     <div class="flex-1"></div>
     <div class="flex items-center gap-2 absolute bottom-1 right-4">
@@ -140,6 +147,164 @@
     </div>
   </div>
 
+  <div class="flex-1 min-h-0 flex" x-show="activeTab==='weeklyTeams'" x-cloak>
+    <div class="w-[250px] flex-shrink-0 border-r flex flex-col min-h-0">
+      <div class="p-3 space-y-3 border-b">
+        <button type="button" class="w-full px-3 py-2 text-sm font-medium border rounded bg-white hover:bg-blue-50"
+          @click="openNewWeeklyTeam()">+ New Weekly Team</button>
+        <select class="w-full border rounded px-2 py-1 text-sm" x-model="weeklyTeamFilter">
+          <option value="">All team types</option>
+          <template x-for="teamType in weeklyTeamTypes()" :key="teamType">
+            <option :value="teamType" x-text="teamType"></option>
+          </template>
+        </select>
+        <div class="text-xs text-red-600" x-show="weeklyTeamsError" x-text="weeklyTeamsError"></div>
+      </div>
+      <div class="flex-1 min-h-0 overflow-auto">
+        <div class="p-4 text-sm text-gray-500" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
+        <div class="p-4 text-sm text-gray-500" x-show="!weeklyTeamsLoading && !filteredWeeklyTeams().length">No weekly teams yet.</div>
+        <ul>
+          <template x-for="team in filteredWeeklyTeams()" :key="team.id">
+            <li class="border-b px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm"
+              :class="selectedWeeklyTeamId === team.id ? 'bg-blue-50 border-l-4 border-blue-400' : ''"
+              @click="selectWeeklyTeam(team.id)">
+              <div class="font-medium" x-text="team.teamName || '(untitled team)'"></div>
+              <div class="text-xs text-gray-500" x-text="team.team"></div>
+              <div class="text-xs text-gray-600 mt-1" x-text="formatWeeklyTeamSummary(team)"></div>
+            </li>
+          </template>
+        </ul>
+      </div>
+    </div>
+
+    <div class="flex-1 min-h-0 flex flex-col">
+      <div class="p-6 text-gray-500" x-show="!selectedWeeklyTeamId && !weeklyTeamsLoading">
+        Select a weekly team to edit or create a new one.
+      </div>
+      <div class="flex-1 min-h-0 overflow-auto" x-show="selectedWeeklyTeamId" x-cloak>
+        <div class="p-6 space-y-6 max-w-4xl">
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">Team type</span>
+              <select class="mt-1 w-full border rounded px-3 py-2"
+                x-model="weeklyTeamDraft.team"
+                @change="handleWeeklyTeamTypeChange()">
+                <template x-for="teamType in weeklyTeamTypes()" :key="'edit-'+teamType">
+                  <option :value="teamType" x-text="teamType"></option>
+                </template>
+              </select>
+            </label>
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">Team name</span>
+              <input type="text" class="mt-1 w-full border rounded px-3 py-2"
+                placeholder="e.g., 1st Sunday"
+                x-model="weeklyTeamDraft.teamName" />
+            </label>
+            <label class="block text-sm md:col-span-2">
+              <span class="font-medium text-gray-700">Description / notes</span>
+              <textarea class="mt-1 w-full border rounded px-3 py-2 min-h-[88px]"
+                placeholder="Optional notes"
+                x-model="weeklyTeamDraft.description"></textarea>
+            </label>
+          </div>
+
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <span class="font-medium text-gray-700">Role assignments</span>
+              <div class="flex items-center gap-2">
+                <button type="button" class="text-xs text-blue-600 hover:text-blue-800"
+                  @click="toggleShowAllRoles()">
+                  <span x-show="!weeklyTeamShowAllRoles">Show extra role types</span>
+                  <span x-show="weeklyTeamShowAllRoles">Hide extra role types</span>
+                </button>
+                <button type="button" class="px-2 py-1 border rounded text-xs bg-white hover:bg-blue-50"
+                  @click="addWeeklyTeamRole()">
+                  + Add role
+                </button>
+              </div>
+            </div>
+            <div class="text-sm text-gray-500" x-show="!weeklyTeamRolesDraft.length">
+              No roles defined yet. Use “Add role” to start building this team.
+            </div>
+            <div class="border rounded overflow-x-auto" x-show="weeklyTeamRolesDraft.length">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th class="text-left font-medium px-3 py-2">Role name</th>
+                    <th class="text-left font-medium px-3 py-2 w-48">Role type</th>
+                    <th class="text-left font-medium px-3 py-2 w-56">Assigned member</th>
+                    <th class="px-3 py-2 w-12 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="role in weeklyTeamRolesDraft" :key="role.id">
+                    <tr class="border-t">
+                      <td class="px-3 py-2 align-top">
+                        <input type="text"
+                          class="w-full border rounded px-2 py-1.5"
+                          placeholder="e.g., Guitar 1"
+                          x-model="role.roleName" />
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <select class="w-full border rounded px-2 py-1"
+                          x-model="role.roleType"
+                          x-bind:data-role-type-select="role.id">
+                          <option value="">Select role type</option>
+                          <template x-for="type in roleTypeOptionsForRole(role)" :key="role.id + '-' + type">
+                            <option :value="type" x-text="type"></option>
+                          </template>
+                        </select>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <select class="w-full border rounded px-2 py-1"
+                          x-model="role.memberEmail"
+                          x-bind:data-role-member-select="role.id">
+                          <option value="">Unassigned</option>
+                          <template x-for="member in memberOptionsForRoleType(role.roleType, role)" :key="member.email + '-' + role.id">
+                            <option :value="member.email" x-text="member.label"></option>
+                          </template>
+                        </select>
+                      </td>
+                      <td class="px-3 py-2 align-top text-center">
+                        <button type="button"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-0"
+                          title="Remove role"
+                          aria-label="Remove role"
+                          @click="removeWeeklyTeamRole(role.id)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
+              @click="saveWeeklyTeam()">
+              Save Weekly Team
+            </button>
+            <button type="button" class="px-3 py-1.5 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
+              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
+              @click="resetWeeklyTeamEdits()">
+              Discard
+            </button>
+            <span class="text-sm text-green-700" x-show="weeklyTeamSavedAt" x-text="'Saved ' + timeAgo(weeklyTeamSavedAt)"></span>
+            <span class="text-sm text-gray-600" x-show="weeklyTeamSaving">Saving...</span>
+            <span class="text-sm text-red-600" x-show="weeklyTeamSaveError" x-text="weeklyTeamSaveError"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- New member modal -->
   <div x-cloak x-show="showNewMemberModal" class="fixed inset-0 z-50 flex items-center justify-center">
     <div class="absolute inset-0 bg-black/40" @click="closeNewMember()"></div>
@@ -186,9 +351,48 @@
       </div>
     </div>
   </div>
+
+  <div x-cloak x-show="showNewWeeklyTeamModal" class="fixed inset-0 z-40 flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/40" @click="closeNewWeeklyTeam()"></div>
+    <div class="relative bg-white rounded shadow-lg w-full max-w-md p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-semibold">Create Weekly Team</h3>
+        <button type="button" class="text-sm text-gray-500 hover:text-gray-800" @click="closeNewWeeklyTeam()">Close</button>
+      </div>
+      <div class="space-y-3 text-sm">
+        <label class="block">
+          <span class="font-medium text-gray-700">Team type</span>
+          <select class="mt-1 w-full border rounded px-3 py-2" x-model="newWeeklyTeam.team">
+            <template x-for="teamType in weeklyTeamTypes()" :key="'new-weekly-'+teamType">
+              <option :value="teamType" x-text="teamType"></option>
+            </template>
+          </select>
+        </label>
+        <label class="block">
+          <span class="font-medium text-gray-700">Team name</span>
+          <input type="text" class="mt-1 w-full border rounded px-3 py-2"
+            placeholder="e.g., 1st Sunday"
+            x-model="newWeeklyTeam.teamName" />
+        </label>
+        <label class="block">
+          <span class="font-medium text-gray-700">Description</span>
+          <textarea class="mt-1 w-full border rounded px-3 py-2 min-h-[80px]"
+            placeholder="Optional notes"
+            x-model="newWeeklyTeam.description"></textarea>
+        </label>
+        <div class="text-sm text-red-600" x-show="newWeeklyTeamError" x-text="newWeeklyTeamError"></div>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button type="button" class="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
+          :disabled="newWeeklyTeamSaving"
+          @click="closeNewWeeklyTeam()">Cancel</button>
+        <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="newWeeklyTeamSaving"
+          @click="createWeeklyTeam()">
+          <span x-show="!newWeeklyTeamSaving">Create Team</span>
+          <span x-show="newWeeklyTeamSaving">Saving...</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
-
-
-
-
-

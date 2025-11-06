@@ -3,6 +3,7 @@ export function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Worship')
     .addItem('Link song media', 'linkSongMedia')
+    .addItem('Sync songs from Drive', 'syncSongsFromDrive')
     .addItem('Build leader list (from Usage Log)', 'buildLeadersFromPlanner')
     .addItem('Rebuild song Usage (from Weekly Planner)', 'rebuildSongUsageFromPlanner')
     .addToUi();

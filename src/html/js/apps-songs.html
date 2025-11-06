@@ -1,5 +1,12 @@
 <script>
   function songsApp() {
+    const audioExts = new Set(['mp3','m4a','wav','aac','flac','ogg','wma','aiff','mid','midi']);
+    const docRules = [
+      { label: 'Guitar', patterns: [/gdoc\b/i, /\bguitar\b/i, /(^|[\s_-])g($|[\s_-])/i] },
+      { label: 'Lyrics', patterns: [/wdoc\b/i, /\blyrics?\b/i, /(^|[\s_-])w($|[\s_-])/i] },
+      { label: 'Bass', patterns: [/bdoc\b/i, /\bbass\b/i, /(^|[\s_-])b($|[\s_-])/i] }
+    ];
+
     const splitSeasons = (val) => String(val ?? '').split(/[\/ ,;|]/g).map(s => s.trim()).filter(Boolean);
     const norm = (s) => String(s || '').toLowerCase();
     const title = (s) => String(s || '').replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
@@ -30,6 +37,7 @@
 
       mediaFiles: [],
       mediaLoading: false,
+      mediaMessage: '',
 
       _defaultsTs: 0,
 
@@ -107,17 +115,37 @@
         this.usageOptions = Array.from(seen.values());
       },
 
-      select(row) {
+      async select(row) {
         this.selected = row;
         this.mediaFiles = [];
-        const url = row && row._folderUrl;
-        if (!url) return;
+        this.mediaMessage = '';
+        if (!row) return;
+        const url = String(row._folderUrl || '').trim();
+        if (!url) {
+          this.mediaMessage = 'No folder link available.';
+          return;
+        }
+        await this.loadMediaForUrl(url);
+      },
+
+      async loadMediaForUrl(url) {
+        if (!url) {
+          this.mediaFiles = [];
+          this.mediaMessage = 'No folder link available.';
+          return;
+        }
         this.mediaLoading = true;
-        Promise.resolve()
-          .then(() => callRpc('getFilesForFolderUrl', url))
-          .then(files => { this.mediaFiles = Array.isArray(files) ? files : []; })
-          .catch(() => { this.mediaFiles = []; })
-          .finally(() => { this.mediaLoading = false; });
+        try {
+          const files = await callRpc('getFilesForFolderUrl', url);
+          this.mediaFiles = Array.isArray(files) ? files : [];
+          this.mediaMessage = this.mediaFiles.length ? '' : 'No files in folder.';
+        } catch (e) {
+          console.error(e);
+          this.mediaFiles = [];
+          this.mediaMessage = (e && e.message) ? e.message : 'Failed to load files.';
+        } finally {
+          this.mediaLoading = false;
+        }
       },
 
       sort(h) {
@@ -210,6 +238,96 @@
         return v ?? '';
       },
 
+      friendlyMediaName(file) {
+        const raw = String(file?.name || '').trim();
+        if (!raw) return 'File';
+        const withoutSong = this.stripSongTitle(raw);
+        const base = this.removeExtension(withoutSong);
+        const trimmed = this.trimDelimiters(base);
+        if (!trimmed) return raw;
+        if (this.isAudioFile(file)) return this.audioLabelFrom(trimmed);
+        const doc = this.docLabelFrom(trimmed);
+        if (doc) return doc;
+        return this.normalizeResidual(trimmed) || raw;
+      },
+
+      stripSongTitle(name) {
+        const song = String(this.selected?.Song || '').trim();
+        if (!song) return name;
+        const escaped = song.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const rx = new RegExp(`^${escaped}[\\s._-]*`, 'i');
+        return name.replace(rx, '');
+      },
+
+      removeExtension(name) {
+        return name.replace(/\.[^.]+$/, '');
+      },
+
+      trimDelimiters(str) {
+        return String(str || '').replace(/^[\s._-]+/, '').replace(/[\s._-]+$/, '');
+      },
+
+      normalizeResidual(str) {
+        let out = String(str || '');
+        out = out.replace(/[_]+/g, ' ');
+        out = out.replace(/\s{2,}/g, ' ');
+        out = out.replace(/\s*\(/g, ' (').replace(/\s*\)/g, ')');
+        return out.trim();
+      },
+
+      docLabelFrom(str) {
+        for (const rule of docRules) {
+          for (const rx of rule.patterns) {
+            if (rx.test(str)) {
+              const detail = this.normalizeResidual(str.replace(rx, ' '));
+              return detail ? `${rule.label} ${detail}` : rule.label;
+            }
+          }
+        }
+        return '';
+      },
+
+      isAudioFile(file) {
+        const mime = String(file?.mimeType || '').toLowerCase();
+        if (mime.startsWith('audio/')) return true;
+        const name = String(file?.name || '');
+        const ext = (name.split('.').pop() || '').toLowerCase();
+        return audioExts.has(ext);
+      },
+
+      audioLabelFrom(str) {
+        const parts = this.extractAudioParts(str);
+        if (parts.date && parts.detail) return `${parts.date} - ${parts.detail}`;
+        if (parts.date) return parts.date;
+        return parts.detail || 'Audio';
+      },
+
+      extractAudioParts(str) {
+        let working = String(str || '');
+        let date = '';
+        const paren = /\(([^)]+)\)\s*$/.exec(working);
+        if (paren) {
+          date = paren[1].trim();
+          working = `${working.slice(0, paren.index)}${working.slice(paren.index + paren[0].length)}`;
+        }
+        if (!date) {
+          const compact = /(\d{1,2}[A-Za-z]{3}\d{2,4})/.exec(working);
+          if (compact) {
+            date = compact[1];
+            working = working.replace(compact[0], ' ');
+          }
+        }
+        if (!date) {
+          const monthYear = /([A-Za-z]{3,9}\s?\d{2,4})/.exec(working);
+          if (monthYear) {
+            date = monthYear[1].trim();
+            working = working.replace(monthYear[0], ' ');
+          }
+        }
+        const detail = this.normalizeResidual(working);
+        return { date: date.trim(), detail };
+      },
+
       async copy(text) { try { await navigator.clipboard.writeText(String(text ?? '')); } catch { } },
 
       applySuggestion(index, payload) {
@@ -218,6 +336,18 @@
           const ev = new CustomEvent('use-song', { detail: { index, name }, bubbles: true });
           this.$el.dispatchEvent(ev);
         } catch (_) { }
+      },
+
+      fileIcon(mimeType) {
+        const type = String(mimeType || '').toLowerCase();
+        if (!type) return '\uD83D\uDCC4'; // page facing up
+        if (type.startsWith('audio/')) return '\uD83C\uDFB5'; // musical note
+        if (type.startsWith('video/')) return '\uD83C\uDFA5'; // movie camera
+        if (type.includes('pdf')) return '\uD83D\uDCC4';
+        if (type.includes('presentation')) return '\uD83D\uDCCB'; // clipboard
+        if (type.includes('spreadsheet') || type.includes('excel')) return '\uD83D\uDCC8'; // chart with upwards trend
+        if (type.includes('word') || type.includes('document')) return '\uD83D\uDCC3'; // page with curl
+        return '\uD83D\uDCC4';
       },
 
       searchTokens() {

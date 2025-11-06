@@ -5,6 +5,7 @@ import { getOrder, saveOrder } from './features/order';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry } from './features/roles';
+import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam } from './features/weekly-teams';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -42,6 +43,12 @@ export function rpc(input: { method: string; payload: unknown }) {
         return updateRoleEntry(payload as any);
       case 'addRoleEntry':
         return addRoleEntry(payload as any);
+      case 'listWeeklyTeams':
+        return listWeeklyTeams();
+      case 'createWeeklyTeam':
+        return createWeeklyTeam(payload as any);
+      case 'saveWeeklyTeam':
+        return saveWeeklyTeam(payload as any);
       default:
         throw new Error(`Unknown RPC method: ${method}`);
     }
