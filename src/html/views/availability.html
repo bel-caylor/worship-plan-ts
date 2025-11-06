@@ -1,0 +1,56 @@
+<div x-data="availabilityApp()" x-init="init()" class="min-h-full bg-gray-50 overflow-y-auto">
+  <div class="max-w-3xl mx-auto p-6">
+    <div class="bg-white rounded-lg shadow p-5">
+      <h1 class="text-2xl font-semibold mb-1">Team Availability</h1>
+      <p class="text-sm text-gray-600 mb-5">Let us know which upcoming services you are <span class="font-semibold">unavailable</span> to serve.</p>
+
+      <label class="block text-sm text-gray-700 mb-3">
+        Email address
+        <div class="mt-1 flex gap-2">
+          <input type="email" placeholder="you@example.com"
+            class="flex-1 border rounded px-3 py-2"
+            x-model="email"
+            @blur="prefillAvailability()"
+            autocomplete="email" required>
+          <button type="button" class="px-3 py-2 border rounded bg-gray-50 hover:bg-gray-100"
+            @click="prefillAvailability(true)" :disabled="loadingAvailability || !emailValid()">
+            <span x-show="!loadingAvailability">Load Dates</span>
+            <span x-show="loadingAvailability">Loading...</span>
+          </button>
+        </div>
+      </label>
+
+      <div class="mb-4 text-sm text-rose-600" x-show="error" x-text="error"></div>
+      <div class="mb-4 text-sm text-emerald-700" x-show="statusMessage" x-text="statusMessage"></div>
+
+      <div x-show="loadingServices" class="text-sm text-gray-600">Loading upcoming services&hellip;</div>
+      <div x-show="!loadingServices && !services.length" class="text-sm text-gray-600">No upcoming services yet.</div>
+
+      <form x-show="!loadingServices && services.length" @submit.prevent="saveAvailability()" class="flex flex-col gap-4">
+        <div class="border rounded divide-y">
+          <template x-for="svc in services" :key="svc.id || svc.date">
+            <label class="flex items-start gap-3 px-3 py-3 hover:bg-blue-50">
+              <input type="checkbox" class="mt-1 rounded border-gray-300" :value="svc.id"
+                x-model="selectedServiceIds">
+              <div>
+                <div class="font-semibold" x-text="svc.label"></div>
+                <div class="text-sm text-gray-600" x-text="svc.subtitle"></div>
+              </div>
+            </label>
+          </template>
+        </div>
+        <p class="text-xs text-gray-500">Checked services mark the Sundays you are unavailable.</p>
+        <div class="flex justify-between items-center">
+          <button type="button" class="text-sm text-blue-700 hover:underline"
+            @click="clearSelections()" :disabled="saving">Clear all</button>
+          <button type="submit"
+            class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50"
+            :disabled="saving || !emailValid()">
+            <span x-show="!saving">Save Availability</span>
+            <span x-show="saving">Saving...</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>

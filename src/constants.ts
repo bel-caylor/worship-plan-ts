@@ -69,3 +69,10 @@ export const WEEKLY_TEAM_ROLES_COL = {
   memberEmail: 'MemberEmail',
   memberName: 'MemberName'
 } as const;
+
+export const MEMBER_AVAILABILITY_SHEET = 'MemberAvailability';
+export const MEMBER_AVAILABILITY_COL = {
+  email: 'Email',
+  serviceId: 'ServiceID',
+  availability: 'Availability'
+} as const;

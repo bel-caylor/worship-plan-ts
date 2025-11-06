@@ -27,6 +27,7 @@
   <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-team').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-weekly-plan').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('apps-availability').getContent(); ?>
 
 </head>
 
@@ -49,6 +50,10 @@
       <div x-show="route==='team'" class="h-full">
         <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
       </div>
+
+      <div x-show="route==='availability'" class="h-full">
+        <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
+      </div>
     </div>
   </main>
 
@@ -58,7 +63,7 @@
       return {
         route: 'plan',
         init() {
-          const allowed = new Set(['plan','songs','team']);
+          const allowed = new Set(['plan','songs','team','availability']);
           const parse = () => {
             const next = location.hash.replace('#/', '') || 'plan';
             this.route = allowed.has(next) ? next : 'plan';

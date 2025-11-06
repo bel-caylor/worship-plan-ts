@@ -51,6 +51,11 @@
       suggestTargetIndex: -1,
       loadingSuggestion: false,
       form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '' },
+      showCreateServicesModal: false,
+      batchStartDate: '',
+      batchWeeks: 12,
+      batchCreateLoading: false,
+      batchCreateError: '',
 
       init() {
         const ctx = (window.APP_CTX || {});
@@ -209,6 +214,69 @@
           return (nth === 1 || nth === 3 || nth === 5) ? 'Communion' : 'Offering';
         } catch (_) {
           return 'Offering';
+        }
+      },
+
+      openCreateServicesModal() {
+        this.batchCreateError = '';
+        const next = this.nextServiceDateFromExistingISO();
+        this.batchStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(this.batchStartDate || '')) ? this.batchStartDate : next;
+        if (!this.batchStartDate) this.batchStartDate = next;
+        if (!this.batchWeeks || this.batchWeeks < 1) this.batchWeeks = 12;
+        this.showCreateServicesModal = true;
+        this.$nextTick(() => {
+          try { this.$refs.batchWeeks?.focus(); } catch (_) { }
+        });
+      },
+
+      closeCreateServicesModal() {
+        if (this.batchCreateLoading) return;
+        this.showCreateServicesModal = false;
+      },
+
+      async submitBatchCreate() {
+        const start = String(this.batchStartDate || '').trim();
+        const weeks = Number(this.batchWeeks) || 0;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+          this.batchCreateError = 'Select a valid start Sunday (YYYY-MM-DD).';
+          return;
+        }
+        if (weeks < 1) {
+          this.batchCreateError = 'Enter how many weeks to create.';
+          return;
+        }
+        this.batchCreateLoading = true;
+        this.batchCreateError = '';
+        try {
+          const res = await callRpc('createServicesBatch', { startDate: start, weeks });
+          const created = Array.isArray(res?.created) ? res.created : [];
+          if (created.length) {
+            notify(`Created ${created.length} new service${created.length === 1 ? '' : 's'}.`, 'success');
+          } else {
+            notify('All requested services already exist.', 'info');
+          }
+          await this.refreshServices();
+          this.showCreateServicesModal = false;
+        } catch (e) {
+          console.error(e);
+          const msg = (e && e.message) ? e.message : 'Unable to create services';
+          this.batchCreateError = msg;
+          notify(msg, 'error');
+        } finally {
+          this.batchCreateLoading = false;
+        }
+      },
+
+      async refreshServices() {
+        this.loadingServices = true;
+        try {
+          const s = await callRpc('listServices', null);
+          this.existingServices = Array.isArray(s?.items) ? s.items : [];
+          try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+        } catch (err) {
+          console.error(err);
+        } finally {
+          this.loadingServices = false;
         }
       },
 

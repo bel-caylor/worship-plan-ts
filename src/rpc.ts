@@ -1,11 +1,12 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
+import { addService, createServicesBatch, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
 import { getOrder, saveOrder } from './features/order';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam } from './features/weekly-teams';
+import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -20,7 +21,9 @@ export function rpc(input: { method: string; payload: unknown }) {
       case 'deleteService':
         return deleteService(payload as any);
       case 'listServices':
-        return listServices();
+        return listServices(payload as any);
+      case 'createServicesBatch':
+        return createServicesBatch(payload as any);
       case 'getOrder':
         return getOrder(String(payload || ''));
       case 'saveOrder':
@@ -49,6 +52,10 @@ export function rpc(input: { method: string; payload: unknown }) {
         return createWeeklyTeam(payload as any);
       case 'saveWeeklyTeam':
         return saveWeeklyTeam(payload as any);
+      case 'getMemberAvailability':
+        return getMemberAvailability(payload as any);
+      case 'saveMemberAvailability':
+        return saveMemberAvailability(payload as any);
       default:
         throw new Error(`Unknown RPC method: ${method}`);
     }
@@ -59,4 +66,3 @@ export function rpc(input: { method: string; payload: unknown }) {
     throw new Error(msg);
   }
 }
-

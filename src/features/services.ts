@@ -15,6 +15,39 @@ export type AddServiceInput = {
   notes?: string;
 };
 
+export type ListServicesOptions = {
+  startDate?: string;
+  endDate?: string;
+  includePast?: boolean;
+  limit?: number;
+  sort?: 'asc' | 'desc';
+};
+
+export type CreateServicesBatchInput = {
+  startDate?: string;
+  weeks?: number;
+};
+
+export type ServiceItem = {
+  id: string;
+  date: string;
+  time: string;
+  type: string;
+  leader: string;
+  preacher: string;
+  scripture: string;
+  scriptureText: string;
+  theme: string;
+  keywords: string;
+  notes: string;
+};
+
+const SERVICES_CACHE_KEY = 'listServices:v1';
+const DEFAULT_SERVICE_TIME = '10:00 AM';
+const DEFAULT_LEADER = 'Darden';
+const DEFAULT_PREACHER = 'Tom';
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 // --- Normalization helpers ---
 function normalizeDisplayName(s: string): string {
   const clean = String(s ?? '')
@@ -76,6 +109,43 @@ function deriveKeywords(text: any): string {
   const pretty = (w: string) => w.replace(/^\w/, c => c.toUpperCase());
   return top.map(pretty).join(', ');
 }
+
+const isoFromDate = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const dateFromISO = (iso: string): Date | null => {
+  if (!ISO_DATE_RE.test(String(iso || ''))) return null;
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
+const normalizeIso = (value?: string | Date): string | null => {
+  if (!value && value !== '') return null;
+  if (value instanceof Date && !isNaN(value.getTime())) return isoFromDate(value);
+  const s = String(value ?? '').trim();
+  return ISO_DATE_RE.test(s) ? s : null;
+};
+
+const nextSundayOnOrAfter = (date: Date): Date => {
+  const copy = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const delta = (7 - copy.getDay()) % 7;
+  if (delta) copy.setDate(copy.getDate() + delta);
+  return copy;
+};
+
+const defaultServiceTypeForDate = (date: Date): string => {
+  const nth = Math.floor((date.getDate() - 1) / 7) + 1;
+  return (nth === 1 || nth === 3 || nth === 5) ? 'Communion' : 'Offering';
+};
+
+const todayISO = () => {
+  const tz = (Session.getScriptTimeZone && Session.getScriptTimeZone()) || 'Etc/UTC';
+  return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+};
 
 export function addService(input: AddServiceInput) {
   const sh = getSheetByName(SERVICES_SHEET);
@@ -211,15 +281,15 @@ export function addService(input: AddServiceInput) {
     lock.releaseLock();
   }
 
-  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
+  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
   return { id: computedId };
 }
 
-export function listServices() {
+function fetchServicesUnfiltered(): ServiceItem[] {
   const sh = getSheetByName(SERVICES_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return { items: [] };
+  if (lastRow < 2 || lastCol < 1) return [];
 
   // Try cached response keyed by sheet shape (lastRow/lastCol)
   try {
@@ -228,14 +298,14 @@ export function listServices() {
     })();
     const ver = `${lastRow}-${lastCol}-${updatedAt}`;
     const cache = CacheService.getDocumentCache();
-    const cached = cache.get('listServices:v1');
+    const cached = cache.get(SERVICES_CACHE_KEY);
     if (cached) {
       const obj = JSON.parse(cached);
       if (obj && obj.ver === ver && Array.isArray(obj.items)) {
-        return { items: obj.items };
+        return obj.items as ServiceItem[];
       }
     }
-    const result = (() => {
+    const items = (() => {
       // fallthrough to compute fresh
       const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
       const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
@@ -294,7 +364,7 @@ export function listServices() {
         }
       };
 
-      const items = body.map(r => ({
+      const rows = body.map(r => ({
         id: idIdx >= 0 ? String(r[idIdx] ?? '') : '',
         date: dateIdx >= 0 ? toISO(r[dateIdx]) : '',
         time: timeIdx >= 0 ? toTime(r[timeIdx]) : '',
@@ -309,11 +379,11 @@ export function listServices() {
       }));
 
       const toKey = (it: any) => (it.id && String(it.id)) || `${it.date || ''} ${it.time || ''}`;
-      items.sort((a, b) => String(toKey(b)).localeCompare(String(toKey(a))));
-      return { items };
+      rows.sort((a, b) => String(toKey(b)).localeCompare(String(toKey(a))));
+      return rows as ServiceItem[];
     })();
-    try { CacheService.getDocumentCache().put('listServices:v1', JSON.stringify({ ver, items: result.items }), 300); } catch(_) {}
-    return result;
+    try { CacheService.getDocumentCache().put(SERVICES_CACHE_KEY, JSON.stringify({ ver, items }), 300); } catch(_) {}
+    return items;
   } catch (_) { /* ignore cache errors */ }
 
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
@@ -392,7 +462,107 @@ export function listServices() {
   const toKey = (it: any) => (it.id && String(it.id)) || `${it.date || ''} ${it.time || ''}`;
   items.sort((a, b) => String(toKey(b)).localeCompare(String(toKey(a))));
 
-  return { items };
+  return items as ServiceItem[];
+}
+
+const serviceSortKey = (item: ServiceItem) => (item.id && String(item.id)) || `${item.date || ''} ${item.time || ''}`.trim();
+
+function applyServiceFilters(items: ServiceItem[], opts?: ListServicesOptions): ServiceItem[] {
+  let result = Array.isArray(items) ? items.slice() : [];
+  if (!opts) return result;
+  const start = normalizeIso(opts.startDate || undefined);
+  if (start) {
+    result = result.filter(item => !item.date || item.date >= start);
+  }
+  const end = normalizeIso(opts.endDate || undefined);
+  if (end) {
+    result = result.filter(item => !item.date || item.date <= end);
+  }
+  if (opts.includePast === false) {
+    const cutoff = todayISO();
+    result = result.filter(item => !item.date || item.date >= cutoff);
+  }
+  if (opts.sort === 'asc') {
+    result.sort((a, b) => serviceSortKey(a).localeCompare(serviceSortKey(b)));
+  } else if (opts.sort === 'desc') {
+    result.sort((a, b) => serviceSortKey(b).localeCompare(serviceSortKey(a)));
+  }
+  const limit = typeof opts.limit === 'number' ? Math.max(0, Math.floor(opts.limit)) : 0;
+  if (limit > 0 && result.length > limit) {
+    result = result.slice(0, limit);
+  }
+  return result;
+}
+
+export function listServices(opts?: ListServicesOptions) {
+  const all = fetchServicesUnfiltered();
+  return { items: applyServiceFilters(all, opts) };
+}
+
+export function createServicesBatch(input?: CreateServicesBatchInput) {
+  const weeksValue = Number(input?.weeks);
+  const weeksRaw = Number.isFinite(weeksValue) ? Math.floor(weeksValue) : NaN;
+  const weeks = Math.min(52, Math.max(1, isNaN(weeksRaw) ? 12 : weeksRaw));
+  const startIso = normalizeIso(input?.startDate || '') || isoFromDate(nextSundayOnOrAfter(new Date()));
+  const startDate = dateFromISO(startIso) || nextSundayOnOrAfter(new Date());
+  const firstSunday = nextSundayOnOrAfter(startDate);
+  const schedule: { iso: string; date: Date }[] = [];
+  for (let i = 0; i < weeks; i++) {
+    const iter = new Date(firstSunday.getFullYear(), firstSunday.getMonth(), firstSunday.getDate() + (i * 7));
+    schedule.push({ iso: isoFromDate(iter), date: iter });
+  }
+
+  const sh = getSheetByName(SERVICES_SHEET);
+  const lastCol = sh.getLastColumn();
+  if (lastCol < 1) throw new Error(`Sheet ${SERVICES_SHEET} is missing headers`);
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idIdx = col(SERVICES_COL.id);
+  if (idIdx === -1) throw new Error(`Column "${SERVICES_COL.id}" not found in ${SERVICES_SHEET}`);
+  const dateIdx = col(SERVICES_COL.date);
+  const timeIdx = col(SERVICES_COL.time);
+  const typeIdx = col(SERVICES_COL.type);
+  const leaderIdx = col(SERVICES_COL.leader);
+  const preacherIdx = col(SERVICES_COL.preacher);
+
+  const created: { id: string; date: string; time: string; type: string }[] = [];
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  try {
+    const existing = new Set<string>();
+    const lastRow = sh.getLastRow();
+    if (lastRow >= 2) {
+      const ids = sh.getRange(2, idIdx + 1, lastRow - 1, 1).getValues();
+      ids.forEach(row => {
+        const id = String((row && row[0]) ?? '').trim();
+        if (id) existing.add(id);
+      });
+    }
+    const rows: any[][] = [];
+    for (const entry of schedule) {
+      const serviceId = `${entry.iso}_10am`;
+      if (existing.has(serviceId)) continue;
+      existing.add(serviceId);
+      const row = Array.from({ length: lastCol }, () => '');
+      row[idIdx] = serviceId;
+      if (dateIdx >= 0) row[dateIdx] = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate());
+      if (timeIdx >= 0) row[timeIdx] = DEFAULT_SERVICE_TIME;
+      const svcType = defaultServiceTypeForDate(entry.date);
+      if (typeIdx >= 0) row[typeIdx] = svcType;
+      if (leaderIdx >= 0) row[leaderIdx] = DEFAULT_LEADER;
+      if (preacherIdx >= 0) row[preacherIdx] = DEFAULT_PREACHER;
+      rows.push(row);
+      created.push({ id: serviceId, date: entry.iso, time: DEFAULT_SERVICE_TIME, type: svcType });
+    }
+    if (rows.length) {
+      const startRow = sh.getLastRow() + 1;
+      sh.getRange(startRow, 1, rows.length, lastCol).setValues(rows);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  return { created };
 }
 
 export function saveService(input: AddServiceInput & { id?: string }) {
@@ -528,7 +698,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   } finally {
     lock.releaseLock();
   }
-  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
+  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
   return { id: resultId };
 }
 
@@ -572,7 +742,7 @@ export function deleteService(input: { id?: string } | string) {
     }
   } catch (_) { /* ignore */ }
 
-  try { CacheService.getDocumentCache().remove('listServices:v1'); } catch (_) {}
+  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
   return { ok: true };
 }
 

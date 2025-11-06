@@ -7,6 +7,7 @@ export type SongMetadataInput = {
   hints?: string[];
   forcedSeason?: string;
   kScriptures?: number;
+  allowKeywords?: boolean;
 };
 
 export type SongMetadataResult = {
@@ -22,7 +23,7 @@ const STOP_WORDS = new Set([
 ]);
 
 const KEYWORD_BLACKLIST = new Set([
-  'folder','folders','path','paths','file','files','doc','docs','wdoc','source','archive','language','spanish','advent','future','lyrics','wdoc','document','documents'
+  'folder','folders','path','paths','file','files','doc','docs','wdoc','source','archive','language','spanish','advent','future','lyrics','document','documents'
 ]);
 
 const SCRIPTURE_HINTS: { keys: RegExp[]; refs: string[] }[] = [
@@ -43,8 +44,9 @@ export function aiSongMetadata(input: SongMetadataInput): SongMetadataResult {
   const hints = Array.isArray(input?.hints) ? input!.hints.map(h => String(h || '').trim()).filter(Boolean) : [];
   const forcedSeason = String(input?.forcedSeason || '').trim();
   const kScriptures = Math.max(1, Math.min(10, Number(input?.kScriptures ?? 5)));
+  const allowKeywords = !!input?.allowKeywords;
 
-  const fallback = heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures });
+  const fallback = heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures, allowKeywords });
   const key = getOpenAiKey();
   if (!key) return { ...fallback, error: 'OPENAI_API_KEY not set in Script Properties' };
 
@@ -76,7 +78,7 @@ Use concise phrases; limit lists to at most ${kScriptures} scripture references 
     const res = callOpenAi(sys, user, key);
     const parsed = safeJsonParse(res);
     const themes = normalizeList(parsed?.themes).slice(0, 5);
-    const keywords = sanitizeKeywords(normalizeList(parsed?.keywords).slice(0, 6), name);
+    const keywords = allowKeywords ? sanitizeKeywords(normalizeList(parsed?.keywords).slice(0, 6), name) : [];
     const scriptures = normalizeList(parsed?.scriptures).slice(0, kScriptures);
     const seasonRaw = forcedSeason || normalizeSeason(parsed?.season || '');
     return {
@@ -248,11 +250,12 @@ function heuristicSongMetadata(input: {
   hints: string[];
   forcedSeason?: string;
   kScriptures: number;
+  allowKeywords?: boolean;
 }): SongMetadataResult {
   const baseText = [input.name, input.lyrics, input.hints.join(' ')].join('\n').toLowerCase();
   const season = input.forcedSeason || detectSeasonFromText(baseText);
   const themes = detectThemesFromText(baseText, season);
-  const keywords = extractKeywords(input.lyrics || input.name, input.hints, 6, input.name);
+  const keywords = input.allowKeywords ? extractKeywords(input.lyrics, 6, input.name) : [];
   const scriptures = heuristicScriptureRefs(baseText, input.kScriptures);
   return {
     themes,
@@ -294,9 +297,10 @@ function detectThemesFromText(text: string, season: string) {
   return Array.from(new Set(out)).slice(0, 4);
 }
 
-function extractKeywords(text: string, hints: string[], limit: number, title?: string) {
+function extractKeywords(lyrics: string, limit: number, title?: string) {
   const freq: Record<string, number> = {};
-  const corpus = [text, hints.join(' ')].join(' ').toLowerCase();
+  const corpus = String(lyrics || '').toLowerCase();
+  if (!corpus.trim()) return [];
   const words = corpus.match(/[a-záéíóúñü]+/gi) || [];
   const titleTokens = new Set(normalizeTitleTokens(title));
   for (const word of words) {

@@ -1,0 +1,131 @@
+<script>
+  function availabilityApp() {
+    return {
+      email: '',
+      services: [],
+      selectedServiceIds: [],
+      loadingServices: true,
+      loadingAvailability: false,
+      saving: false,
+      error: '',
+      statusMessage: '',
+      prefilledFor: '',
+
+      init() {
+        this.fetchServices();
+        try {
+          const params = new URLSearchParams(location.search || '');
+          const emailParam = params.get('email');
+          if (emailParam) {
+            this.email = emailParam;
+            this.prefillAvailability(true);
+          }
+        } catch (_) { /* ignore */ }
+      },
+
+      todayISO() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      },
+
+      emailValid() {
+        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(this.email || '').trim());
+      },
+
+      normalizedEmail() {
+        return String(this.email || '').trim().toLowerCase();
+      },
+
+      async fetchServices() {
+        this.loadingServices = true;
+        this.error = '';
+        try {
+          const res = await callRpc('listServices', {
+            includePast: false,
+            sort: 'asc',
+            startDate: this.todayISO(),
+            limit: 20
+          });
+          const items = Array.isArray(res?.items) ? res.items : [];
+          this.services = items.map(it => ({
+            ...it,
+            label: this.formatServiceLabel(it),
+            subtitle: [it.type || '', it.time || '10:00 AM'].filter(Boolean).join(' • ') || 'Service'
+          }));
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Unable to load services.';
+        } finally {
+          this.loadingServices = false;
+        }
+      },
+
+      formatServiceLabel(item) {
+        const iso = String(item?.date || '').trim();
+        if (!iso) return item?.id || 'Service';
+        try {
+          const [y, m, d] = iso.split('-').map(Number);
+          const dt = new Date(y, m - 1, d);
+          return dt.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+        } catch (_) {
+          return iso;
+        }
+      },
+
+      async prefillAvailability(force = false) {
+        const email = this.normalizedEmail();
+        if (!email) {
+          this.error = 'Enter your email to load saved dates.';
+          return;
+        }
+        if (!force && email === this.prefilledFor) return;
+        this.loadingAvailability = true;
+        this.error = '';
+        try {
+          const res = await callRpc('getMemberAvailability', { email });
+          this.selectedServiceIds = Array.isArray(res?.unavailable) ? res.unavailable.slice() : [];
+          this.prefilledFor = email;
+          this.statusMessage = this.selectedServiceIds.length
+            ? 'Loaded your saved unavailable dates.'
+            : 'No saved dates yet. Check every service you cannot serve.';
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Unable to load availability.';
+        } finally {
+          this.loadingAvailability = false;
+        }
+      },
+
+      clearSelections() {
+        this.selectedServiceIds = [];
+      },
+
+      async saveAvailability() {
+        const email = this.normalizedEmail();
+        if (!email) {
+          this.error = 'Email is required.';
+          return;
+        }
+        this.saving = true;
+        this.error = '';
+        this.statusMessage = '';
+        try {
+          await callRpc('saveMemberAvailability', {
+            email,
+            unavailableServiceIds: this.selectedServiceIds
+          });
+          this.statusMessage = 'Availability saved. Thank you!';
+          this.prefilledFor = email;
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Unable to save availability.';
+        } finally {
+          this.saving = false;
+        }
+      }
+    };
+  }
+</script>

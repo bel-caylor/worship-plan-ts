@@ -44,7 +44,45 @@
       </span>
       <button
         class="inline-flex items-center justify-center h-9 px-3 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100 disabled:opacity-50"
-        :disabled="loadingServices" @click="newService()">New Service</button>
+        :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
+    </div>
+  </div>
+
+  <div x-cloak x-show="showCreateServicesModal"
+    class="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"
+    @keydown.escape.window="closeCreateServicesModal()"
+    @click.self="closeCreateServicesModal()">
+    <div class="bg-white rounded-lg shadow-xl max-w-lg w-full p-5">
+      <h2 class="text-lg font-semibold mb-3">Batch Create Services</h2>
+      <p class="text-sm text-gray-600 mb-4">
+        We'll create Sunday services at 10:00 AM. Communion is scheduled on the 1st, 3rd, and 5th Sundays;
+        Offering on the 2nd and 4th. Defaults: Leader &mdash; Darden, Preacher &mdash; Tom.
+      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <label class="text-sm text-gray-700">
+          Start Sunday
+          <input type="date" class="border rounded w-full mt-1 px-2 py-1"
+            x-model="batchStartDate">
+        </label>
+        <label class="text-sm text-gray-700">
+          Weeks to create
+          <input type="number" min="1" max="52" class="border rounded w-full mt-1 px-2 py-1"
+            x-model.number="batchWeeks" x-ref="batchWeeks">
+        </label>
+      </div>
+      <div class="text-sm text-rose-600 mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="px-3 py-1.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+          @click="closeCreateServicesModal()"
+          :disabled="batchCreateLoading">Cancel</button>
+        <button type="button"
+          class="px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+          :disabled="batchCreateLoading"
+          @click="submitBatchCreate()">
+          <span x-show="!batchCreateLoading">Create Services</span>
+          <span x-show="batchCreateLoading">Creating...</span>
+        </button>
+      </div>
     </div>
   </div>
 

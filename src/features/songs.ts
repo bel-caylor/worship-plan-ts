@@ -8,6 +8,7 @@ import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
 import { aiSongMetadata } from '../util/ai';
+declare const Drive: GoogleAppsScript.Drive_v3.Drive;
 
 type UpdateSongUsageInput = {
   name?: string;
@@ -240,6 +241,8 @@ type FolderFileDetails = {
   url: string;
   mimeType: string;
   created: Date | null;
+  parentId?: string;
+  convertedFromId?: string;
 };
 
 type FolderCandidate = {
@@ -330,7 +333,7 @@ export function syncSongsFromDrive(options?: SyncOptions) {
     }
 
     const bestFile = pickLyricsFile(candidate.files);
-    const lyrics = bestFile ? readLyricsFromFile(bestFile) : '';
+    const lyrics = bestFile ? readLyricsFromFile(bestFile, candidate.id) : '';
     const hints: string[] = [];
     if (candidate.path.length) hints.push(`Folder path: ${candidate.path.join(' / ')}`);
     if (candidate.flags?.isSpanish) hints.push('Spanish language');
@@ -342,7 +345,8 @@ export function syncSongsFromDrive(options?: SyncOptions) {
       lyrics,
       hints,
       forcedSeason: forcedSeason || undefined,
-      kScriptures: 5
+      kScriptures: 5,
+      allowKeywords: !!lyrics
     });
     if (metadata.error) errors.push(`${displayName}: ${metadata.error}`);
 
@@ -521,6 +525,7 @@ function listChildFolders(folder: GoogleAppsScript.Drive.Folder) {
 function listFolderFiles(folder: GoogleAppsScript.Drive.Folder) {
   const out: FolderFileDetails[] = [];
   const it = folder.getFiles();
+  const parentId = folder.getId();
   while (it.hasNext()) {
     const file = it.next();
     out.push({
@@ -528,7 +533,8 @@ function listFolderFiles(folder: GoogleAppsScript.Drive.Folder) {
       name: file.getName(),
       url: file.getUrl(),
       mimeType: file.getMimeType(),
-      created: file.getDateCreated()
+      created: file.getDateCreated(),
+      parentId
     });
   }
   return out;
@@ -566,31 +572,86 @@ function scoreLyricsFile(file: FolderFileDetails) {
   const mime = String(file?.mimeType || '').toLowerCase();
   let score = 0;
   if (!name) return 0;
+  if (isGoogleDocMime(mime)) score += 10;
+  if (/_wdoc\b/.test(name) || /[-\s]wdoc\b/.test(name)) score += 6;
   if (/lyrics?/.test(name) || /letras?/.test(name)) score += 5;
   if (/(^|[\s_-])w($|[\s_-])/i.test(file.name)) score += 3;
   if (/words?/.test(name) || /palabras/.test(name)) score += 2;
-  if (mime.includes('application/vnd.google-apps.document')) score += 2;
   if (mime.includes('text')) score += 1;
   return score;
 }
 
-function readLyricsFromFile(file: FolderFileDetails) {
+function isGoogleDocMime(mime: string) {
+  return String(mime || '').toLowerCase() === 'application/vnd.google-apps.document';
+}
+
+function readLyricsFromFile(file: FolderFileDetails, parentId?: string) {
   if (!file) return '';
-  const mime = String(file.mimeType || '').toLowerCase();
+  let target = file;
+  let mime = String(file.mimeType || '').toLowerCase();
+  if (!isGoogleDocMime(mime) && shouldConvertToDoc(file) && parentId) {
+    const converted = convertWordFileToDoc(file, parentId);
+    if (converted) {
+      target = converted;
+      mime = converted.mimeType;
+    }
+  }
   try {
-    if (mime === 'application/vnd.google-apps.document') {
-      const doc = DocumentApp.openById(file.id);
+    if (isGoogleDocMime(mime)) {
+      const doc = DocumentApp.openById(target.id);
       const text = doc.getBody().getText();
-      return cleanLyricsText(text, file.name);
+      return cleanLyricsText(text, target.name);
     }
     if (mime.startsWith('text/')) {
-      const blob = DriveApp.getFileById(file.id).getBlob();
-      return cleanLyricsText(blob.getDataAsString(), file.name);
+      const blob = DriveApp.getFileById(target.id).getBlob();
+      return cleanLyricsText(blob.getDataAsString(), target.name);
     }
   } catch (err) {
-    try { Logger.log(`Lyrics read error (${file.name}): ${(err as any)?.message}`); } catch (_) {}
+    try { Logger.log(`Lyrics read error (${target.name}): ${(err as any)?.message}`); } catch (_) {}
   }
   return '';
+}
+
+function shouldConvertToDoc(file: FolderFileDetails) {
+  const name = String(file?.name || '').toLowerCase();
+  if (!name) return false;
+  const hasPattern = /wdoc/i.test(name) || /lyric/i.test(name);
+  if (!hasPattern) return false;
+  const mime = String(file?.mimeType || '').toLowerCase();
+  const isWord = mime.includes('application/msword') || mime.includes('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+  if (!isWord) return false;
+  return typeof Drive !== 'undefined' && Drive && Drive.Files && typeof Drive.Files.copy === 'function';
+}
+
+function convertWordFileToDoc(file: FolderFileDetails, parentId: string) {
+  try {
+    if (!parentId || !Drive || !Drive.Files) return null;
+    const body: GoogleAppsScript.Drive_v3.Schema.File = {
+      name: deriveConvertedName(file.name),
+      mimeType: 'application/vnd.google-apps.document',
+      parents: [parentId]
+    };
+    const copy = Drive.Files.copy(body, file.id);
+    if (!copy || !copy.id) return null;
+    return {
+      id: copy.id,
+      name: copy.name || body.name || file.name,
+      url: copy.webViewLink || copy.alternateLink || makeDocUrl(copy.id),
+      mimeType: copy.mimeType || 'application/vnd.google-apps.document',
+      created: copy.createdTime ? new Date(copy.createdTime) : new Date(),
+      parentId,
+      convertedFromId: file.id
+    };
+  } catch (err) {
+    try { Logger.log(`Convert lyrics error (${file.name}): ${(err as any)?.message}`); } catch (_) {}
+    return null;
+  }
+}
+
+function deriveConvertedName(original: string) {
+  const base = String(original || '').replace(/\.[^.]+$/, '').trim() || 'Lyrics';
+  if (/converted/i.test(base)) return base;
+  return `${base} (Lyrics Doc)`;
 }
 
 function cleanLyricsText(text: string, songName: string) {
@@ -656,6 +717,11 @@ function makeFolderHyperlink(url: string, label = 'Open Folder') {
   const safeUrl = url.replace(/"/g, '');
   const safeLabel = label.replace(/"/g, '');
   return `=HYPERLINK("${safeUrl}","${safeLabel || 'Open Folder'}")`;
+}
+
+function makeDocUrl(id: string) {
+  if (!id) return '';
+  return `https://docs.google.com/document/d/${id}/edit`;
 }
 
 export function getSongsWithLinksForView(): Row[] {
