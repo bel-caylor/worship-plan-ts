@@ -70,6 +70,13 @@ export const WEEKLY_TEAM_ROLES_COL = {
   memberName: 'MemberName'
 } as const;
 
+export const WEEKLY_TEAM_ROLE_DEFAULTS_SHEET = 'WeeklyTeamRoleDefaults';
+export const WEEKLY_TEAM_ROLE_DEFAULTS_COL = {
+  team: 'Team',
+  roleName: 'RoleName',
+  order: 'Order'
+} as const;
+
 export const MEMBER_AVAILABILITY_SHEET = 'MemberAvailability';
 export const MEMBER_AVAILABILITY_COL = {
   email: 'Email',

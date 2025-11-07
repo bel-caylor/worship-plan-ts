@@ -1,13 +1,14 @@
 <script>
   const TEAM_ROLE_PRESETS = {
-    Worship: ['Leader', 'Guitar', 'Bass', 'Mandolin', 'Keyboard', 'Drums', 'Vocals', 'Powerpoint', 'Soundboard'],
+    Worship: ['Leader', 'Guitar', 'Bass', 'Other', 'Keyboard', 'Drums', 'Vocals', 'Powerpoint', 'Soundboard', 'Communion', 'Offering'],
     Kids: ['Preschool Teacher', 'Toddler Teacher', 'Preschool Helper', 'Toddler Helper', 'Kids Teacher', 'Kids Helper'],
     Hospitality: ['Greeter', 'Security']
   };
+  const WEEKLY_COLUMN_LABELS = ['1st Sunday', '2nd Sunday', '3rd Sunday', '4th Sunday', '5th Sunday'];
 
   function teamApp() {
     return {
-      activeTab: 'roles',
+      activeTab: 'weeklyTeams',
       loading: true,
       error: '',
       roles: [],
@@ -59,7 +60,21 @@
         teamName: '',
         description: ''
       },
-      memberLookup: {},
+        memberLookup: {},
+        weeklyTeamDefaults: {},
+        weeklyTeamLayouts: [],
+      weeklyTeamDirtyFlags: {},
+      teamDirtyVersions: {},
+      savingTeams: {},
+        weeklyTeamsSaving: false,
+        weeklyTeamsSaveError: '',
+        weeklyTeamsSaveMessage: '',
+        weeklyTeamEditorOpen: false,
+        showRoleDefaultsModal: false,
+        roleDefaultsTeamType: '',
+        roleDefaultsDraft: [],
+        roleDefaultsSaving: false,
+        roleDefaultsError: '',
 
       init() {
         this.computePresetLookup();
@@ -79,6 +94,14 @@
 
       normalize(value) {
         return String(value || '').trim().toLowerCase();
+      },
+
+      canonicalRoleKey(value) {
+        let base = this.normalize(value);
+        if (!base) return '';
+        base = base.replace(/\s*(\d+)$/, '').trim();
+        base = base.replace(/\s+(sp|special)$/i, '').trim();
+        return base;
       },
 
       splitList(value) {
@@ -225,8 +248,10 @@
             first,
             last,
             label: `${label} (${email})`.trim(),
+            shortLabel: first || label.split(' ')[0] || email,
             roles,
-            rolesNormalized: roles.map(r => this.normalize(r))
+            rolesNormalized: roles.map(r => this.normalize(r)),
+            roleCanonicalKeys: roles.map(r => this.canonicalRoleKey(r)).filter(Boolean)
           };
         });
         return map;
@@ -238,10 +263,18 @@
         try {
           const res = await callRpc('listWeeklyTeams', null);
           const items = Array.isArray(res?.items) ? res.items : [];
+          this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.defaults);
           this.weeklyTeams = items.map(item => this.normalizeWeeklyTeam(item));
           if (this.selectedWeeklyTeamId) {
             this.selectWeeklyTeam(this.selectedWeeklyTeamId);
           }
+          await this.ensureDefaultWeeklyTeams();
+          this.weeklyTeamDirtyFlags = {};
+          this.weeklyTeamsSaveError = '';
+          if (!this.weeklyTeamsSaving) {
+            this.weeklyTeamsSaveMessage = '';
+          }
+          this.rebuildWeeklyTeamLayouts();
         } catch (e) {
           console.error(e);
           this.weeklyTeamsError = (e && e.message) ? e.message : 'Weekly teams are not available yet.';
@@ -271,6 +304,440 @@
           description,
           roles
         };
+      },
+
+      normalizeWeeklyTeamDefaults(raw) {
+        const result = {};
+        if (!raw || typeof raw !== 'object') return result;
+        Object.entries(raw).forEach(([teamType, list]) => {
+          const entries = Array.isArray(list) ? list : [];
+          const normalized = entries
+            .map(entry => ({
+              roleName: String(entry?.roleName || entry?.role || '').trim(),
+              order: Number(entry?.order) || 0
+            }))
+            .filter(entry => entry.roleName);
+          normalized.sort((a, b) => a.order - b.order);
+          if (normalized.length) {
+            result[String(teamType || '').trim()] = normalized;
+          }
+        });
+        return result;
+      },
+
+      weeklyTeamsByType(type) {
+        const key = this.normalize(type);
+        return (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : [])
+          .filter(item => this.normalize(item?.team) === key)
+          .sort((a, b) => String(a.teamName || '').localeCompare(String(b.teamName || '')));
+      },
+
+      findWeeklyTeamByName(teamType, teamName) {
+        const typeKey = this.normalize(teamType);
+        const nameKey = this.normalize(teamName);
+        return (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).find(team =>
+          this.normalize(team?.team) === typeKey && this.normalize(team?.teamName) === nameKey
+        );
+      },
+
+      async ensureDefaultWeeklyTeams() {
+        let mutated = false;
+        const types = this.weeklyTeamTypes();
+        for (const type of types) {
+          for (const label of WEEKLY_COLUMN_LABELS) {
+            if (!this.findWeeklyTeamByName(type, label)) {
+              try {
+                const res = await callRpc('createWeeklyTeam', { team: type, teamName: label, description: '' });
+                if (res) {
+                  if (Array.isArray(res.items)) {
+                    this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
+                  }
+                  if (res.defaults) {
+                    this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
+                  }
+                  mutated = true;
+                }
+              } catch (err) {
+                console.error(err);
+              }
+            }
+          }
+        }
+        return mutated;
+      },
+
+      rebuildWeeklyTeamLayouts() {
+        const layouts = [];
+        const types = this.weeklyTeamTypes();
+        types.forEach(type => {
+          const layout = this.buildWeeklyTeamLayout(type);
+          if (layout) layouts.push(layout);
+        });
+        layouts.sort((a, b) => String(a.teamType || '').localeCompare(String(b.teamType || '')));
+        this.weeklyTeamLayouts = layouts;
+      },
+
+      buildWeeklyTeamLayout(teamType) {
+        const teams = this.weeklyTeamsByType(teamType);
+        if (!teams.length) return null;
+        const normalizedByName = new Map();
+        teams.forEach(team => {
+          const key = this.normalize(team.teamName);
+          if (key && !normalizedByName.has(key)) normalizedByName.set(key, team);
+        });
+        const usedIds = new Set();
+        const orderedColumns = WEEKLY_COLUMN_LABELS.map(label => {
+          const match = normalizedByName.get(this.normalize(label));
+          if (match) {
+            usedIds.add(match.id);
+            return {
+              id: match.id,
+              key: match.id,
+              teamName: match.teamName || label,
+              description: match.description || '',
+              team: match.team || '',
+              dirty: this.isWeeklyTeamDirty(match.id),
+              roles: match.roles || []
+            };
+          }
+          return {
+            id: null,
+            key: `placeholder:${teamType}:${label}`,
+            teamName: label,
+            description: '',
+            team: teamType,
+            dirty: false,
+            roles: [],
+            placeholder: true
+          };
+        });
+        const extraColumns = teams
+          .filter(team => !usedIds.has(team.id))
+          .map(team => ({
+            id: team.id,
+            key: team.id,
+            teamName: team.teamName || '(untitled team)',
+            description: team.description || '',
+            team: team.team || '',
+            dirty: this.isWeeklyTeamDirty(team.id),
+            roles: team.roles || []
+          }));
+        const columns = [...orderedColumns, ...extraColumns];
+
+        const roleNames = [];
+        const seen = new Set();
+        const addRoleName = (value) => {
+          const label = String(value || '').trim();
+          if (!label) return;
+          const key = this.normalize(label);
+          if (seen.has(key)) return;
+          seen.add(key);
+          roleNames.push(label);
+        };
+
+        const defaults = Array.isArray(this.weeklyTeamDefaults?.[teamType])
+          ? this.weeklyTeamDefaults[teamType]
+          : [];
+        defaults.forEach(entry => addRoleName(entry.roleName));
+
+        teams.forEach(team => {
+          (Array.isArray(team.roles) ? team.roles : []).forEach(role => {
+            addRoleName(role?.roleName || role?.roleType || '(Role)');
+          });
+        });
+
+        if (!roleNames.length) roleNames.push('Role');
+
+        const roles = roleNames.map(name => {
+          const cells = {};
+          const normalized = this.normalize(name);
+          columns.forEach(column => {
+            const assignment = column.id
+              ? (Array.isArray(column.roles) ? column.roles : []).find(r =>
+                  this.normalize(r?.roleName || r?.roleType) === normalized
+                )
+              : null;
+            const memberEmail = assignment ? String(assignment.memberEmail || '').trim() : '';
+            cells[column.key] = {
+              memberEmail,
+              memberName: memberEmail ? (assignment?.memberName || this.memberNameByEmail(memberEmail) || '') : ''
+            };
+          });
+          return {
+            key: `${teamType}::${name}`,
+            label: name,
+            cells
+          };
+        });
+
+        return { teamType, teams: columns, roles };
+      },
+
+      deriveRoleNamesForTeamType(teamType) {
+        const names = [];
+        const seen = new Set();
+        const pushName = (name) => {
+          const clean = String(name || '').trim();
+          if (!clean) return;
+          const key = this.normalize(clean);
+          if (seen.has(key)) return;
+          seen.add(key);
+          names.push(clean);
+        };
+        this.weeklyTeamsByType(teamType).forEach(team => {
+          (Array.isArray(team.roles) ? team.roles : []).forEach(role => {
+            pushName(role?.roleName || role?.roleType);
+          });
+        });
+        if (!names.length && Array.isArray(this.rolePresets?.[teamType])) {
+          this.rolePresets[teamType].forEach(pushName);
+        }
+        return names;
+      },
+
+      openRoleDefaults(teamType) {
+        this.roleDefaultsTeamType = teamType;
+        const existing = Array.isArray(this.weeklyTeamDefaults?.[teamType])
+          ? this.weeklyTeamDefaults[teamType].map(entry => entry.roleName)
+          : [];
+        const fallback = existing.length ? existing : this.deriveRoleNamesForTeamType(teamType);
+        this.roleDefaultsDraft = (fallback.length ? fallback : ['']).map(name => String(name || ''));
+        this.roleDefaultsError = '';
+        this.showRoleDefaultsModal = true;
+        this.$nextTick(() => {
+          try {
+            const first = this.$el?.querySelector('[data-role-default-input]');
+            if (first) first.focus();
+          } catch (_) {}
+        });
+      },
+
+      closeRoleDefaults() {
+        if (this.roleDefaultsSaving) return;
+        this.showRoleDefaultsModal = false;
+      },
+
+      addRoleDefault() {
+        this.roleDefaultsDraft = [...(this.roleDefaultsDraft || []), ''];
+        this.$nextTick(() => {
+          try {
+            const inputs = this.$el?.querySelectorAll('[data-role-default-input]');
+            if (inputs && inputs.length) inputs[inputs.length - 1].focus();
+          } catch (_) {}
+        });
+      },
+
+      removeRoleDefault(index) {
+        const list = Array.isArray(this.roleDefaultsDraft) ? [...this.roleDefaultsDraft] : [];
+        if (list.length <= 1) {
+          list[0] = '';
+        } else {
+          list.splice(index, 1);
+        }
+        this.roleDefaultsDraft = list;
+      },
+
+      moveRoleDefault(index, delta) {
+        const list = Array.isArray(this.roleDefaultsDraft) ? [...this.roleDefaultsDraft] : [];
+        const target = index + delta;
+        if (target < 0 || target >= list.length) return;
+        const [item] = list.splice(index, 1);
+        list.splice(target, 0, item);
+        this.roleDefaultsDraft = list;
+      },
+
+      async saveRoleDefaults() {
+        if (this.roleDefaultsSaving) return;
+        const team = String(this.roleDefaultsTeamType || '').trim();
+        if (!team) {
+          this.roleDefaultsError = 'Select a team type.';
+          return;
+        }
+        const roles = (Array.isArray(this.roleDefaultsDraft) ? this.roleDefaultsDraft : [])
+          .map(role => String(role || '').trim())
+          .filter(Boolean);
+        if (!roles.length) {
+          this.roleDefaultsError = 'Add at least one role name.';
+          return;
+        }
+        this.roleDefaultsSaving = true;
+        this.roleDefaultsError = '';
+        try {
+          const res = await callRpc('saveWeeklyTeamDefaults', { team, roles });
+          if (res?.defaults) {
+            this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
+          }
+          if (Array.isArray(res?.items)) {
+            this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
+          }
+          this.showRoleDefaultsModal = false;
+          this.rebuildWeeklyTeamLayouts();
+        } catch (e) {
+          console.error(e);
+          this.roleDefaultsError = (e && e.message) ? e.message : 'Failed to save default roles.';
+        } finally {
+          this.roleDefaultsSaving = false;
+        }
+      },
+
+      setWeeklyTeamMember(teamId, roleLabel, email) {
+        const team = (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).find(item => item.id === teamId);
+        if (!team || !teamId) return;
+        this.weeklyTeamsSaveMessage = '';
+        this.weeklyTeamsSaveError = '';
+        const roleName = String(roleLabel || '').trim();
+        if (!roleName) return;
+        const roles = Array.isArray(team.roles) ? team.roles : [];
+        const normalizedRoleName = this.normalize(roleName);
+        let entry = roles.find(r => this.normalize(r?.roleName || r?.roleType) === normalizedRoleName);
+        if (!entry) {
+          entry = {
+            roleName,
+            roleType: roleName,
+            memberEmail: '',
+            memberName: ''
+          };
+          roles.push(entry);
+          team.roles = roles;
+        }
+        entry.roleName = roleName;
+        entry.roleType = entry.roleType || roleName;
+        const trimmed = String(email || '').trim();
+        entry.memberEmail = trimmed;
+        entry.memberName = trimmed ? (this.memberNameByEmail(trimmed) || entry.memberName || '') : '';
+        if (!trimmed) {
+          entry.memberName = '';
+        }
+        const version = this.markWeeklyTeamDirty(teamId);
+        this.rebuildWeeklyTeamLayouts();
+        this.saveDirtyWeeklyTeams([teamId], { [teamId]: version }).catch(err => console.error(err));
+      },
+
+      markWeeklyTeamDirty(teamId) {
+        if (!teamId) return 0;
+        const nextVersion = (this.teamDirtyVersions?.[teamId] || 0) + 1;
+        this.teamDirtyVersions = { ...(this.teamDirtyVersions || {}), [teamId]: nextVersion };
+        this.weeklyTeamDirtyFlags = {
+          ...this.weeklyTeamDirtyFlags,
+          [teamId]: true
+        };
+        return nextVersion;
+      },
+
+      clearWeeklyTeamDirtyFlag(teamId) {
+        if (!teamId) return;
+        const next = { ...this.weeklyTeamDirtyFlags };
+        delete next[teamId];
+        this.weeklyTeamDirtyFlags = next;
+        const versions = { ...(this.teamDirtyVersions || {}) };
+        delete versions[teamId];
+        this.teamDirtyVersions = versions;
+      },
+
+      isWeeklyTeamDirty(teamId) {
+        return Boolean(teamId && this.weeklyTeamDirtyFlags && this.weeklyTeamDirtyFlags[teamId]);
+      },
+
+      hasDirtyWeeklyTeams() {
+        return Object.values(this.weeklyTeamDirtyFlags || {}).some(Boolean);
+      },
+
+      groupDirtyIds(group) {
+        if (!group || !Array.isArray(group.teams)) return [];
+        return group.teams
+          .map(team => team && team.id)
+          .filter(id => this.isWeeklyTeamDirty(id));
+      },
+
+      async saveDirtyWeeklyTeams(targetIds = null, expectedVersions = null) {
+        const targeted = Array.isArray(targetIds) && targetIds.length;
+        const idsToSave = targeted
+          ? targetIds.filter(Boolean)
+          : Object.entries(this.weeklyTeamDirtyFlags || {})
+              .filter(([, flag]) => flag)
+              .map(([id]) => id);
+        if (!idsToSave.length) return;
+        if (!targeted && this.weeklyTeamsSaving) return;
+        if (!targeted && !this.hasDirtyWeeklyTeams()) return;
+        if (!targeted) this.weeklyTeamsSaving = true;
+        this.weeklyTeamsSaveError = '';
+        if (!targeted) this.weeklyTeamsSaveMessage = '';
+        try {
+          for (const id of idsToSave) {
+            if (!id) continue;
+            if (targeted && this.savingTeams?.[id]) continue;
+            if (targeted) {
+              this.savingTeams = { ...(this.savingTeams || {}), [id]: true };
+            }
+            const team = (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).find(item => item.id === id);
+            if (!team) {
+              if (targeted) {
+                const next = { ...(this.savingTeams || {}) };
+                delete next[id];
+                this.savingTeams = next;
+              }
+              continue;
+            }
+            const payload = {
+              team: team.team,
+              teamName: team.teamName,
+              description: team.description,
+              roles: (Array.isArray(team.roles) ? team.roles : []).map(role => ({
+                roleName: String(role?.roleName || '').trim(),
+                roleType: String(role?.roleType || '').trim(),
+                memberEmail: String(role?.memberEmail || '').trim(),
+                memberName: String(role?.memberName || '').trim()
+              }))
+            };
+            const res = await callRpc('saveWeeklyTeam', payload);
+            if (!targeted && res?.items) {
+              this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
+              if (res?.defaults) {
+                this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
+              }
+            }
+            const expected = targeted ? expectedVersions?.[id] : null;
+            if (!expected || this.teamDirtyVersions?.[id] === expected) {
+              this.clearWeeklyTeamDirtyFlag(id);
+            }
+            if (targeted) {
+              const next = { ...(this.savingTeams || {}) };
+              delete next[id];
+              this.savingTeams = next;
+              const currentVersion = this.teamDirtyVersions?.[id];
+              if (this.weeklyTeamDirtyFlags?.[id] && currentVersion && (!expected || currentVersion > expected)) {
+                this.saveDirtyWeeklyTeams([id], { [id]: currentVersion }).catch(() => {});
+              }
+            }
+          }
+          if (!targeted) {
+            await this.loadWeeklyTeams();
+            this.weeklyTeamsSaveMessage = idsToSave.length === 1 ? 'Weekly team saved.' : 'Weekly teams saved.';
+          } else {
+            this.rebuildWeeklyTeamLayouts();
+          }
+        } catch (e) {
+          console.error(e);
+          this.weeklyTeamsSaveError = (e && e.message) ? e.message : 'Failed to save weekly teams.';
+        } finally {
+          if (!targeted) {
+            this.weeklyTeamsSaving = false;
+            this.rebuildWeeklyTeamLayouts();
+          }
+        }
+      },
+
+      openWeeklyTeamEditor(id) {
+        this.selectWeeklyTeam(id);
+        if (this.selectedWeeklyTeamId) {
+          this.weeklyTeamEditorOpen = true;
+        }
+      },
+
+      closeWeeklyTeamEditor() {
+        if (this.weeklyTeamSaving) return;
+        this.weeklyTeamEditorOpen = false;
+        this.selectedWeeklyTeamId = '';
       },
 
       makeWeeklyTeamId(team, teamName) {
@@ -568,9 +1035,18 @@
       memberOptionsForRoleType(roleType, role = null) {
         const normalizedType = this.normalize(roleType) || this.normalize(role?.roleName);
         const options = this.memberOptions();
+        const canonicalType = this.canonicalRoleKey(roleType) || this.canonicalRoleKey(role?.roleName);
         let filtered = normalizedType
           ? options.filter(opt => Array.isArray(opt.rolesNormalized) && opt.rolesNormalized.includes(normalizedType))
           : options;
+        if (canonicalType) {
+          const canonicalFiltered = options.filter(opt =>
+            Array.isArray(opt.roleCanonicalKeys) && opt.roleCanonicalKeys.includes(canonicalType)
+          );
+          if (canonicalFiltered.length) {
+            filtered = canonicalFiltered;
+          }
+        }
         if (!filtered.length) {
           filtered = options;
         }
@@ -586,7 +1062,10 @@
             ];
           }
         }
-        return filtered;
+        return filtered.map(opt => ({
+          ...opt,
+          display: opt.shortLabel || opt.label || opt.email
+        }));
       },
 
       memberLabel(email, fallback = '') {
@@ -650,6 +1129,9 @@
             this.upsertWeeklyTeamLocal(draft, this.weeklyTeamBaseline);
           }
           const newId = this.makeWeeklyTeamId(draft.team, draft.teamName);
+          this.clearWeeklyTeamDirtyFlag(this.selectedWeeklyTeamId);
+          this.clearWeeklyTeamDirtyFlag(newId);
+          this.rebuildWeeklyTeamLayouts();
           this.selectWeeklyTeam(newId);
           this.weeklyTeamSavedAt = Date.now();
         } catch (e) {
@@ -708,8 +1190,11 @@
         return list.length ? list[0] : '';
       },
 
-      openNewWeeklyTeam() {
+      openNewWeeklyTeam(teamType = '') {
         this.resetNewWeeklyTeamForm();
+        if (teamType) {
+          this.newWeeklyTeam.team = teamType;
+        }
         this.showNewWeeklyTeamModal = true;
       },
 

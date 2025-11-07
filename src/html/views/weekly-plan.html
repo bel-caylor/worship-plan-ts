@@ -311,14 +311,37 @@
         <button class="text-sm underline" @click="showSuggestModal=false">Close</button>
       </div>
       <div class="flex-1 min-h-0">
-        <div x-data="songsApp()" x-init="init()" x-ref="suggestApp" class="h-full flex flex-col">
+        <div x-data="songsApp('modal')" x-init="init()" x-ref="suggestApp" class="h-full flex flex-col">
           <div class="sticky top-0 z-10 bg-white border-b">
             <div class="p-3 flex flex-wrap items-center gap-3">
               <input type="search" placeholder="Search" class="border rounded px-3 py-1 w-64" x-model.debounce.200ms="q"
                 @search="render(true)" />
-              <label class="inline-flex items-center gap-2 text-sm"><input type="checkbox" x-model="searchLyrics"
-                  @change="render()" /> Lyrics</label>
-              <label class="text-sm">Season:
+              <div class="relative" x-data="{ open: false }">
+                <button type="button" class="px-3 py-1.5 border rounded bg-white hover:bg-gray-50 text-sm flex items-center gap-2"
+                  @click="open = !open">
+                  Options
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <div x-show="open" x-cloak @click.outside="open = false"
+                  class="absolute mt-1 w-44 bg-white border rounded shadow z-20">
+                  <label class="flex items-center gap-2 px-3 py-2 text-sm border-b">
+                    <input type="checkbox" x-model="searchLyrics" @change="render()" />
+                    Lyrics
+                  </label>
+                  <label class="flex items-center gap-2 px-3 py-2 text-sm border-b">
+                    <input type="checkbox" x-model="spanishOnly" @change="render(true)" />
+                    Spanish
+                  </label>
+                  <label class="flex items-center gap-2 px-3 py-2 text-sm">
+                    <input type="checkbox" x-model="showArchived" @change="render(true)" />
+                    Show archived
+                  </label>
+                </div>
+              </div>
+              <label class="text-sm flex flex-col">
+                <span class="text-gray-600">Season</span>
                 <select class="border rounded px-2 py-1" x-model="selectedSeason" @change="render()">
                   <option value="">All</option>
                   <template x-for="{key,label} in seasons" :key="key">
@@ -326,7 +349,8 @@
                   </template>
                 </select>
               </label>
-              <label class="text-sm">Leader:
+              <label class="text-sm flex flex-col">
+                <span class="text-gray-600">Leader</span>
                 <select class="border rounded px-2 py-1" x-model="selectedLeader" @change="render()">
                   <option value="">All</option>
                   <template x-for="name in leaderOptions" :key="name">
@@ -334,7 +358,8 @@
                   </template>
                 </select>
               </label>
-              <label class="text-sm">Usage:
+              <label class="text-sm flex flex-col">
+                <span class="text-gray-600">Usage</span>
                 <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
                   <option value="">All</option>
                   <template x-for="u in usageOptions" :key="u">

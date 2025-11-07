@@ -1,5 +1,7 @@
 <script>
-  function songsApp() {
+  function songsApp(mode = 'default') {
+    const normalizedMode = String(mode || '').toLowerCase();
+    const isModal = normalizedMode === 'modal';
     const audioExts = new Set(['mp3','m4a','wav','aac','flac','ogg','wma','aiff','mid','midi']);
     const docRules = [
       { label: 'Guitar', patterns: [/gdoc\b/i, /\bguitar\b/i, /(^|[\s_-])g($|[\s_-])/i] },
@@ -11,8 +13,30 @@
     const norm = (s) => String(s || '').toLowerCase();
     const title = (s) => String(s || '').replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
     const usageKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+    const truthyFlag = (val) => /^y(es)?|true|1$/i.test(String(val ?? '').trim());
+    const isFlagOn = (value) => {
+      const normalized = String(value ?? '').trim().toLowerCase();
+      return normalized === 'y' || normalized === 'yes' || normalized === 'true' || normalized === '1';
+    };
+
+    const makeSongForm = (row = {}) => ({
+      Song: String(row?.Song || ''),
+      Leader: String(row?.Leader || ''),
+      Season: String(row?.Season || ''),
+      Usage: String(row?.Usage || ''),
+      Themes: String(row?.Themes || ''),
+      Keywords: String(row?.Keywords || ''),
+      Scriptures: String(row?.Scriptures || ''),
+      Notes: String(row?.Notes || ''),
+      Lyrics: String(row?.Lyrics || row?.['Lyrics (PD)'] || ''),
+      Link: String(row?.Link || row?.link || ''),
+      Sp: isFlagOn(row?.Sp ?? row?.sp ?? row?.Spanish ?? ''),
+      Archive: isFlagOn(row?.Archive ?? row?.archive ?? row?.ARCHIVE ?? row?.Archived ?? '')
+    });
 
     return {
+      isModalContext: isModal,
+      mobileListOpen: false,
       rows: window.__ROWS__ || [],
       filtered: [],
       selected: null,
@@ -29,6 +53,8 @@
 
       q: '',
       searchLyrics: true,
+      spanishOnly: false,
+      showArchived: false,
       sortKey: 'Last_Used',
       sortDir: 1,
 
@@ -40,6 +66,12 @@
       mediaMessage: '',
 
       _defaultsTs: 0,
+      showSongEditor: false,
+      songEditorMode: 'create',
+      songEditorError: '',
+      songEditorSaving: false,
+      songForm: makeSongForm(),
+      editorOriginalName: '',
 
       async init() {
         if (!Array.isArray(this.rows) || !this.rows.length) {
@@ -60,6 +92,8 @@
         this.$watch('selectedSeason', () => this.render(true));
         this.$watch('selectedLeader', () => this.render(true));
         this.$watch('searchLyrics', () => this.render(true));
+        this.$watch('spanishOnly', () => this.render(true));
+        this.$watch('showArchived', () => this.render(true));
         this.$watch('selectedUsage', () => this.render(true));
         this.render(true);
 
@@ -126,6 +160,9 @@
           return;
         }
         await this.loadMediaForUrl(url);
+        if (!this.isModalContext) {
+          this.mobileListOpen = false;
+        }
       },
 
       async loadMediaForUrl(url) {
@@ -162,6 +199,22 @@
         return this.sortDir === 1 ? '&#9650;' : '&#9660;';
       },
 
+      isSpanish(row) {
+        if (!row || typeof row !== 'object') return false;
+        const raw = row.Sp ?? row.sp ?? row['SP'] ?? row['Spanish'] ?? '';
+        const val = String(raw || '').trim().toLowerCase();
+        if (!val) return false;
+        return val === 'y' || val === 'yes' || val === 'spanish' || val === 'true' || val === '1';
+      },
+
+      isArchived(row) {
+        if (!row || typeof row !== 'object') return false;
+        const raw = row.Archive ?? row.archive ?? row['ARCHIVE'] ?? row.Archived ?? row.archived ?? '';
+        const val = String(raw || '').trim().toLowerCase();
+        if (!val) return false;
+        return val === 'y' || val === 'yes' || val === 'true' || val === '1';
+      },
+
       render(resetSelection = false) {
         const wantLeader = (this.selectedLeader || '').trim();
         const wantUsage = (this.selectedUsage || '').trim();
@@ -185,6 +238,8 @@
             const L = Array.isArray(r._leaders) ? r._leaders : [];
             if (!L.includes(wantLeader)) return false;
           }
+          if (this.spanishOnly && !this.isSpanish(r)) return false;
+          if (!this.showArchived && this.isArchived(r)) return false;
           if (wantUsage) {
             const want = usageKey(wantUsage);
             const toks = String(r['Usage'] ?? '')
@@ -384,6 +439,82 @@
           }
         }
         return html;
+      },
+
+      findSongByName(name) {
+        const needle = String(name || '').trim().toLowerCase();
+        if (!needle) return null;
+        return (this.rows || []).find(r => String(r?.Song || '').trim().toLowerCase() === needle) || null;
+      },
+
+      openSongEditor(mode = 'create') {
+        const nextMode = mode === 'edit' ? 'edit' : 'create';
+        if (nextMode === 'edit' && !this.selected) {
+          this.error = 'Select a song to edit first.';
+          return;
+        }
+        this.songEditorMode = nextMode;
+        this.songEditorError = '';
+        this.songForm = nextMode === 'edit' ? makeSongForm(this.selected || {}) : makeSongForm();
+        this.editorOriginalName = nextMode === 'edit' ? String(this.selected?.Song || '') : '';
+        this.showSongEditor = true;
+        this.$nextTick(() => {
+          try { this.$refs?.songTitle?.focus(); } catch (_) {}
+        });
+      },
+
+      cancelSongEditor() {
+        if (this.songEditorSaving) return;
+        this.showSongEditor = false;
+        this.songEditorError = '';
+      },
+
+      buildSongPayload() {
+        const form = this.songForm || {};
+        return {
+          Song: String(form.Song || '').trim(),
+          Leader: String(form.Leader || '').trim(),
+          Season: String(form.Season || '').trim(),
+          Usage: String(form.Usage || '').trim(),
+          Themes: String(form.Themes || '').trim(),
+          Keywords: String(form.Keywords || '').trim(),
+          Scriptures: String(form.Scriptures || '').trim(),
+          Notes: String(form.Notes || '').trim(),
+          Lyrics: String(form.Lyrics || ''),
+          Link: String(form.Link || '').trim(),
+          Sp: form.Sp ? 'Y' : '',
+          Archive: form.Archive ? 'Y' : ''
+        };
+      },
+
+      async saveSongEditor() {
+        if (this.songEditorSaving) return;
+        const payload = this.buildSongPayload();
+        if (!payload.Song) {
+          this.songEditorError = 'Song title is required.';
+          return;
+        }
+        this.songEditorSaving = true;
+        this.songEditorError = '';
+        try {
+          const res = await callRpc('saveSongEntry', {
+            originalName: this.songEditorMode === 'edit' ? this.editorOriginalName : '',
+            data: payload
+          });
+          if (Array.isArray(res?.items)) {
+            this.rows = res.items;
+            this.buildFilters();
+            this.render(true);
+            const match = this.findSongByName(payload.Song);
+            if (match) await this.select(match);
+          }
+          this.showSongEditor = false;
+        } catch (e) {
+          console.error(e);
+          this.songEditorError = (e && e.message) ? e.message : 'Unable to save song.';
+        } finally {
+          this.songEditorSaving = false;
+        }
       },
 
       applyDefaults(payload = {}) {

@@ -46,51 +46,7 @@ export function aiSongMetadata(input: SongMetadataInput): SongMetadataResult {
   const kScriptures = Math.max(1, Math.min(10, Number(input?.kScriptures ?? 5)));
   const allowKeywords = !!input?.allowKeywords;
 
-  const fallback = heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures, allowKeywords });
-  const key = getOpenAiKey();
-  if (!key) return { ...fallback, error: 'OPENAI_API_KEY not set in Script Properties' };
-
-  const snippet = lyrics.length > 1600 ? lyrics.slice(0, 1600) + '...' : lyrics;
-  const hintsBlock = hints.length ? hints.join('\n') : '(no additional hints)';
-  const seasonDirective = forcedSeason
-    ? `Always set the season to exactly "${forcedSeason}".`
-    : 'Infer the best-fitting liturgical season (Christmas, Advent, Easter, Lent, Pentecost, General, etc).';
-
-  const sys = 'You are a worship-planning assistant. Given a song title and lyrics, suggest concise metadata.';
-  const user = `Song title: ${name || '(unknown)'}
-Lyrics snippet:
-${snippet || '(lyrics unavailable)'}
-
-Hints:
-${hintsBlock}
-
-${seasonDirective}
-Return strict JSON with the following shape:
-{
-  "themes": ["Theme 1","Theme 2"],
-  "keywords": ["Keyword 1","Keyword 2"],
-  "season": "Season Name",
-  "scriptures": ["Book 1:1-5","Book 2:3"]
-}
-Use concise phrases; limit lists to at most ${kScriptures} scripture references and 6 keywords.`;
-
-  try {
-    const res = callOpenAi(sys, user, key);
-    const parsed = safeJsonParse(res);
-    const themes = normalizeList(parsed?.themes).slice(0, 5);
-    const keywords = allowKeywords ? sanitizeKeywords(normalizeList(parsed?.keywords).slice(0, 6), name) : [];
-    const scriptures = normalizeList(parsed?.scriptures).slice(0, kScriptures);
-    const seasonRaw = forcedSeason || normalizeSeason(parsed?.season || '');
-    return {
-      themes: themes.length ? themes : fallback.themes,
-      keywords: keywords.length ? keywords : fallback.keywords,
-      scriptures: scriptures.length ? scriptures : fallback.scriptures,
-      season: seasonRaw || fallback.season,
-    };
-  } catch (err) {
-    try { Logger.log('AI metadata error: ' + (err as any)?.message); } catch (_) {}
-    return { ...fallback, error: 'AI metadata request failed' };
-  }
+  return heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures, allowKeywords });
 }
 
 export function aiScripturesForLyrics(input: {

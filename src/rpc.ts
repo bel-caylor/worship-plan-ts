@@ -2,10 +2,10 @@
 import { getFilesForFolderUrl } from './util/drive';
 import { addService, createServicesBatch, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
 import { getOrder, saveOrder } from './features/order';
-import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency } from './features/songs';
+import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
-import { listRoles, updateRoleEntry, addRoleEntry } from './features/roles';
-import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam } from './features/weekly-teams';
+import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles } from './features/roles';
+import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
 
 export function rpc(input: { method: string; payload: unknown }) {
@@ -33,6 +33,8 @@ export function rpc(input: { method: string; payload: unknown }) {
       case 'getSongsForView': return getSongsWithLinksForView();
       case 'getSongFields': return getSongFields(payload as any);
       case 'updateSongUsage': return updateSongRecency(payload as any);
+      case 'saveSongEntry':
+        return saveSongEntry(payload as any);
       case 'aiScripturesForLyrics':
         return aiScripturesForLyrics(payload as any);
       case 'rebuildSongUsage': return rebuildSongUsageFromPlanner();
@@ -46,12 +48,16 @@ export function rpc(input: { method: string; payload: unknown }) {
         return updateRoleEntry(payload as any);
       case 'addRoleEntry':
         return addRoleEntry(payload as any);
+      case 'memberExistsInRoles':
+        return memberExistsInRoles(payload as any);
       case 'listWeeklyTeams':
         return listWeeklyTeams();
       case 'createWeeklyTeam':
         return createWeeklyTeam(payload as any);
       case 'saveWeeklyTeam':
         return saveWeeklyTeam(payload as any);
+      case 'saveWeeklyTeamDefaults':
+        return saveWeeklyTeamDefaults(payload as any);
       case 'getMemberAvailability':
         return getMemberAvailability(payload as any);
       case 'saveMemberAvailability':

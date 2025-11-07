@@ -2,7 +2,9 @@ import {
   WEEKLY_TEAMS_SHEET,
   WEEKLY_TEAMS_COL,
   WEEKLY_TEAM_ROLES_SHEET,
-  WEEKLY_TEAM_ROLES_COL
+  WEEKLY_TEAM_ROLES_COL,
+  WEEKLY_TEAM_ROLE_DEFAULTS_SHEET,
+  WEEKLY_TEAM_ROLE_DEFAULTS_COL
 } from '../constants';
 import { getSheetByName } from '../util/sheets';
 
@@ -29,6 +31,13 @@ type WeeklyTeamRoleSheetRow = WeeklyTeamRole & {
   team: string;
   teamName: string;
   key: string;
+  rowNumber: number;
+};
+
+type WeeklyTeamRoleDefault = {
+  team: string;
+  roleName: string;
+  order: number;
   rowNumber: number;
 };
 
@@ -109,6 +118,53 @@ function readWeeklyTeamsSheet(): WeeklyTeamSheetRow[] {
   return rows;
 }
 
+function ensureDefaultsSheet(): GoogleAppsScript.Spreadsheet.Sheet {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(WEEKLY_TEAM_ROLE_DEFAULTS_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(WEEKLY_TEAM_ROLE_DEFAULTS_SHEET);
+    sh.getRange(1, 1, 1, 3).setValues([[
+      WEEKLY_TEAM_ROLE_DEFAULTS_COL.team,
+      WEEKLY_TEAM_ROLE_DEFAULTS_COL.roleName,
+      WEEKLY_TEAM_ROLE_DEFAULTS_COL.order
+    ]]);
+  }
+  return sh;
+}
+
+function readWeeklyTeamRoleDefaults(): WeeklyTeamRoleDefault[] {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(WEEKLY_TEAM_ROLE_DEFAULTS_SHEET);
+  if (!sh) return [];
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+  const headers = sh
+    .getRange(1, 1, 1, lastCol)
+    .getValues()[0]
+    .map(v => String(v ?? '').trim());
+
+  const idxTeam = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.team);
+  const idxRoleName = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.roleName);
+  const idxOrder = headerIndexOptional(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.order);
+
+  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const rows: WeeklyTeamRoleDefault[] = [];
+  body.forEach((row, i) => {
+    const team = norm(row[idxTeam]);
+    const roleName = norm(row[idxRoleName]);
+    if (!team || !roleName) return;
+    const orderValue = idxOrder >= 0 ? Number(row[idxOrder]) : NaN;
+    rows.push({
+      team,
+      roleName,
+      order: Number.isFinite(orderValue) ? orderValue : i,
+      rowNumber: i + 2
+    });
+  });
+  return rows;
+}
+
 function readWeeklyTeamRolesSheet(): WeeklyTeamRoleSheetRow[] {
   const sh = getSheetByName(WEEKLY_TEAM_ROLES_SHEET);
   const lastRow = sh.getLastRow();
@@ -150,8 +206,9 @@ function readWeeklyTeamRolesSheet(): WeeklyTeamRoleSheetRow[] {
 export function listWeeklyTeams() {
   const baseRows = readWeeklyTeamsSheet();
   const roleRows = readWeeklyTeamRolesSheet();
-  const map = new Map<string, WeeklyTeamRecord>();
+  const defaultRows = readWeeklyTeamRoleDefaults();
 
+  const map = new Map<string, WeeklyTeamRecord>();
   baseRows.forEach(row => {
     map.set(row.key, {
       team: row.team,
@@ -183,7 +240,72 @@ export function listWeeklyTeams() {
     return a.teamName.localeCompare(b.teamName);
   });
 
-  return { items };
+  const defaultsMap = new Map<string, WeeklyTeamRoleDefault[]>();
+  defaultRows.forEach(row => {
+    const key = norm(row.team).toLowerCase();
+    if (!key) return;
+    if (!defaultsMap.has(key)) defaultsMap.set(key, []);
+    defaultsMap.get(key)!.push(row);
+  });
+  const defaultsObj: Record<string, { roleName: string; order: number }[]> = {};
+  defaultsMap.forEach((list, key) => {
+    list.sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.roleName.localeCompare(b.roleName);
+    });
+    if (!list.length) return;
+    const canonicalTeam = list[0].team;
+    defaultsObj[canonicalTeam] = list.map(entry => ({
+      roleName: entry.roleName,
+      order: entry.order
+    }));
+  });
+
+  return { items, defaults: defaultsObj };
+}
+
+export function saveWeeklyTeamDefaults(input: { team: string; roles: string[] }) {
+  const team = norm(input.team);
+  if (!team) throw new Error('Team type is required.');
+  const roles = Array.isArray(input.roles) ? input.roles.map(role => norm(role)).filter(Boolean) : [];
+
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(5000);
+  try {
+    const sh = ensureDefaultsSheet();
+    const lastCol = Math.max(sh.getLastColumn(), 3);
+    const headers = sh
+      .getRange(1, 1, 1, lastCol)
+      .getValues()[0]
+      .map(v => String(v ?? '').trim());
+
+    const idxTeam = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.team);
+    const idxRole = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.roleName);
+    let idxOrder = headerIndexOptional(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.order);
+    if (idxOrder < 0) {
+      sh.insertColumnAfter(lastCol);
+      idxOrder = lastCol;
+      sh.getRange(1, idxOrder + 1).setValue(WEEKLY_TEAM_ROLE_DEFAULTS_COL.order);
+    }
+
+    const existing = readWeeklyTeamRoleDefaults();
+    const rowsToDelete = existing
+      .filter(entry => norm(entry.team).toLowerCase() === team.toLowerCase())
+      .map(entry => entry.rowNumber)
+      .sort((a, b) => b - a);
+    rowsToDelete.forEach(rowNumber => sh.deleteRow(rowNumber));
+
+    roles.forEach((roleName, order) => {
+      const nextRow = Math.max(sh.getLastRow(), 1) + 1;
+      sh.getRange(nextRow, idxTeam + 1).setValue(team);
+      sh.getRange(nextRow, idxRole + 1).setValue(roleName);
+      sh.getRange(nextRow, idxOrder + 1).setValue(order);
+    });
+  } finally {
+    lock.releaseLock();
+  }
+
+  return listWeeklyTeams();
 }
 
 export function createWeeklyTeam(input: CreateWeeklyTeamInput) {
@@ -286,10 +408,6 @@ export function saveWeeklyTeam(input: SaveWeeklyTeamInput) {
     const idxRoleMemberEmail = headerIndex(roleHeaders, WEEKLY_TEAM_ROLES_COL.memberEmail);
     const idxRoleMemberName = headerIndex(roleHeaders, WEEKLY_TEAM_ROLES_COL.memberName);
 
-    if (idxRoleType < 0) {
-      throw new Error(`Column "${WEEKLY_TEAM_ROLES_COL.roleType}" not found on ${WEEKLY_TEAM_ROLES_SHEET} sheet.`);
-    }
-
     const existingRoles = readWeeklyTeamRolesSheet();
     const rowsToDelete = existingRoles
       .filter(row => row.key === originalKey || row.key === targetKey)
@@ -308,7 +426,9 @@ export function saveWeeklyTeam(input: SaveWeeklyTeamInput) {
       roleSheet.getRange(nextRow, idxRoleTeam + 1).setValue(team);
       roleSheet.getRange(nextRow, idxRoleTeamName + 1).setValue(teamName);
       roleSheet.getRange(nextRow, idxRoleName + 1).setValue(roleName);
-      roleSheet.getRange(nextRow, idxRoleType + 1).setValue(roleType);
+      if (idxRoleType >= 0) {
+        roleSheet.getRange(nextRow, idxRoleType + 1).setValue(roleType || roleName);
+      }
       roleSheet.getRange(nextRow, idxRoleMemberEmail + 1).setValue(memberEmail);
       roleSheet.getRange(nextRow, idxRoleMemberName + 1).setValue(memberName);
     });

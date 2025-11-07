@@ -2,20 +2,20 @@
   <div class="border-b px-4 pt-3 flex items-center gap-3 bg-gray-100 relative">
     <div class="flex items-center gap-1 text-sm z-10">
       <button type="button"
-        class="px-3 py-1 rounded-t-md  transition border-t border-x"
-        :class="activeTab==='roles'
-          ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
-          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
-        @click="activeTab='roles'">
-        Roles
-      </button>
-      <button type="button"
         class="px-3 py-1 rounded-t-md transition border-t border-x"
         :class="activeTab==='weeklyTeams'
           ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
           : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
         @click="activeTab='weeklyTeams'">
         Weekly Teams
+      </button>
+      <button type="button"
+        class="px-3 py-1 rounded-t-md  transition border-t border-x"
+        :class="activeTab==='roles'
+          ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+        @click="activeTab='roles'">
+        Roles
       </button>
     </div>
     <div class="flex-1"></div>
@@ -24,6 +24,142 @@
       <button type="button" class="px-2 py-1 text-sm border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
         :disabled="loading"
         @click="refresh()">Refresh</button>
+    </div>
+  </div>
+
+  <div x-cloak x-show="weeklyTeamEditorOpen" class="fixed inset-0 z-40 flex items-center justify-center"
+    @keydown.escape.window="closeWeeklyTeamEditor()">
+    <div class="absolute inset-0 bg-black/40" @click="closeWeeklyTeamEditor()"></div>
+    <div class="relative bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+      <div class="border-b px-5 py-4 flex items-center justify-between">
+        <div>
+          <div class="text-xs uppercase tracking-wide text-gray-500" x-text="weeklyTeamDraft.team || 'Team'"></div>
+          <h3 class="text-lg font-semibold" x-text="weeklyTeamDraft.teamName || 'Weekly Team'"></h3>
+        </div>
+        <button type="button" class="px-2 py-1 text-sm text-gray-500 hover:text-gray-800"
+          @click="closeWeeklyTeamEditor()">Close</button>
+      </div>
+      <div class="flex-1 overflow-auto">
+        <div class="p-6 space-y-6">
+          <div class="grid gap-4 md:grid-cols-2">
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">Team type</span>
+              <select class="mt-1 w-full border rounded px-3 py-2"
+                x-model="weeklyTeamDraft.team"
+                @change="handleWeeklyTeamTypeChange()">
+                <template x-for="teamType in weeklyTeamTypes()" :key="'edit-'+teamType">
+                  <option :value="teamType" x-text="teamType"></option>
+                </template>
+              </select>
+            </label>
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">Team name</span>
+              <input type="text" class="mt-1 w-full border rounded px-3 py-2"
+                placeholder="e.g., 1st Sunday"
+                x-model="weeklyTeamDraft.teamName" />
+            </label>
+            <label class="block text-sm md:col-span-2">
+              <span class="font-medium text-gray-700">Description / notes</span>
+              <textarea class="mt-1 w-full border rounded px-3 py-2 min-h-[88px]"
+                placeholder="Optional notes"
+                x-model="weeklyTeamDraft.description"></textarea>
+            </label>
+          </div>
+
+          <div class="space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <span class="font-medium text-gray-700">Role assignments</span>
+              <div class="flex items-center gap-2">
+                <button type="button" class="text-xs text-blue-600 hover:text-blue-800"
+                  @click="toggleShowAllRoles()">
+                  <span x-show="!weeklyTeamShowAllRoles">Show extra role types</span>
+                  <span x-show="weeklyTeamShowAllRoles">Hide extra role types</span>
+                </button>
+                <button type="button" class="px-2 py-1 border rounded text-xs bg-white hover:bg-blue-50"
+                  @click="addWeeklyTeamRole()">
+                  + Add role
+                </button>
+              </div>
+            </div>
+            <div class="text-sm text-gray-500" x-show="!weeklyTeamRolesDraft.length">
+              No roles defined yet. Use “Add role” to start building this team.
+            </div>
+            <div class="border rounded overflow-x-auto" x-show="weeklyTeamRolesDraft.length">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th class="text-left font-medium px-3 py-2">Role name</th>
+                    <th class="text-left font-medium px-3 py-2 w-48">Role type</th>
+                    <th class="text-left font-medium px-3 py-2 w-56">Assigned member</th>
+                    <th class="px-3 py-2 w-12 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="role in weeklyTeamRolesDraft" :key="role.id">
+                    <tr class="border-t">
+                      <td class="px-3 py-2 align-top">
+                        <input type="text"
+                          class="w-full border rounded px-2 py-1.5"
+                          placeholder="e.g., Guitar 1"
+                          x-model="role.roleName" />
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <select class="w-full border rounded px-2 py-1"
+                          x-model="role.roleType"
+                          x-bind:data-role-type-select="role.id">
+                          <option value="">Select role type</option>
+                          <template x-for="type in roleTypeOptionsForRole(role)" :key="role.id + '-' + type">
+                            <option :value="type" x-text="type"></option>
+                          </template>
+                        </select>
+                      </td>
+                      <td class="px-3 py-2 align-top">
+                        <select class="w-full border rounded px-2 py-1"
+                          x-model="role.memberEmail"
+                          x-bind:data-role-member-select="role.id">
+                          <option value="">Unassigned</option>
+                          <template x-for="member in memberOptionsForRoleType(role.roleType, role)" :key="member.email + '-' + role.id">
+                            <option :value="member.email" x-text="member.label"></option>
+                          </template>
+                        </select>
+                      </td>
+                      <td class="px-3 py-2 align-top text-center">
+                        <button type="button"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-0"
+                          title="Remove role"
+                          aria-label="Remove role"
+                          @click="removeWeeklyTeamRole(role.id)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
+              @click="saveWeeklyTeam()">
+              Save Weekly Team
+            </button>
+            <button type="button" class="px-3 py-1.5 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
+              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
+              @click="resetWeeklyTeamEdits()">
+              Discard
+            </button>
+            <span class="text-sm text-green-700" x-show="weeklyTeamSavedAt" x-text="'Saved ' + timeAgo(weeklyTeamSavedAt)"></span>
+            <span class="text-sm text-gray-600" x-show="weeklyTeamSaving">Saving...</span>
+            <span class="text-sm text-red-600" x-show="weeklyTeamSaveError" x-text="weeklyTeamSaveError"></span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -147,160 +283,136 @@
     </div>
   </div>
 
-  <div class="flex-1 min-h-0 flex" x-show="activeTab==='weeklyTeams'" x-cloak>
-    <div class="w-[250px] flex-shrink-0 border-r flex flex-col min-h-0">
-      <div class="p-3 space-y-3 border-b">
-        <button type="button" class="w-full px-3 py-2 text-sm font-medium border rounded bg-white hover:bg-blue-50"
-          @click="openNewWeeklyTeam()">+ New Weekly Team</button>
-        <select class="w-full border rounded px-2 py-1 text-sm" x-model="weeklyTeamFilter">
-          <option value="">All team types</option>
-          <template x-for="teamType in weeklyTeamTypes()" :key="teamType">
-            <option :value="teamType" x-text="teamType"></option>
-          </template>
-        </select>
-        <div class="text-xs text-red-600" x-show="weeklyTeamsError" x-text="weeklyTeamsError"></div>
+
+  <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='weeklyTeams'" x-cloak>
+    <div class="border-b bg-gray-50 px-4 py-3 flex flex-wrap items-center gap-3">
+      <div class="text-xs text-red-600" x-show="weeklyTeamsError" x-text="weeklyTeamsError"></div>
+      <div class="flex-1"></div>
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-emerald-700" x-show="weeklyTeamsSaveMessage" x-text="weeklyTeamsSaveMessage"></span>
+        <span class="text-red-600" x-show="weeklyTeamsSaveError" x-text="weeklyTeamsSaveError"></span>
+        <span class="text-gray-600" x-show="weeklyTeamsSaving">Saving weekly teams...</span>
       </div>
-      <div class="flex-1 min-h-0 overflow-auto">
-        <div class="p-4 text-sm text-gray-500" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
-        <div class="p-4 text-sm text-gray-500" x-show="!weeklyTeamsLoading && !filteredWeeklyTeams().length">No weekly teams yet.</div>
-        <ul>
-          <template x-for="team in filteredWeeklyTeams()" :key="team.id">
-            <li class="border-b px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm"
-              :class="selectedWeeklyTeamId === team.id ? 'bg-blue-50 border-l-4 border-blue-400' : ''"
-              @click="selectWeeklyTeam(team.id)">
-              <div class="font-medium" x-text="team.teamName || '(untitled team)'"></div>
-              <div class="text-xs text-gray-500" x-text="team.team"></div>
-              <div class="text-xs text-gray-600 mt-1" x-text="formatWeeklyTeamSummary(team)"></div>
-            </li>
-          </template>
-        </ul>
+      <button type="button" class="px-2 py-1 text-sm border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+        :disabled="weeklyTeamsSaving"
+        @click="refresh()">Refresh</button>
+      <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+        :disabled="!hasDirtyWeeklyTeams() || weeklyTeamsSaving"
+        @click="saveDirtyWeeklyTeams()">
+        Save Changes
+      </button>
+    </div>
+    <div class="flex-1 min-h-0 overflow-auto px-4 py-4">
+      <div class="text-sm text-gray-500" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
+      <div class="text-sm text-gray-500" x-show="!weeklyTeamsLoading && !weeklyTeamLayouts.length">
+        No weekly teams yet. Create a team to get started.
+      </div>
+      <div class="flex flex-col gap-6">
+        <template x-for="group in weeklyTeamLayouts" :key="group.teamType">
+        <section class="border border-slate-200 rounded bg-white shadow-sm relative">
+          <div class="bg-blue-900 text-white px-4 py-3 flex flex-wrap items-center gap-4 sticky top-0 z-10 shadow"
+            style="top:0">
+            <div class="flex items-center gap-3">
+              <h3 class="text-xl font-semibold" x-text="group.teamType || '(unspecified)'"></h3>
+              <span class="text-xs font-bold uppercase tracking-wide text-amber-200"
+                x-show="groupDirtyIds(group).length">Unsaved</span>
+            </div>
+            <div class="flex-1"></div>
+            <div class="flex gap-2 items-center">
+              <button type="button" class="px-3 py-1.5 text-sm rounded border border-white/40 text-white hover:bg-white/10"
+                @click="openRoleDefaults(group.teamType)">Edit default roles</button>
+              <button type="button" class="px-3 py-1.5 text-sm rounded border border-white/40 text-white hover:bg-white/10 disabled:opacity-60"
+                :disabled="!groupDirtyIds(group).length"
+                @click="saveDirtyWeeklyTeams(groupDirtyIds(group))">
+                Save
+              </button>
+            </div>
+          </div>
+          <div class="overflow-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-100 text-gray-700">
+                <tr>
+                  <th class="text-left font-medium px-3 py-2 w-48">Role</th>
+                  <template x-for="team in group.teams" :key="team.key">
+                    <th class="text-left font-medium px-3 py-2 align-top">
+                      <div class="font-semibold" x-text="team.teamName || '(untitled)'"></div>
+                      <div class="text-xs text-gray-500" x-text="team.description"></div>
+                   </th>
+                 </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="role in group.roles" :key="role.key">
+                  <tr class="border-t">
+                    <th class="px-3 py-1 text-left bg-slate-50 align-middle" x-text="role.label"></th>
+                    <template x-for="team in group.teams" :key="team.key">
+                      <td class="align-top min-w-[180px]">
+                        <select class="w-full border rounded px-2 py-1 text-sm"
+                          :value="role.cells[team.key]?.memberEmail || ''"
+                          @change="setWeeklyTeamMember(team.id, role.label, $event.target.value)">
+                          <option value="">Unassigned</option>
+                              <template x-for="member in memberOptionsForRoleType(role.label)"
+                                :key="member.email + '-' + team.key + '-' + role.key">
+                                <option :value="member.email" x-text="member.display"></option>
+                              </template>
+                        </select>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
       </div>
     </div>
-
-    <div class="flex-1 min-h-0 flex flex-col">
-      <div class="p-6 text-gray-500" x-show="!selectedWeeklyTeamId && !weeklyTeamsLoading">
-        Select a weekly team to edit or create a new one.
-      </div>
-      <div class="flex-1 min-h-0 overflow-auto" x-show="selectedWeeklyTeamId" x-cloak>
-        <div class="p-6 space-y-6 max-w-4xl">
-          <div class="grid gap-4 md:grid-cols-2">
-            <label class="block text-sm">
-              <span class="font-medium text-gray-700">Team type</span>
-              <select class="mt-1 w-full border rounded px-3 py-2"
-                x-model="weeklyTeamDraft.team"
-                @change="handleWeeklyTeamTypeChange()">
-                <template x-for="teamType in weeklyTeamTypes()" :key="'edit-'+teamType">
-                  <option :value="teamType" x-text="teamType"></option>
-                </template>
-              </select>
-            </label>
-            <label class="block text-sm">
-              <span class="font-medium text-gray-700">Team name</span>
-              <input type="text" class="mt-1 w-full border rounded px-3 py-2"
-                placeholder="e.g., 1st Sunday"
-                x-model="weeklyTeamDraft.teamName" />
-            </label>
-            <label class="block text-sm md:col-span-2">
-              <span class="font-medium text-gray-700">Description / notes</span>
-              <textarea class="mt-1 w-full border rounded px-3 py-2 min-h-[88px]"
-                placeholder="Optional notes"
-                x-model="weeklyTeamDraft.description"></textarea>
-            </label>
-          </div>
-
-          <div class="space-y-4">
-            <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
-              <span class="font-medium text-gray-700">Role assignments</span>
-              <div class="flex items-center gap-2">
-                <button type="button" class="text-xs text-blue-600 hover:text-blue-800"
-                  @click="toggleShowAllRoles()">
-                  <span x-show="!weeklyTeamShowAllRoles">Show extra role types</span>
-                  <span x-show="weeklyTeamShowAllRoles">Hide extra role types</span>
-                </button>
-                <button type="button" class="px-2 py-1 border rounded text-xs bg-white hover:bg-blue-50"
-                  @click="addWeeklyTeamRole()">
-                  + Add role
-                </button>
-              </div>
-            </div>
-            <div class="text-sm text-gray-500" x-show="!weeklyTeamRolesDraft.length">
-              No roles defined yet. Use “Add role” to start building this team.
-            </div>
-            <div class="border rounded overflow-x-auto" x-show="weeklyTeamRolesDraft.length">
-              <table class="min-w-full text-sm">
-                <thead class="bg-gray-50 text-gray-600">
-                  <tr>
-                    <th class="text-left font-medium px-3 py-2">Role name</th>
-                    <th class="text-left font-medium px-3 py-2 w-48">Role type</th>
-                    <th class="text-left font-medium px-3 py-2 w-56">Assigned member</th>
-                    <th class="px-3 py-2 w-12 text-center"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template x-for="role in weeklyTeamRolesDraft" :key="role.id">
-                    <tr class="border-t">
-                      <td class="px-3 py-2 align-top">
-                        <input type="text"
-                          class="w-full border rounded px-2 py-1.5"
-                          placeholder="e.g., Guitar 1"
-                          x-model="role.roleName" />
-                      </td>
-                      <td class="px-3 py-2 align-top">
-                        <select class="w-full border rounded px-2 py-1"
-                          x-model="role.roleType"
-                          x-bind:data-role-type-select="role.id">
-                          <option value="">Select role type</option>
-                          <template x-for="type in roleTypeOptionsForRole(role)" :key="role.id + '-' + type">
-                            <option :value="type" x-text="type"></option>
-                          </template>
-                        </select>
-                      </td>
-                      <td class="px-3 py-2 align-top">
-                        <select class="w-full border rounded px-2 py-1"
-                          x-model="role.memberEmail"
-                          x-bind:data-role-member-select="role.id">
-                          <option value="">Unassigned</option>
-                          <template x-for="member in memberOptionsForRoleType(role.roleType, role)" :key="member.email + '-' + role.id">
-                            <option :value="member.email" x-text="member.label"></option>
-                          </template>
-                        </select>
-                      </td>
-                      <td class="px-3 py-2 align-top text-center">
-                        <button type="button"
-                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-0"
-                          title="Remove role"
-                          aria-label="Remove role"
-                          @click="removeWeeklyTeamRole(role.id)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" class="h-4 w-4" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
-              @click="saveWeeklyTeam()">
-              Save Weekly Team
-            </button>
-            <button type="button" class="px-3 py-1.5 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
-              :disabled="weeklyTeamSaving || !weeklyTeamDirty"
-              @click="resetWeeklyTeamEdits()">
-              Discard
-            </button>
-            <span class="text-sm text-green-700" x-show="weeklyTeamSavedAt" x-text="'Saved ' + timeAgo(weeklyTeamSavedAt)"></span>
-            <span class="text-sm text-gray-600" x-show="weeklyTeamSaving">Saving...</span>
-            <span class="text-sm text-red-600" x-show="weeklyTeamSaveError" x-text="weeklyTeamSaveError"></span>
-          </div>
+  </div>
+  <div x-cloak x-show="showRoleDefaultsModal" class="fixed inset-0 z-40 flex items-center justify-center">
+    <div class="absolute inset-0 bg-black/40" @click="closeRoleDefaults()"></div>
+    <div class="relative bg-white rounded shadow-lg w-full max-w-lg p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h3 class="text-lg font-semibold">Edit Default Roles</h3>
+          <p class="text-sm text-gray-500" x-text="roleDefaultsTeamType || 'Team type'"></p>
         </div>
+        <button type="button" class="text-sm text-gray-500 hover:text-gray-800"
+          :disabled="roleDefaultsSaving"
+          @click="closeRoleDefaults()">Close</button>
+      </div>
+      <div class="max-h-[60vh] overflow-auto space-y-2">
+        <template x-for="(roleName, idx) in roleDefaultsDraft" :key="idx">
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gray-500 w-6 text-right" x-text="idx + 1"></span>
+            <input type="text" class="flex-1 border rounded px-2 py-1" data-role-default-input
+              :placeholder="'Role ' + (idx + 1)"
+              x-model="roleDefaultsDraft[idx]" />
+            <div class="flex flex-col gap-1">
+              <button type="button" class="text-xs text-gray-500 hover:text-gray-800 disabled:text-gray-300"
+                :disabled="idx===0"
+                @click="moveRoleDefault(idx, -1)">▲</button>
+              <button type="button" class="text-xs text-gray-500 hover:text-gray-800 disabled:text-gray-300"
+                :disabled="idx===roleDefaultsDraft.length-1"
+                @click="moveRoleDefault(idx, 1)">▼</button>
+            </div>
+            <button type="button" class="text-xs text-rose-600 hover:text-rose-800 px-2 py-1"
+              @click="removeRoleDefault(idx)">Remove</button>
+          </div>
+        </template>
+        <button type="button" class="text-sm text-blue-600 hover:text-blue-800"
+          @click="addRoleDefault()">+ Add role</button>
+      </div>
+      <div class="text-sm text-red-600" x-show="roleDefaultsError" x-text="roleDefaultsError"></div>
+      <div class="flex items-center justify-end gap-2">
+        <button type="button" class="px-3 py-1.5 border rounded text-sm hover:bg-gray-50"
+          :disabled="roleDefaultsSaving"
+          @click="closeRoleDefaults()">Cancel</button>
+        <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+          :disabled="roleDefaultsSaving"
+          @click="saveRoleDefaults()">
+          <span x-show="!roleDefaultsSaving">Save Defaults</span>
+          <span x-show="roleDefaultsSaving">Saving...</span>
+        </button>
       </div>
     </div>
   </div>

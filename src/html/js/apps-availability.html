@@ -10,6 +10,8 @@
       error: '',
       statusMessage: '',
       prefilledFor: '',
+      memberVerified: false,
+      verifiedEmail: '',
 
       init() {
         this.fetchServices();
@@ -37,6 +39,47 @@
 
       normalizedEmail() {
         return String(this.email || '').trim().toLowerCase();
+      },
+
+      onEmailInput() {
+        if (this.normalizedEmail() !== this.prefilledFor) {
+          this.memberVerified = false;
+          this.verifiedEmail = '';
+          this.selectedServiceIds = [];
+          this.statusMessage = '';
+        }
+        if (!this.emailValid()) {
+          this.error = '';
+        }
+      },
+
+      async verifyMemberEmail(force = false) {
+        const email = this.normalizedEmail();
+        if (!email) {
+          this.memberVerified = false;
+          this.verifiedEmail = '';
+          return false;
+        }
+        if (!force && this.memberVerified && email === this.verifiedEmail) {
+          return true;
+        }
+        try {
+          const res = await callRpc('memberExistsInRoles', { email });
+          this.memberVerified = Boolean(res?.exists);
+          this.verifiedEmail = this.memberVerified ? email : '';
+          if (!this.memberVerified) {
+            this.error = 'Please contact Belinda to add your email to the database.';
+          } else {
+            this.error = '';
+          }
+          return this.memberVerified;
+        } catch (e) {
+          console.error(e);
+          this.memberVerified = false;
+          this.verifiedEmail = '';
+          this.error = (e && e.message) ? e.message : 'Unable to verify your email.';
+          return false;
+        }
       },
 
       async fetchServices() {
@@ -81,10 +124,17 @@
           this.error = 'Enter your email to load saved dates.';
           return;
         }
-        if (!force && email === this.prefilledFor) return;
+        if (!force && email === this.prefilledFor && this.memberVerified) return;
         this.loadingAvailability = true;
         this.error = '';
         try {
+          const verified = await this.verifyMemberEmail(force);
+          if (!verified) {
+            this.selectedServiceIds = [];
+            this.statusMessage = '';
+            this.prefilledFor = '';
+            return;
+          }
           const res = await callRpc('getMemberAvailability', { email });
           this.selectedServiceIds = Array.isArray(res?.unavailable) ? res.unavailable.slice() : [];
           this.prefilledFor = email;
@@ -107,6 +157,10 @@
         const email = this.normalizedEmail();
         if (!email) {
           this.error = 'Email is required.';
+          return;
+        }
+        if (!this.memberVerified || email !== this.verifiedEmail) {
+          this.error = 'Load dates for your email before saving.';
           return;
         }
         this.saving = true;

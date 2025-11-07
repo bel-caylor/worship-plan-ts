@@ -31,6 +31,47 @@ type AddRoleInput = {
 };
 
 const TEAM_SPLIT = /[,;|]/;
+const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+export function memberExistsInRoles(input: { email: string }) {
+  const email = normalizeEmail(input?.email);
+  if (!email) throw new Error('Email is required.');
+
+  const sh = getSheetByName(ROLES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return { exists: false };
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idxEmail = col(ROLES_COL.email);
+  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
+  const idxFirst = col(ROLES_COL.first);
+  const idxLast = col(ROLES_COL.last);
+  const idxTeam = col(ROLES_COL.team);
+  const idxRole = col(ROLES_COL.role);
+
+  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  for (const row of body) {
+    const rowEmail = normalizeEmail(row[idxEmail]);
+    if (rowEmail !== email) continue;
+    const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
+    const teams = teamRaw ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean) : [];
+    return {
+      exists: true,
+      member: {
+        email,
+        first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
+        last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
+        role: idxRole >= 0 ? String(row[idxRole] ?? '').trim() : '',
+        teams,
+        teamRaw
+      }
+    };
+  }
+
+  return { exists: false };
+}
 
 export function listRoles() {
   const sh = getSheetByName(ROLES_SHEET);
