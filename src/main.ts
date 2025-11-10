@@ -1,4 +1,4 @@
-import { doGet, doPost } from './http';
+import { doGet, doPost, doOptions } from './http';
 import { onOpen as menuOnOpen, showMenuNow as menuShow, setupMenuTrigger as menuSetup } from './menu';
 import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from './features/songs';
 import { buildLeadersFromPlanner } from './features/leaders';
@@ -22,6 +22,7 @@ try { menuSetup(); } catch (e) { try { Logger.log(e); } catch (_) {} }
 declare const global: any;
 global.doGet = doGet;
 global.doPost = doPost;
+global.doOptions = doOptions;
 global.rpc = rpc;
 global.getFilesForFolderUrl = getFilesForFolderUrl;
 

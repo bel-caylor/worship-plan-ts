@@ -32,10 +32,22 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   return tpl.evaluate().setTitle('Worship Planner');
 }
 
+const withCors = (output: GoogleAppsScript.Content.TextOutput) => {
+  const setter = (output as GoogleAppsScript.Content.TextOutput & { setHeader?: (key: string, value: string) => GoogleAppsScript.Content.TextOutput }).setHeader;
+  if (typeof setter === 'function') {
+    setter.call(output, 'Access-Control-Allow-Origin', '*');
+    setter.call(output, 'Access-Control-Allow-Methods', 'POST,OPTIONS');
+    setter.call(output, 'Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  }
+  return output;
+};
+
 const emptyJson = (payload: unknown) =>
-  ContentService
-    .createTextOutput(JSON.stringify(payload ?? null))
-    .setMimeType(ContentService.MimeType.JSON);
+  withCors(
+    ContentService
+      .createTextOutput(JSON.stringify(payload ?? null))
+      .setMimeType(ContentService.MimeType.JSON)
+  );
 
 export function doPost(e?: GoogleAppsScript.Events.DoPost) {
   try {
@@ -49,4 +61,8 @@ export function doPost(e?: GoogleAppsScript.Events.DoPost) {
     const message = err && (err as Error).message ? (err as Error).message : 'RPC failed';
     return emptyJson({ ok: false, error: message });
   }
+}
+
+export function doOptions() {
+  return withCors(ContentService.createTextOutput(''));
 }
