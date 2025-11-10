@@ -32,37 +32,68 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   return tpl.evaluate().setTitle('Worship Planner');
 }
 
-const withCors = (output: GoogleAppsScript.Content.TextOutput) => {
+type MaybeHttpEvent = GoogleAppsScript.Events.DoGet | GoogleAppsScript.Events.DoPost | undefined;
+
+const resolveOrigin = (event: MaybeHttpEvent): string => {
+  const headerOrigin = (() => {
+    const headers = (event as { headers?: { origin?: string } } | undefined)?.headers;
+    return typeof headers?.origin === 'string' ? headers.origin : '';
+  })();
+  const paramOrigin = typeof event?.parameter?.origin === 'string' ? event?.parameter?.origin : '';
+  return headerOrigin || paramOrigin || '';
+};
+
+const applyCors = (
+  output: GoogleAppsScript.Content.TextOutput,
+  origin?: string
+) => {
   const setter = (output as GoogleAppsScript.Content.TextOutput & { setHeader?: (key: string, value: string) => GoogleAppsScript.Content.TextOutput }).setHeader;
   if (typeof setter === 'function') {
-    setter.call(output, 'Access-Control-Allow-Origin', '*');
+    const allowOrigin = origin && origin !== 'null' ? origin : '*';
+    setter.call(output, 'Access-Control-Allow-Origin', allowOrigin);
     setter.call(output, 'Access-Control-Allow-Methods', 'POST,OPTIONS');
     setter.call(output, 'Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    setter.call(output, 'Vary', 'Origin');
+    if (allowOrigin !== '*') {
+      setter.call(output, 'Access-Control-Allow-Credentials', 'true');
+    }
   }
   return output;
 };
 
-const emptyJson = (payload: unknown) =>
-  withCors(
+const makeJsonResponse = (payload: unknown, origin?: string) =>
+  applyCors(
     ContentService
       .createTextOutput(JSON.stringify(payload ?? null))
-      .setMimeType(ContentService.MimeType.JSON)
+      .setMimeType(ContentService.MimeType.JSON),
+    origin
   );
 
 export function doPost(e?: GoogleAppsScript.Events.DoPost) {
+  const body = e?.postData?.contents || '';
+  let parsed: { method?: string; payload?: unknown } = {};
+  try { parsed = body ? JSON.parse(body) : {}; }
+  catch (parseErr) {
+    Logger.log(`doPost parse error: %s`, parseErr);
+    return emptyJson({ ok: false, error: 'Invalid JSON payload' });
+  }
+
+  const origin = resolveOrigin(e);
+
+  Logger.log(`doPost origin=%s method=%s`, origin || '???', parsed?.method || '');
+
   try {
-    const body = e?.postData?.contents || '';
-    const parsed = body ? JSON.parse(body) : {};
     const method = String(parsed?.method || '');
     if (!method) throw new Error('Missing RPC method');
     const data = rpc({ method, payload: parsed?.payload });
-    return emptyJson({ ok: true, data });
+    return makeJsonResponse({ ok: true, data }, origin);
   } catch (err) {
     const message = err && (err as Error).message ? (err as Error).message : 'RPC failed';
-    return emptyJson({ ok: false, error: message });
+    return makeJsonResponse({ ok: false, error: message }, origin);
   }
 }
 
-export function doOptions() {
-  return withCors(ContentService.createTextOutput(''));
+export function doOptions(e?: GoogleAppsScript.Events.DoPost) {
+  const origin = resolveOrigin(e);
+  return makeJsonResponse('', origin);
 }
