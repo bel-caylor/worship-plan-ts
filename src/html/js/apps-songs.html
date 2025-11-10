@@ -1,5 +1,6 @@
 <script>
   function songsApp(mode = 'default') {
+    const IS_GUEST = !!(window.__GUEST__);
     const normalizedMode = String(mode || '').toLowerCase();
     const isModal = normalizedMode === 'modal';
     const audioExts = new Set(['mp3','m4a','wav','aac','flac','ogg','wma','aiff','mid','midi']);
@@ -35,6 +36,7 @@
     });
 
     return {
+      isGuest: IS_GUEST,
       isModalContext: isModal,
       mobileListOpen: false,
       rows: window.__ROWS__ || [],
@@ -80,13 +82,16 @@
             const r = await callRpc('getSongsForView', null);
             if (Array.isArray(r)) this.rows = r;
           } catch (e) {
-            this.error = 'Failed to load songs';
+            this.error = this.isGuest ? '' : 'Failed to load songs';
           } finally {
             this.loading = false;
           }
         }
 
         this.buildFilters();
+        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+          this.mobileListOpen = true;
+        }
 
         this.$watch('q', () => this.render(true));
         this.$watch('selectedSeason', () => this.render(true));
@@ -448,6 +453,10 @@
       },
 
       openSongEditor(mode = 'create') {
+        if (this.isGuest) {
+          this.error = 'View only mode. Sign in to edit songs.';
+          return;
+        }
         const nextMode = mode === 'edit' ? 'edit' : 'create';
         if (nextMode === 'edit' && !this.selected) {
           this.error = 'Select a song to edit first.';
@@ -488,6 +497,10 @@
       },
 
       async saveSongEditor() {
+        if (this.isGuest) {
+          this.songEditorError = 'View only mode. Sign in to edit songs.';
+          return;
+        }
         if (this.songEditorSaving) return;
         const payload = this.buildSongPayload();
         if (!payload.Song) {

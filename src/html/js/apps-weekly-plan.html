@@ -1,6 +1,8 @@
 <script>
   function weeklyPlanApp() {
+    const IS_GUEST = !!(window.__GUEST__);
     return {
+      isGuest: IS_GUEST,
       showDetails: false,
       showOrder: false,
       showScripture: true,
@@ -94,20 +96,30 @@
                 this.existingServices = cached.items;
               }
             }
-            const s = await callRpc('listServices', null);
-            this.existingServices = Array.isArray(s?.items) ? s.items : [];
-            if (!this.existingServices.length) {
+            let loadedViaRpc = false;
+            try {
+              const s = await callRpc('listServices', null);
+              if (Array.isArray(s?.items)) {
+                this.existingServices = s.items;
+                loadedViaRpc = true;
+              }
+            } catch (_) {
+              // Guest mode or RPC unavailable: keep injected/cache data
+            }
+            if (!Array.isArray(this.existingServices) || !this.existingServices.length) {
               this.newService();
             } else if (this.selectedServiceId && !this.detailsDirty) {
               const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
               if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
             }
-            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+            if (loadedViaRpc) {
+              try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+            }
           } catch (_) { /* ignore */ }
           this.ensureDefaults();
           // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
           this.$nextTick(() => {
-            try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'Custom…'); } catch (_) { }
+            try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'CustomGǪ'); } catch (_) { }
           });
           // Auto-load previously selected service if available
           this.$nextTick(() => {
@@ -1051,6 +1063,7 @@
       },
 
       async bumpSongUsage(name) {
+        if (this.isGuest) return;
         try {
           const songName = String(name || '').trim();
           if (!songName) return;
@@ -1145,6 +1158,7 @@
       },
 
       queueSaveDetails(immediate = false) {
+        if (this.isGuest) return;
         try {
           if (this.saveDetailsTimer) {
             clearTimeout(this.saveDetailsTimer);
@@ -1161,6 +1175,7 @@
       },
 
       async persistDetails() {
+        if (this.isGuest) return;
         try {
           if (this.saveDetailsTimer) {
             clearTimeout(this.saveDetailsTimer);
@@ -1205,6 +1220,7 @@
       actionLabel() { return 'Save Service'; },
 
       queueSaveOrder(immediate = false) {
+        if (this.isGuest) return;
         try {
           if (this.saveOrderTimer) {
             clearTimeout(this.saveOrderTimer);
@@ -1217,6 +1233,7 @@
       },
 
       async persistOrder() {
+        if (this.isGuest) return;
         if (!this.selectedServiceId) return;
         this.savingOrder = true;
         this.saveOrderError = '';
@@ -1234,6 +1251,8 @@
     }
   }
 </script>
+
+
 
 
 

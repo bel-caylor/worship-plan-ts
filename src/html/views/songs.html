@@ -74,14 +74,18 @@
                 <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length} shown`"></span>
                 <span class="text-sm italic text-gray-500" x-show="loading">Loading…</span>
                 <span class="text-sm text-red-600" x-text="error"></span>
-                <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-gray-50"
-                  @click="openSongEditor('edit')" :disabled="!selected">
-                  Edit song
-                </button>
-                <button type="button" class="px-3 py-2 border rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                  @click="openSongEditor('create')">
-                  Add song
-                </button>
+                <template x-if="!isGuest">
+                  <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-gray-50"
+                    @click="openSongEditor('edit')" :disabled="!selected">
+                    Edit song
+                  </button>
+                </template>
+                <template x-if="!isGuest">
+                  <button type="button" class="px-3 py-2 border rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    @click="openSongEditor('create')">
+                    Add song
+                  </button>
+                </template>
                 <button type="button" class="md:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50"
                   @click="mobileListOpen = true">
                   Browse songs
@@ -226,6 +230,8 @@
         <div class="absolute inset-0 bg-black/40" @click="cancelSongEditor()"></div>
         <div class="relative bg-white rounded-lg shadow-lg max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
             <div class="px-4 py-3 border-b flex items-center justify-between">
+                <template x-if="!isGuest">
+                <template x-if="!isGuest">
                 <div class="font-semibold" x-text="songEditorMode === 'edit' ? 'Edit Song' : 'Add Song'"></div>
                 <button type="button" class="text-sm text-blue-700 hover:underline" @click="cancelSongEditor()">Close</button>
             </div>
@@ -291,6 +297,8 @@
                         <span x-show="!songEditorSaving">Save song</span>
                         <span x-show="songEditorSaving">Saving…</span>
                     </button>
+                </template>
+                </template>
                 </div>
             </form>
         </div>

@@ -21,6 +21,8 @@
     // console.info('rows loaded:', Array.isArray(window.__ROWS__) && window.__ROWS__.length);
     // Prefer server-provided Web App URL; fallback to current location
     window.__BASE__ = <?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?> || (location.origin + location.pathname);
+    // Guest mode injected by server (via ?mode=guest)
+    window.__GUEST__ = <?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>;
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
@@ -31,13 +33,13 @@
 
 </head>
 
-<body x-data="app()" x-init="init()" class="h-screen overflow-hidden">
+<body x-data="app()" x-init="init()" class="min-h-screen overflow-y-auto bg-gray-50">
 
   <!-- Topbar -->
   <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
 
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
-  <main class="h-[calc(100vh-56px)] overflow-hidden">
+  <main class="min-h-[calc(100vh-56px)]">
     <div class="h-full">
       <template x-if="route==='songs'">
         <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
@@ -47,7 +49,7 @@
         <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
       </div>
 
-      <div x-show="route==='team'" class="h-full">
+      <div x-show="route==='team' && !window.__GUEST__" class="h-full">
         <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
       </div>
 
@@ -63,13 +65,38 @@
       return {
         route: 'plan',
         init() {
-          const allowed = new Set(['plan','songs','team','availability']);
-          const parse = () => {
-            const next = location.hash.replace('#/', '') || 'plan';
-            this.route = allowed.has(next) ? next : 'plan';
+          const isGuest = !!(window.__GUEST__);
+          const allowed = new Set(isGuest ? ['plan','songs','availability'] : ['plan','songs','team','availability']);
+          const normalize = (value) => String(value || '').trim().toLowerCase();
+          const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
+          const setRoute = (value) => {
+            const next = allowed.has(value) ? value : 'plan';
+            this.route = next;
           };
-          window.addEventListener('hashchange', parse);
-          parse();
+          const params = (() => {
+            try { return new URLSearchParams(location.search || ''); }
+            catch (_) { return null; }
+          })();
+          const paramRoute = params
+            ? [params.get('tab'), params.get('route'), params.get('view')].map(normalize).find(Boolean) || ''
+            : '';
+
+          const initialHashRoute = parseHashRoute();
+          if (initialHashRoute) {
+            setRoute(initialHashRoute);
+          } else if (paramRoute) {
+            setRoute(paramRoute);
+            if (!location.hash || location.hash === '#') {
+              location.hash = `#/${this.route}`;
+            }
+          } else {
+            setRoute('plan');
+          }
+
+          window.addEventListener('hashchange', () => {
+            const next = parseHashRoute() || 'plan';
+            setRoute(next);
+          });
         }
       }
     }
@@ -77,3 +104,6 @@
 </body>
 
 </html>
+
+
+

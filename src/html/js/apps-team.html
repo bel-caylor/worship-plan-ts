@@ -1,14 +1,15 @@
 <script>
   const TEAM_ROLE_PRESETS = {
-    Worship: ['Leader', 'Guitar', 'Bass', 'Other', 'Keyboard', 'Drums', 'Vocals', 'Powerpoint', 'Soundboard', 'Communion', 'Offering'],
+    Worship: ['Leader', 'Guitar', 'Bass', 'Other', 'Keyboard', 'Drums', 'Vocal', 'Projection', 'Sound', 'Communion', 'Offering'],
     Kids: ['Preschool Teacher', 'Toddler Teacher', 'Preschool Helper', 'Toddler Helper', 'Kids Teacher', 'Kids Helper'],
     Hospitality: ['Greeter', 'Security']
   };
+  const TEAM_TYPE_PRIORITY = ['Worship'];
   const WEEKLY_COLUMN_LABELS = ['1st Sunday', '2nd Sunday', '3rd Sunday', '4th Sunday', '5th Sunday'];
 
   function teamApp() {
     return {
-      activeTab: 'weeklyTeams',
+      activeTab: 'schedule',
       loading: true,
       error: '',
       roles: [],
@@ -65,6 +66,7 @@
         weeklyTeamLayouts: [],
       weeklyTeamDirtyFlags: {},
       teamDirtyVersions: {},
+      teamSaveTimers: {},
       savingTeams: {},
         weeklyTeamsSaving: false,
         weeklyTeamsSaveError: '',
@@ -75,6 +77,21 @@
         roleDefaultsDraft: [],
         roleDefaultsSaving: false,
         roleDefaultsError: '',
+        scheduleLoading: false,
+        scheduleError: '',
+        scheduleServices: [],
+        scheduleServiceLookup: {},
+        scheduleUnavailableMap: {},
+        scheduleAssignmentBaseline: {},
+        scheduleAssignmentMap: {},
+        scheduleTemplateOverrides: {},
+        scheduleLayouts: [],
+        scheduleDirtyKeys: {},
+        scheduleDirty: false,
+        scheduleSaving: false,
+        scheduleSaveMessage: '',
+        scheduleSaveError: '',
+        scheduleServiceLimit: 6,
 
       init() {
         this.computePresetLookup();
@@ -195,6 +212,7 @@
       async refresh() {
         await this.loadRoles();
         await this.loadWeeklyTeams();
+        await this.loadSchedule();
       },
 
       ensurePermissionOption(value) {
@@ -283,6 +301,394 @@
         }
       },
 
+      async loadSchedule() {
+        this.scheduleLoading = true;
+        this.scheduleError = '';
+        try {
+          const payload = { limit: this.scheduleServiceLimit };
+          const res = await callRpc('getTeamScheduleSnapshot', payload);
+          const services = this.normalizeScheduleServices(res?.services);
+          this.scheduleServices = services;
+          this.buildScheduleServiceLookup(services);
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(res?.unavailable);
+          this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(res?.assignments);
+          const baseline = this.normalizeScheduleAssignments(res?.assignments);
+          this.scheduleAssignmentBaseline = baseline;
+          this.scheduleAssignmentMap = { ...baseline };
+          this.recomputeScheduleDirty();
+          this.buildScheduleLayouts();
+          if (!this.scheduleDirty) {
+            this.scheduleSaveMessage = '';
+          }
+          this.scheduleSaveError = '';
+        } catch (e) {
+          console.error(e);
+          this.scheduleError = (e && e.message) ? e.message : 'Failed to load schedule.';
+        } finally {
+          this.scheduleLoading = false;
+        }
+      },
+
+      normalizeScheduleServices(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        const services = [];
+        list.forEach(item => {
+          const id = String(item?.id || '').trim();
+          if (!id) return;
+          const date = String(item?.date || '').trim();
+          const weekday = String(item?.weekday || '') || this.formatScheduleDate(date, { weekday: 'long' }) || '';
+          services.push({
+            id,
+            date,
+            time: String(item?.time || '').trim(),
+            type: String(item?.type || '').trim(),
+            label: String(item?.label || '') || this.formatScheduleDate(date, { weekday: 'short', month: 'short', day: 'numeric' }) || date,
+            shortLabel: String(item?.shortLabel || '') || this.formatScheduleDate(date, { month: 'short', day: 'numeric' }) || date,
+            ordinalLabel: String(item?.ordinalLabel || '') || this.computeOrdinalLabel(date, weekday),
+            weekday
+          });
+        });
+        return services;
+      },
+
+      buildScheduleServiceLookup(services) {
+        const lookup = {};
+        (Array.isArray(services) ? services : []).forEach(service => {
+          if (service?.id) lookup[service.id] = service;
+        });
+        this.scheduleServiceLookup = lookup;
+      },
+
+      normalizeScheduleUnavailable(raw) {
+        const map = {};
+        if (!raw || typeof raw !== 'object') return map;
+        Object.entries(raw).forEach(([serviceId, list]) => {
+          const id = String(serviceId || '').trim();
+          if (!id) return;
+          const set = new Set();
+          (Array.isArray(list) ? list : []).forEach(email => {
+            const key = String(email || '').trim().toLowerCase();
+            if (key) set.add(key);
+          });
+          map[id] = set;
+        });
+        return map;
+      },
+
+      buildScheduleTemplateOverrides(assignments) {
+        const overrides = {};
+        (Array.isArray(assignments) ? assignments : []).forEach(entry => {
+          const serviceId = String(entry?.serviceId || '').trim();
+          const teamKey = this.normalize(entry?.teamType);
+          const weeklyTeamName = String(entry?.weeklyTeamName || '').trim();
+          if (!serviceId || !teamKey || !weeklyTeamName) return;
+          if (!overrides[serviceId]) overrides[serviceId] = {};
+          overrides[serviceId][teamKey] = weeklyTeamName;
+        });
+        return overrides;
+      },
+
+      normalizeScheduleAssignments(assignments) {
+        const map = {};
+        (Array.isArray(assignments) ? assignments : []).forEach(entry => {
+          const serviceId = String(entry?.serviceId || '').trim();
+          const teamType = String(entry?.teamType || '').trim();
+          const roleName = String(entry?.roleName || '').trim();
+          if (!serviceId || !teamType || !roleName) return;
+          const key = this.scheduleCellKey(serviceId, teamType, roleName);
+          map[key] = {
+            serviceId,
+            teamType,
+            roleName,
+            weeklyTeamName: String(entry?.weeklyTeamName || '').trim(),
+            memberEmail: String(entry?.memberEmail || '').trim(),
+            memberName: String(entry?.memberName || '').trim(),
+            roleType: String(entry?.roleType || '').trim()
+          };
+        });
+        return map;
+      },
+
+      scheduleCellKey(serviceId, teamType, roleName) {
+        return [
+          String(serviceId || '').trim().toLowerCase(),
+          this.normalize(teamType),
+          this.normalize(roleName)
+        ].join('::');
+      },
+
+      resolveScheduleService(serviceOrId) {
+        if (!serviceOrId) return null;
+        if (typeof serviceOrId === 'object') return serviceOrId;
+        const key = String(serviceOrId || '').trim();
+        if (!key) return null;
+        return this.scheduleServiceLookup?.[key] || null;
+      },
+
+      scheduleWeeklyTeamNameForService(teamType, serviceOrId) {
+        const service = this.resolveScheduleService(serviceOrId);
+        if (!service) return '';
+        const serviceOverrides = this.scheduleTemplateOverrides?.[service.id];
+        const teamKey = this.normalize(teamType);
+        if (serviceOverrides && serviceOverrides[teamKey]) {
+          return serviceOverrides[teamKey];
+        }
+        return service.ordinalLabel || this.computeOrdinalLabel(service.date, service.weekday);
+      },
+
+      resolveWeeklyTeamForService(teamType, serviceOrId) {
+        const service = this.resolveScheduleService(serviceOrId);
+        if (!service) return null;
+        const preferredName = this.scheduleWeeklyTeamNameForService(teamType, service);
+        if (preferredName) {
+          const match = this.findWeeklyTeamByName(teamType, preferredName);
+          if (match) return match;
+        }
+        if (service.ordinalLabel) {
+          const match = this.findWeeklyTeamByName(teamType, service.ordinalLabel);
+          if (match) return match;
+        }
+        const teams = this.weeklyTeamsByType(teamType);
+        return teams.length ? teams[0] : null;
+      },
+
+      lookupWeeklyTemplateAssignment(teamType, serviceOrId, roleLabel) {
+        const weeklyTeam = this.resolveWeeklyTeamForService(teamType, serviceOrId);
+        if (!weeklyTeam) return null;
+        const normalizedRole = this.normalize(roleLabel);
+        const roles = Array.isArray(weeklyTeam.roles) ? weeklyTeam.roles : [];
+        const match = roles.find(role =>
+          this.normalize(role?.roleName || role?.roleType) === normalizedRole
+        );
+        if (!match) {
+          return {
+            weeklyTeamName: weeklyTeam.teamName || '',
+            roleType: roleLabel,
+            memberEmail: '',
+            memberName: ''
+          };
+        }
+        return {
+          weeklyTeamName: weeklyTeam.teamName || '',
+          roleType: match.roleType || match.roleName || roleLabel,
+          memberEmail: String(match.memberEmail || '').trim(),
+          memberName: String(match.memberName || '').trim()
+        };
+      },
+
+      isMemberUnavailable(email, serviceId) {
+        const serviceKey = String(serviceId || '').trim();
+        if (!serviceKey) return false;
+        const blocked = this.scheduleUnavailableMap?.[serviceKey];
+        if (!blocked || !blocked.size) return false;
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return false;
+        return blocked.has(key);
+      },
+
+      effectiveScheduleAssignment(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, roleName);
+        const explicit = this.scheduleAssignmentMap?.[key];
+        const service = this.resolveScheduleService(serviceId);
+        const fallbackTeamName = this.scheduleWeeklyTeamNameForService(teamType, service);
+        if (explicit) {
+          const memberEmail = String(explicit.memberEmail || '').trim();
+          const unavailable = memberEmail && this.isMemberUnavailable(memberEmail, serviceId);
+          if (unavailable) {
+            return {
+              serviceId,
+              teamType,
+              roleName,
+              memberEmail: '',
+              memberName: '',
+              weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
+              roleType: explicit.roleType || roleName,
+              source: 'saved'
+            };
+          }
+          const memberName = memberEmail ? (explicit.memberName || this.memberNameByEmail(memberEmail) || '') : '';
+          return {
+            serviceId,
+            teamType,
+            roleName,
+            memberEmail,
+            memberName,
+            weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
+            roleType: explicit.roleType || roleName,
+            source: 'saved'
+          };
+        }
+        const template = this.lookupWeeklyTemplateAssignment(teamType, service, roleName);
+        if (template && template.memberEmail && this.isMemberUnavailable(template.memberEmail, serviceId)) {
+          template.memberEmail = '';
+          template.memberName = '';
+        }
+        return {
+          serviceId,
+          teamType,
+          roleName,
+          memberEmail: template?.memberEmail || '',
+          memberName: template?.memberName || '',
+          weeklyTeamName: template?.weeklyTeamName || fallbackTeamName || '',
+          roleType: template?.roleType || roleName,
+          source: template ? 'template' : 'open'
+        };
+      },
+
+      buildScheduleLayouts() {
+        const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
+        if (!services.length) {
+          this.scheduleLayouts = [];
+          return;
+        }
+        const teamTypes = this.weeklyTeamTypes();
+        const layouts = [];
+        teamTypes.forEach(teamType => {
+          const roles = this.deriveRoleNamesForTeamType(teamType);
+          if (!roles.length) return;
+          const columns = services.map(service => ({
+            id: service.id,
+            service,
+            teamLabel: this.scheduleWeeklyTeamNameForService(teamType, service)
+          }));
+          const rows = roles.map(roleName => {
+            const cells = {};
+            columns.forEach(column => {
+              cells[column.id] = this.effectiveScheduleAssignment(column.id, teamType, roleName);
+            });
+            return {
+              key: `${teamType}::${roleName}`,
+              label: roleName,
+              cells
+            };
+          });
+          layouts.push({ teamType, columns, rows });
+        });
+        this.scheduleLayouts = layouts;
+      },
+
+      recomputeScheduleDirty() {
+        const dirty = {};
+        const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
+        if (!services.length) {
+          this.scheduleDirtyKeys = {};
+          this.scheduleDirty = false;
+          return;
+        }
+        const teamTypes = this.weeklyTeamTypes();
+        teamTypes.forEach(teamType => {
+          const roles = this.deriveRoleNamesForTeamType(teamType);
+          if (!roles.length) return;
+          services.forEach(service => {
+            roles.forEach(roleName => {
+              const key = this.scheduleCellKey(service.id, teamType, roleName);
+              const baseline = this.scheduleAssignmentBaseline?.[key]?.memberEmail || '';
+              const current = this.effectiveScheduleAssignment(service.id, teamType, roleName)?.memberEmail || '';
+              if (baseline !== current) {
+                dirty[key] = true;
+              }
+            });
+          });
+        });
+        this.scheduleDirtyKeys = dirty;
+        this.scheduleDirty = Object.keys(dirty).length > 0;
+      },
+
+      setScheduleAssignment(serviceId, teamType, roleName, memberEmail) {
+        const key = this.scheduleCellKey(serviceId, teamType, roleName);
+        const normalizedEmail = String(memberEmail || '').trim();
+        const entry = {
+          serviceId,
+          teamType: String(teamType || '').trim(),
+          roleName,
+          weeklyTeamName: this.scheduleWeeklyTeamNameForService(teamType, serviceId),
+          memberEmail: normalizedEmail,
+          memberName: normalizedEmail ? this.memberNameByEmail(normalizedEmail) : '',
+          roleType: roleName
+        };
+        const next = { ...(this.scheduleAssignmentMap || {}) };
+        next[key] = entry;
+        this.scheduleAssignmentMap = next;
+        this.scheduleSaveMessage = '';
+        this.recomputeScheduleDirty();
+        this.buildScheduleLayouts();
+      },
+
+      formatScheduleDate(dateStr, options) {
+        if (!dateStr) return '';
+        const date = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return dateStr;
+        try {
+          return new Intl.DateTimeFormat('en-US', options).format(date);
+        } catch (_) {
+          return dateStr;
+        }
+      },
+
+      computeOrdinalLabel(dateStr, weekdayLabel = '') {
+        if (!dateStr) return '';
+        const date = new Date(`${dateStr}T00:00:00`);
+        if (Number.isNaN(date.getTime())) return '';
+        const day = date.getDate();
+        const ordinalIndex = Math.floor((day - 1) / 7) + 1;
+        const suffix = (() => {
+          if (ordinalIndex % 10 === 1 && ordinalIndex % 100 !== 11) return 'st';
+          if (ordinalIndex % 10 === 2 && ordinalIndex % 100 !== 12) return 'nd';
+          if (ordinalIndex % 10 === 3 && ordinalIndex % 100 !== 13) return 'rd';
+          return 'th';
+        })();
+        let weekday = weekdayLabel;
+        if (!weekday) {
+          try {
+            weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(date);
+          } catch (_) {
+            weekday = '';
+          }
+        }
+        return `${ordinalIndex}${suffix} ${weekday || ''}`.trim();
+      },
+
+      async saveSchedule() {
+        if (this.scheduleSaving) return;
+        const layouts = Array.isArray(this.scheduleLayouts) ? this.scheduleLayouts : [];
+        if (!layouts.length) return;
+        const assignments = [];
+        layouts.forEach(layout => {
+          (Array.isArray(layout?.rows) ? layout.rows : []).forEach(row => {
+            (Array.isArray(layout?.columns) ? layout.columns : []).forEach(column => {
+              const assignment = this.effectiveScheduleAssignment(column.id, layout.teamType, row.label) || {};
+              assignments.push({
+                serviceId: column.id,
+                serviceDate: column.service?.date || '',
+                serviceType: column.service?.type || '',
+                teamType: layout.teamType,
+                weeklyTeamName: this.scheduleWeeklyTeamNameForService(layout.teamType, column.service),
+                roleName: row.label,
+                roleType: assignment.roleType || row.label,
+                memberEmail: assignment.memberEmail || '',
+                memberName: assignment.memberEmail
+                  ? (this.memberNameByEmail(assignment.memberEmail) || assignment.memberName || '')
+                  : '',
+                status: assignment.memberEmail ? 'Assigned' : 'Open'
+              });
+            });
+          });
+        });
+        this.scheduleSaving = true;
+        this.scheduleSaveError = '';
+        this.scheduleSaveMessage = '';
+        try {
+          await callRpc('saveServiceTeamAssignments', { assignments });
+          this.scheduleSaveMessage = 'Schedule saved.';
+          await this.loadSchedule();
+        } catch (e) {
+          console.error(e);
+          this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to save schedule.';
+        } finally {
+          this.scheduleSaving = false;
+        }
+      },
+
       normalizeWeeklyTeam(raw) {
         const team = String(raw?.team || '').trim() || '';
         const teamName = String(raw?.teamName || '').trim();
@@ -341,29 +747,8 @@
       },
 
       async ensureDefaultWeeklyTeams() {
-        let mutated = false;
-        const types = this.weeklyTeamTypes();
-        for (const type of types) {
-          for (const label of WEEKLY_COLUMN_LABELS) {
-            if (!this.findWeeklyTeamByName(type, label)) {
-              try {
-                const res = await callRpc('createWeeklyTeam', { team: type, teamName: label, description: '' });
-                if (res) {
-                  if (Array.isArray(res.items)) {
-                    this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
-                  }
-                  if (res.defaults) {
-                    this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
-                  }
-                  mutated = true;
-                }
-              } catch (err) {
-                console.error(err);
-              }
-            }
-          }
-        }
-        return mutated;
+        // Skip auto-creation to avoid lock contention; rely on existing teams.
+        return false;
       },
 
       rebuildWeeklyTeamLayouts() {
@@ -375,6 +760,8 @@
         });
         layouts.sort((a, b) => String(a.teamType || '').localeCompare(String(b.teamType || '')));
         this.weeklyTeamLayouts = layouts;
+        this.buildScheduleLayouts();
+        this.recomputeScheduleDirty();
       },
 
       buildWeeklyTeamLayout(teamType) {
@@ -610,7 +997,7 @@
         }
         const version = this.markWeeklyTeamDirty(teamId);
         this.rebuildWeeklyTeamLayouts();
-        this.saveDirtyWeeklyTeams([teamId], { [teamId]: version }).catch(err => console.error(err));
+        this.queueTeamSave(teamId, version);
       },
 
       markWeeklyTeamDirty(teamId) {
@@ -632,6 +1019,12 @@
         const versions = { ...(this.teamDirtyVersions || {}) };
         delete versions[teamId];
         this.teamDirtyVersions = versions;
+        if (this.teamSaveTimers?.[teamId]) {
+          clearTimeout(this.teamSaveTimers[teamId]);
+          const timers = { ...(this.teamSaveTimers || {}) };
+          delete timers[teamId];
+          this.teamSaveTimers = timers;
+        }
       },
 
       isWeeklyTeamDirty(teamId) {
@@ -647,6 +1040,21 @@
         return group.teams
           .map(team => team && team.id)
           .filter(id => this.isWeeklyTeamDirty(id));
+      },
+
+      queueTeamSave(teamId, version) {
+        if (!teamId) return;
+        if (this.teamSaveTimers?.[teamId]) {
+          clearTimeout(this.teamSaveTimers[teamId]);
+        }
+        const timers = { ...(this.teamSaveTimers || {}) };
+        timers[teamId] = setTimeout(() => {
+          const currentTimers = { ...(this.teamSaveTimers || {}) };
+          delete currentTimers[teamId];
+          this.teamSaveTimers = currentTimers;
+          this.saveDirtyWeeklyTeams([teamId], { [teamId]: version }).catch(err => console.error(err));
+        }, 400);
+        this.teamSaveTimers = timers;
       },
 
       async saveDirtyWeeklyTeams(targetIds = null, expectedVersions = null) {
@@ -689,16 +1097,36 @@
                 memberName: String(role?.memberName || '').trim()
               }))
             };
-            const res = await callRpc('saveWeeklyTeam', payload);
-            if (!targeted && res?.items) {
-              this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
-              if (res?.defaults) {
-                this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
+            const expected = targeted ? (expectedVersions?.[id] ?? this.teamDirtyVersions?.[id] ?? null) : null;
+            try {
+              const res = await callRpc('saveWeeklyTeam', payload);
+              if (!targeted && res?.items) {
+                this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
+                if (res?.defaults) {
+                  this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
+                }
               }
-            }
-            const expected = targeted ? expectedVersions?.[id] : null;
-            if (!expected || this.teamDirtyVersions?.[id] === expected) {
-              this.clearWeeklyTeamDirtyFlag(id);
+              if (!expected || this.teamDirtyVersions?.[id] === expected) {
+                this.clearWeeklyTeamDirtyFlag(id);
+              }
+            } catch (err) {
+              const message = (err && err.message) ? err.message : String(err || '');
+              if (targeted && /lock/i.test(message)) {
+                if (this.teamSaveTimers?.[id]) {
+                  clearTimeout(this.teamSaveTimers[id]);
+                }
+                const timers = { ...(this.teamSaveTimers || {}) };
+                timers[id] = setTimeout(() => {
+                  const currentVersion = this.teamDirtyVersions?.[id] || expected || 0;
+                  this.saveDirtyWeeklyTeams([id], { [id]: currentVersion }).catch(() => {});
+                }, 600);
+                this.teamSaveTimers = timers;
+                const next = { ...(this.savingTeams || {}) };
+                delete next[id];
+                this.savingTeams = next;
+                continue;
+              }
+              throw err;
             }
             if (targeted) {
               const next = { ...(this.savingTeams || {}) };
@@ -758,7 +1186,17 @@
         };
         Object.keys(this.rolePresets || {}).forEach(add);
         (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).forEach(item => add(item.team));
-        return Array.from(lookup.values()).sort((a, b) => a.localeCompare(b));
+        const priorityIndex = value => {
+          const key = String(value || '').trim().toLowerCase();
+          const idx = TEAM_TYPE_PRIORITY.findIndex(name => name.toLowerCase() === key);
+          return idx >= 0 ? idx : TEAM_TYPE_PRIORITY.length;
+        };
+        return Array.from(lookup.values()).sort((a, b) => {
+          const pa = priorityIndex(a);
+          const pb = priorityIndex(b);
+          if (pa !== pb) return pa - pb;
+          return a.localeCompare(b);
+        });
       },
 
       filteredWeeklyTeams() {
@@ -1032,7 +1470,7 @@
         return list.sort((a, b) => a.label.localeCompare(b.label));
       },
 
-      memberOptionsForRoleType(roleType, role = null) {
+      memberOptionsForRoleType(roleType, role = null, opts = null) {
         const normalizedType = this.normalize(roleType) || this.normalize(role?.roleName);
         const options = this.memberOptions();
         const canonicalType = this.canonicalRoleKey(roleType) || this.canonicalRoleKey(role?.roleName);
@@ -1050,11 +1488,20 @@
         if (!filtered.length) {
           filtered = options;
         }
+        const serviceId = opts && opts.serviceId ? String(opts.serviceId || '').trim() : '';
+        let blocked = null;
+        if (serviceId) {
+          blocked = this.scheduleUnavailableMap?.[serviceId];
+          if (blocked && blocked.size) {
+            filtered = filtered.filter(opt => !blocked.has(String(opt.email || '').trim().toLowerCase()));
+          }
+        }
         const assignedEmailRaw = role ? String(role.memberEmail || '').trim() : '';
         if (assignedEmailRaw) {
           const assignedEmail = assignedEmailRaw.toLowerCase();
           const exists = filtered.some(opt => String(opt.email || '').trim().toLowerCase() === assignedEmail);
-          if (!exists) {
+          const isBlocked = blocked && blocked.has(assignedEmail);
+          if (!exists && !isBlocked) {
             const label = role?.memberName || this.memberLabel(assignedEmailRaw) || assignedEmailRaw;
             filtered = [
               { email: assignedEmailRaw, label: `${label} (not in roster)` },

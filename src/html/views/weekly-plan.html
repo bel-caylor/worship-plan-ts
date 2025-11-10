@@ -15,21 +15,23 @@
       <button class="inline-flex items-center justify-center h-9 px-3 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100 disabled:opacity-50"
         :disabled="loadingServices || !selectedServiceId"
         @click="loadSelected()">Load</button>
-      <template x-if="!selectedServiceId">
+      <template x-if="!selectedServiceId && !isGuest">
         <button class="inline-flex items-center justify-center h-9 px-3 rounded bg-emerald-600 text-white hover:bg-emerald-700"
           @click="submit()" x-text="actionLabel()"></button>
       </template>
-      <button
-        class="ml-1 inline-flex items-center justify-center h-9 w-9 rounded bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-100 disabled:opacity-50"
-        :disabled="loadingServices || !selectedServiceId"
-        title="Delete service"
-        @click="selectedServiceId && confirm('Delete this service and all its items?') && deleteSelectedService()">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-          stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
-          <path
-            d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166M19.5 5.79 18.16 19.673A2.25 2.25 0 0 1 15.916 21.75H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.455 0c-1.146-.173-2.306-.306-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397M15.75 5.394V4.478c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0C9.16 2.314 8.25 3.299 8.25 4.478v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-        </svg>
-      </button>
+      <template x-if="!isGuest">
+        <button
+          class="ml-1 inline-flex items-center justify-center h-9 w-9 rounded bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-100 disabled:opacity-50"
+          :disabled="loadingServices || !selectedServiceId"
+          title="Delete service"
+          @click="selectedServiceId && confirm('Delete this service and all its items?') && deleteSelectedService()">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
+            <path
+              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166M19.5 5.79 18.16 19.673A2.25 2.25 0 0 1 15.916 21.75H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.455 0c-1.146-.173-2.306-.306-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397M15.75 5.394V4.478c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0C9.16 2.314 8.25 3.299 8.25 4.478v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+          </svg>
+        </button>
+      </template>
     </div>
     <div class="flex-1"></div>
     <div class="flex items-center gap-2">
@@ -42,13 +44,15 @@
         </svg>
         <span>Syncing services...</span>
       </span>
-      <button
-        class="inline-flex items-center justify-center h-9 px-3 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100 disabled:opacity-50"
-        :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
+      <template x-if="!isGuest">
+        <button
+          class="inline-flex items-center justify-center h-9 px-3 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100 disabled:opacity-50"
+          :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
+      </template>
     </div>
   </div>
 
-  <div x-cloak x-show="showCreateServicesModal"
+  <div x-cloak x-show="showCreateServicesModal && !isGuest"
     class="fixed inset-0 z-30 flex items-center justify-center bg-black/40 px-4"
     @keydown.escape.window="closeCreateServicesModal()"
     @click.self="closeCreateServicesModal()">
@@ -168,9 +172,13 @@
           <span class="text-xs text-gray-500" x-show="savingOrder">Saving…</span>
           <span class="text-xs text-gray-500" x-show="!savingOrder && savedAt">Saved</span>
         </div>
-        <div class="flex gap-2"><button
-            class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
-            @click="addOrderRow()">+ Add Row</button></div>
+        <div class="flex gap-2">
+          <template x-if="!isGuest">
+            <button
+              class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
+              @click="addOrderRow()">+ Add Row</button>
+          </template>
+        </div>
       </div>
       <div class="relative max-h-[50vh] overflow-auto">
         <div x-cloak x-show="loadingOrder"
@@ -192,7 +200,9 @@
               <th class="border px-2 py-1 text-left">Detail</th>
               <th class="border px-2 py-1 text-left">Leader</th>
               <th class="border px-2 py-1 text-left">Notes</th>
-              <th class="border px-2 py-1 w-28">Actions</th>
+              <template x-if="!isGuest">
+                <th class="border px-2 py-1 w-28">Actions</th>
+              </template>
             </tr>
           </thead>
           <tbody>
@@ -200,7 +210,8 @@
               <tr>
                 <td class="border px-2 py-1" x-text="i+1"></td>
                 <td class="border px-2 py-1">
-                  <select class="border rounded px-2 py-1 w-full" x-model="row.itemType" @change="queueSaveOrder(true)">
+                  <select class="border rounded px-2 py-1 w-full" x-model="row.itemType" @change="queueSaveOrder(true)"
+                    :disabled="isGuest">
                     <option :value="row.itemType" x-text="row.itemType"></option>
                     <template x-for="t in orderItemTypes" :key="t">
                       <option :value="t" x-text="t"></option>
@@ -218,13 +229,13 @@
                         <span>Thinking...</span>
                       </div>
                     </template>
-                    <input class="border rounded px-2 py-1 w-full" x-model="row.detail" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                      placeholder="e.g., Song title" />
+                    <input class="border rounded px-2 py-1 w-full" x-model="row.detail" @input="queueSaveOrder()"
+                      @blur="queueSaveOrder(true)" placeholder="e.g., Song title" :disabled="isGuest" />
                     <!-- Suggest songs -->
                     <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
                       title="Suggest song" aria-label="Suggest song"
-                      x-show="/song/i.test(String(row.itemType||''))"
-                      :disabled="loadingSuggestion"
+                      x-show="!isGuest && /song/i.test(String(row.itemType||''))"
+                      :disabled="loadingSuggestion || isGuest"
                       @click.stop="suggestForRow(i)">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
@@ -236,8 +247,8 @@
                     <!-- Suggest scripture -->
                     <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
                       title="Suggest scripture" aria-label="Suggest scripture"
-                      x-show="/call to worship|scripture/i.test(String(row.itemType||''))"
-                      :disabled="loadingSuggestion"
+                      x-show="!isGuest && /call to worship|scripture/i.test(String(row.itemType||''))"
+                      :disabled="loadingSuggestion || isGuest"
                       @click.stop="suggestForRow(i)">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                         stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
@@ -259,10 +270,11 @@
                   </div>
                 </td>
                 <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.leader" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                    placeholder="Leader" /></td>
+                    placeholder="Leader" :disabled="isGuest" /></td>
                 <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.notes" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                    placeholder="Notes" /></td>
-                <td class="border px-2 py-1">
+                    placeholder="Notes" :disabled="isGuest" /></td>
+                <template x-if="!isGuest">
+                  <td class="border px-2 py-1">
                   <div class="flex items-center gap-1">
                     <button type="button" aria-label="Move up"
                       class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0"
@@ -290,7 +302,8 @@
                       </svg>
                     </button>
                   </div>
-                </td>
+                  </td>
+                </template>
               </tr>
             </template>
           </tbody>

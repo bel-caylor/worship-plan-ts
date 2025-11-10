@@ -67,6 +67,20 @@ const norm = (value: unknown): string => String(value ?? '').trim();
 const normKey = (team: unknown, teamName: unknown): string =>
   `${norm(team).toLowerCase()}::${norm(teamName).toLowerCase()}`;
 
+function acquireDocumentLock(maxAttempts = 4, waitMs = 5000) {
+  const baseDelay = 250;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const lock = LockService.getDocumentLock();
+    if (lock.tryLock(waitMs)) {
+      return lock;
+    }
+    Utilities.sleep(baseDelay * Math.pow(2, attempt));
+  }
+  const finalLock = LockService.getDocumentLock();
+  finalLock.waitLock(waitMs);
+  return finalLock;
+}
+
 function getSheetOrNull(name: string): GoogleAppsScript.Spreadsheet.Sheet | null {
   try {
     return getSheetByName(name);
@@ -269,8 +283,7 @@ export function saveWeeklyTeamDefaults(input: { team: string; roles: string[] })
   if (!team) throw new Error('Team type is required.');
   const roles = Array.isArray(input.roles) ? input.roles.map(role => norm(role)).filter(Boolean) : [];
 
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(5000);
+  const lock = acquireDocumentLock();
   try {
     const sh = ensureDefaultsSheet();
     const lastCol = Math.max(sh.getLastColumn(), 3);
@@ -315,8 +328,7 @@ export function createWeeklyTeam(input: CreateWeeklyTeamInput) {
   if (!team) throw new Error('Team type is required.');
   if (!teamName) throw new Error('Team name is required.');
 
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(5000);
+  const lock = acquireDocumentLock();
   try {
     const existing = readWeeklyTeamsSheet();
     const key = normKey(team, teamName);
@@ -362,8 +374,7 @@ export function saveWeeklyTeam(input: SaveWeeklyTeamInput) {
   const targetKey = normKey(team, teamName);
   const originalKey = normKey(effectiveOriginalTeam, effectiveOriginalTeamName);
 
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(5000);
+  const lock = acquireDocumentLock();
   try {
     const teamSheet = getSheetByName(WEEKLY_TEAMS_SHEET);
     const roleSheet = getSheetByName(WEEKLY_TEAM_ROLES_SHEET);
@@ -416,22 +427,27 @@ export function saveWeeklyTeam(input: SaveWeeklyTeamInput) {
     rowsToDelete.forEach(rowNumber => roleSheet.deleteRow(rowNumber));
 
     const roleEntries = Array.isArray(input.roles) ? input.roles : [];
+    const roleColumnCount = Math.max(roleHeaders.length, roleSheet.getLastColumn());
+    const rowsToInsert: string[][] = [];
     roleEntries.forEach(entry => {
       const roleName = norm(entry.roleName);
       if (!roleName) return;
-      const roleType = norm(entry.roleType);
+      const roleType = norm(entry.roleType) || roleName;
       const memberEmail = norm(entry.memberEmail);
       const memberName = norm(entry.memberName);
-      const nextRow = Math.max(roleSheet.getLastRow(), 1) + 1;
-      roleSheet.getRange(nextRow, idxRoleTeam + 1).setValue(team);
-      roleSheet.getRange(nextRow, idxRoleTeamName + 1).setValue(teamName);
-      roleSheet.getRange(nextRow, idxRoleName + 1).setValue(roleName);
-      if (idxRoleType >= 0) {
-        roleSheet.getRange(nextRow, idxRoleType + 1).setValue(roleType || roleName);
-      }
-      roleSheet.getRange(nextRow, idxRoleMemberEmail + 1).setValue(memberEmail);
-      roleSheet.getRange(nextRow, idxRoleMemberName + 1).setValue(memberName);
+      const row: string[] = Array.from({ length: roleColumnCount }, () => '');
+      row[idxRoleTeam] = team;
+      row[idxRoleTeamName] = teamName;
+      row[idxRoleName] = roleName;
+      if (idxRoleType >= 0) row[idxRoleType] = roleType;
+      row[idxRoleMemberEmail] = memberEmail;
+      row[idxRoleMemberName] = memberName;
+      rowsToInsert.push(row);
     });
+    if (rowsToInsert.length) {
+      const startRow = Math.max(roleSheet.getLastRow(), 1) + 1;
+      roleSheet.getRange(startRow, 1, rowsToInsert.length, roleColumnCount).setValues(rowsToInsert);
+    }
   } finally {
     lock.releaseLock();
   }

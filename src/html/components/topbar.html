@@ -14,11 +14,13 @@
       Song List
     </a>
 
+    <template x-if="!window.__GUEST__">
     <a href="#/team"
        class="px-2 py-1"
        :class="route==='team' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
       Team
     </a>
+    </template>
 
     <a href="#/availability"
        class="px-2 py-1"

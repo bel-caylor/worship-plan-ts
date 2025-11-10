@@ -1,4 +1,5 @@
-<script>
+const vm = require('vm'); const code = @'
+
   function availabilityApp() {
     return {
       email: '',
@@ -25,9 +26,6 @@
       filteredRecipients: [],
       selectedRecipientTeam: 'all',
       selectedRecipientEmails: [],
-      emailSending: false,
-      emailSendStatus: '',
-      emailSendError: '',
 
       init() {
         this.prepareEmailTemplate();
@@ -60,7 +58,9 @@
 
       prepareEmailTemplate() {
         this.shareLink = this.availabilityShareUrl();
-        this.emailSubject = this.normalizeEmailSubject(this.emailSubject);
+        if (!this.emailSubject) {
+          this.emailSubject = 'Please update your availability';
+        }
         if (!this.emailBody) {
           this.emailBody = `Hi team,\n\nPlease record your upcoming availability here:\n${this.shareLink}\n\nThank you!`;
         }
@@ -68,7 +68,7 @@
 
       availabilityShareUrl() {
         const fallbackBase = `${location.origin}${location.pathname}`;
-        const base = this.preferredShareBase() || fallbackBase;
+        const base = window.__BASE__ || fallbackBase;
         try {
           const url = new URL(base);
           url.searchParams.set('mode', 'guest');
@@ -83,30 +83,12 @@
         }
       },
 
-      preferredShareBase() {
-        try {
-          const { origin, pathname } = window.location || {};
-          const locationBase = origin && pathname ? `${origin}${pathname}` : '';
-          const path = String(pathname || '');
-          if (!window.__BASE__) {
-            return locationBase;
-          }
-          if (/\/dev(\/|$)/.test(path) || /localhost/i.test(String(origin || ''))) {
-            return locationBase;
-          }
-          return window.__BASE__ || locationBase;
-        } catch (_) {
-          return window.__BASE__ || '';
-        }
-      },
-
       async copyShareLink() {
         await this.copyToClipboard(this.shareLink || '', 'Share link copied.');
       },
 
       async copyEmailSubject() {
-        this.emailSubject = this.normalizeEmailSubject(this.emailSubject);
-        await this.copyToClipboard(this.emailSubject, 'Subject copied.');
+        await this.copyToClipboard(this.emailSubject || '', 'Subject copied.');
       },
 
       async copyEmailBody() {
@@ -115,45 +97,6 @@
 
       async copyRecipientEmails() {
         await this.copyToClipboard(this.selectedRecipientEmails.join(', '), 'Recipient emails copied.');
-      },
-
-      async sendAvailabilityEmail() {
-        if (!this.selectedRecipientEmails.length) {
-          notify('Select at least one recipient.', 'error');
-          return;
-        }
-        this.emailSubject = this.normalizeEmailSubject(this.emailSubject);
-        const subject = this.emailSubject;
-        const body = String(this.emailBody || '').trim();
-        if (!body) {
-          this.emailSendError = 'Email text is required.';
-          return;
-        }
-        this.emailSending = true;
-        this.emailSendStatus = '';
-        this.emailSendError = '';
-        try {
-          const res = await callRpc('sendAvailabilityEmail', {
-            subject,
-            body,
-            recipients: this.selectedRecipientEmails
-          });
-          const count = res?.sent ?? this.selectedRecipientEmails.length;
-          this.emailSendStatus = `Email sent to ${count} recipient${count === 1 ? '' : 's'}.`;
-          notify('Availability email sent.', 'success');
-        } catch (e) {
-          console.error(e);
-          this.emailSendError = (e && e.message) ? e.message : 'Unable to send email.';
-        } finally {
-          this.emailSending = false;
-        }
-      },
-
-      normalizeEmailSubject(value) {
-        const trimmed = String(value || '').trim();
-        const fallback = 'Please update your availability';
-        const base = trimmed || fallback;
-        return base.startsWith('📅') ? base : `📅 ${base}`;
       },
 
       async copyToClipboard(text, successMsg = 'Copied.') {
@@ -212,7 +155,7 @@
               const nameB = b.name || b.email;
               return nameA.localeCompare(nameB);
             });
-          const teamSet = new Set();
+          const teamSet = new Set<string>();
           members.forEach(m => {
             if (!Array.isArray(m.teams) || !m.teams.length) return;
             m.teams.forEach(team => {
@@ -245,14 +188,6 @@
           this.filteredRecipients = this.recipientMembers.filter(m => Array.isArray(m.teams) && m.teams.includes(team));
         }
         this.selectedRecipientEmails = this.filteredRecipients.map(m => m.email);
-      },
-
-      selectAllRecipients() {
-        this.selectedRecipientEmails = this.filteredRecipients.map(m => m.email);
-      },
-
-      deselectAllRecipients() {
-        this.selectedRecipientEmails = [];
       },
 
       onRecipientTeamChange(value) {
@@ -416,4 +351,6 @@
       }
     };
   }
-</script>
+
+
+'@; vm.runInNewContext(code, { console }); console.log('ok');

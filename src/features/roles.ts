@@ -12,6 +12,14 @@ type RolesListItem = {
   spanish: string;
 };
 
+type ViewerProfile = {
+  email: string;
+  permissions: string;
+  first: string;
+  last: string;
+  isAdmin: boolean;
+};
+
 type UpdateRoleInput = {
   email: string;
   role?: string;
@@ -32,6 +40,25 @@ type AddRoleInput = {
 
 const TEAM_SPLIT = /[,;|]/;
 const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const canonicalizeRoleLabel = (value: unknown) => {
+  const role = String(value ?? '').trim();
+  if (!role) return '';
+  return /^vocals?$/i.test(role) ? 'Vocal' : role;
+};
+
+function acquireRolesLock(maxAttempts = 4, waitMs = 5000) {
+  const baseDelay = 200;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const lock = LockService.getDocumentLock();
+    if (lock.tryLock(waitMs)) {
+      return lock;
+    }
+    Utilities.sleep(baseDelay * Math.pow(2, attempt));
+  }
+  const finalLock = LockService.getDocumentLock();
+  finalLock.waitLock(waitMs);
+  return finalLock;
+}
 
 export function memberExistsInRoles(input: { email: string }) {
   const email = normalizeEmail(input?.email);
@@ -63,7 +90,7 @@ export function memberExistsInRoles(input: { email: string }) {
         email,
         first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
         last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
-        role: idxRole >= 0 ? String(row[idxRole] ?? '').trim() : '',
+        role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
         teams,
         teamRaw
       }
@@ -71,6 +98,62 @@ export function memberExistsInRoles(input: { email: string }) {
   }
 
   return { exists: false };
+}
+
+export function getViewerProfile(): ViewerProfile {
+  let viewerEmail = '';
+  try {
+    const sessionEmail = Session.getActiveUser?.().getEmail?.();
+    viewerEmail = normalizeEmail(sessionEmail);
+  } catch (_) {
+    viewerEmail = '';
+  }
+
+  const emptyProfile: ViewerProfile = {
+    email: viewerEmail,
+    permissions: '',
+    first: '',
+    last: '',
+    isAdmin: false
+  };
+
+  if (!viewerEmail) {
+    return emptyProfile;
+  }
+
+  const sh = getSheetByName(ROLES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) {
+    return emptyProfile;
+  }
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idxEmail = col(ROLES_COL.email);
+  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
+  const idxPerms = col(ROLES_COL.permissions);
+  const idxFirst = col(ROLES_COL.first);
+  const idxLast = col(ROLES_COL.last);
+
+  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  for (const row of body) {
+    const rowEmail = normalizeEmail(row[idxEmail]);
+    if (rowEmail !== viewerEmail) continue;
+    const permissions = idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '';
+    const first = idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '';
+    const last = idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '';
+    const permLower = permissions.toLowerCase();
+    return {
+      email: viewerEmail,
+      permissions,
+      first,
+      last,
+      isAdmin: permLower === 'administrator' || permLower === 'admin'
+    };
+  }
+
+  return emptyProfile;
 }
 
 export function listRoles() {
@@ -93,7 +176,10 @@ export function listRoles() {
   const items: RolesListItem[] = [];
   const teamSet = new Set<string>();
 
-  for (const row of body) {
+  const roleFixes: Array<{ row: number; value: string }> = [];
+
+  for (let i = 0; i < body.length; i++) {
+    const row = body[i];
     const email = idxEmail >= 0 ? String(row[idxEmail] ?? '').trim() : '';
     if (!email) continue;
     const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
@@ -108,12 +194,30 @@ export function listRoles() {
       last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
       teams,
       teamRaw,
-      role: idxRole >= 0 ? String(row[idxRole] ?? '').trim() : '',
+      role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
       spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
     });
+    if (idxRole >= 0) {
+      const rawRole = String(row[idxRole] ?? '').trim();
+      const canonical = canonicalizeRoleLabel(rawRole);
+      if (rawRole && canonical && rawRole !== canonical) {
+        roleFixes.push({ row: 2 + i, value: canonical });
+      }
+    }
   }
 
   items.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+
+  if (roleFixes.length && idxRole >= 0) {
+    const lock = acquireRolesLock();
+    try {
+      roleFixes.forEach(fix => {
+        sh.getRange(fix.row, idxRole + 1).setValue(fix.value);
+      });
+    } finally {
+      lock.releaseLock();
+    }
+  }
 
   return {
     items,
@@ -153,8 +257,7 @@ export function updateRoleEntry(input: UpdateRoleInput) {
   }
   if (targetIndex < 0) throw new Error(`No role entry found for ${email}`);
 
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(5000);
+  const lock = acquireRolesLock();
   try {
     const rowNumber = 2 + targetIndex;
     const updates: Array<{ column: number; value: string }> = [];
@@ -162,7 +265,7 @@ export function updateRoleEntry(input: UpdateRoleInput) {
       updates.push({ column: idxTeam + 1, value: input.team.trim() });
     }
     if (typeof input.role === 'string') {
-      updates.push({ column: idxRole + 1, value: input.role.trim() });
+      updates.push({ column: idxRole + 1, value: canonicalizeRoleLabel(input.role) });
     }
     if (typeof input.permissions === 'string') {
       updates.push({ column: idxPerms + 1, value: input.permissions.trim() });
@@ -215,8 +318,7 @@ export function addRoleEntry(input: AddRoleInput) {
   }
 
   const nextRow = lastRow + 1;
-  const lock = LockService.getDocumentLock();
-  lock.waitLock(5000);
+  const lock = acquireRolesLock();
   try {
     if (nextRow === 1) sh.insertRowAfter(1);
     sh.getRange(nextRow, idxEmail + 1).setValue(email);
@@ -229,7 +331,7 @@ export function addRoleEntry(input: AddRoleInput) {
       sh.getRange(nextRow, idxTeam + 1).setValue(String(input.team || '').trim());
     }
     if (typeof input.role === 'string') {
-      sh.getRange(nextRow, idxRole + 1).setValue(String(input.role || '').trim());
+      sh.getRange(nextRow, idxRole + 1).setValue(canonicalizeRoleLabel(input.role));
     }
     if (typeof input.spanish !== 'undefined') {
       let spanishVal = '';

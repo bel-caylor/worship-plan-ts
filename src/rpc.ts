@@ -4,9 +4,11 @@ import { addService, createServicesBatch, getServicePeople, esvPassage, listServ
 import { getOrder, saveOrder } from './features/order';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
-import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles } from './features/roles';
+import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
+import { getTeamScheduleSnapshot, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
+import { sendAvailabilityEmail } from './features/messaging';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -50,6 +52,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return addRoleEntry(payload as any);
       case 'memberExistsInRoles':
         return memberExistsInRoles(payload as any);
+      case 'getViewerProfile':
+        return getViewerProfile();
       case 'listWeeklyTeams':
         return listWeeklyTeams();
       case 'createWeeklyTeam':
@@ -58,10 +62,16 @@ export function rpc(input: { method: string; payload: unknown }) {
         return saveWeeklyTeam(payload as any);
       case 'saveWeeklyTeamDefaults':
         return saveWeeklyTeamDefaults(payload as any);
+      case 'getTeamScheduleSnapshot':
+        return getTeamScheduleSnapshot(payload as any);
+      case 'saveServiceTeamAssignments':
+        return saveServiceTeamAssignments(payload as any);
       case 'getMemberAvailability':
         return getMemberAvailability(payload as any);
       case 'saveMemberAvailability':
         return saveMemberAvailability(payload as any);
+      case 'sendAvailabilityEmail':
+        return sendAvailabilityEmail(payload as any);
       default:
         throw new Error(`Unknown RPC method: ${method}`);
     }

@@ -1,6 +1,14 @@
 <div x-data="teamApp()" x-init="init()" class="h-full flex flex-col">
   <div class="border-b px-4 pt-3 flex items-center gap-3 bg-gray-100 relative">
-    <div class="flex items-center gap-1 text-sm z-10">
+      <div class="flex items-center gap-1 text-sm z-10">
+      <button type="button"
+        class="px-3 py-1 rounded-t-md transition border-t border-x"
+        :class="activeTab==='schedule'
+          ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+        @click="activeTab='schedule'">
+        Schedule
+      </button>
       <button type="button"
         class="px-3 py-1 rounded-t-md transition border-t border-x"
         :class="activeTab==='weeklyTeams'
@@ -163,6 +171,87 @@
     </div>
   </div>
 
+  <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='schedule'" x-cloak>
+    <div class="border-b bg-gray-50 px-4 py-3 flex flex-wrap items-center gap-3">
+      <div class="text-xs text-red-600" x-show="scheduleError" x-text="scheduleError"></div>
+      <div class="flex-1"></div>
+      <div class="flex items-center gap-3 text-sm">
+        <span class="text-emerald-700" x-show="scheduleSaveMessage" x-text="scheduleSaveMessage"></span>
+        <span class="text-red-600" x-show="scheduleSaveError" x-text="scheduleSaveError"></span>
+        <span class="text-gray-600" x-show="scheduleSaving">Saving schedule...</span>
+      </div>
+      <button type="button" class="px-2 py-1 text-sm border rounded bg-white hover:bg-gray-50 disabled:opacity-50"
+        :disabled="scheduleSaving"
+        @click="refresh()">Refresh</button>
+      <button type="button" class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+        :disabled="scheduleSaving || !scheduleDirty"
+        @click="saveSchedule()">
+        Save Schedule
+      </button>
+    </div>
+    <div class="flex-1 min-h-0 overflow-auto px-4 pb-4 space-y-6">
+      <div class="text-sm text-gray-500" x-show="scheduleLoading">Loading upcoming services...</div>
+      <div class="text-sm text-gray-500" x-show="!scheduleLoading && !scheduleLayouts.length">
+        No upcoming services to schedule.
+      </div>
+      <template x-for="layout in scheduleLayouts" :key="layout.teamType">
+        <section class="border border-slate-200 rounded bg-white shadow-sm relative">
+          <div class="bg-blue-900 text-white px-4 py-3 flex flex-wrap items-center gap-4 sticky top-0 z-10 shadow" style="top:0">
+            <div class="flex flex-col">
+              <h3 class="text-xl font-semibold" x-text="layout.teamType || '(unspecified team)'"></h3>
+              <span class="text-xs text-blue-100" x-text="layout.columns.length + ' services'"></span>
+            </div>
+            <div class="flex-1"></div>
+            <span class="text-xs font-bold uppercase tracking-wide text-amber-200" x-show="scheduleDirty">Unsaved</span>
+          </div>
+          <div class="overflow-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-100 text-gray-700">
+                <tr>
+                  <th class="text-left font-medium px-3 py-2 w-48 sticky left-0 z-20 bg-slate-100">Role</th>
+                  <template x-for="column in layout.columns" :key="column.id">
+                    <th class="text-left font-medium px-3 py-2 align-top min-w-[200px]">
+                      <div class="font-semibold" x-text="column.service.label"></div>
+                      <div class="text-xs text-gray-500" x-text="column.service.ordinalLabel"></div>
+                      <div class="text-xs text-gray-400"
+                        x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
+                        x-text="column.teamLabel"></div>
+                    </th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in layout.rows" :key="row.key">
+                  <tr class="border-t">
+                    <th class="px-3 py-1 text-left bg-slate-50 align-middle sticky left-0 z-10" x-text="row.label"></th>
+                    <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
+                      <td class="align-top px-2 py-2 min-w-[200px]"
+                        :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
+                        <div class="flex flex-col gap-1">
+                          <select class="w-full border rounded px-2 py-1 text-sm"
+                            :class="!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50' : ''"
+                            :value="row.cells[column.id]?.memberEmail || ''"
+                            :disabled="scheduleSaving"
+                            @change="setScheduleAssignment(column.id, layout.teamType, row.label, $event.target.value)">
+                            <option value="">Open</option>
+                            <template x-for="member in memberOptionsForRoleType(row.label, row.cells[column.id], { serviceId: column.id })"
+                              :key="member.email + '-' + column.id + '-' + row.key">
+                              <option :value="member.email" x-text="member.display"></option>
+                            </template>
+                          </select>
+                        </div>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </template>
+    </div>
+  </div>
+
   <div class="flex-1 min-h-0 flex" x-show="activeTab==='roles'" x-cloak>
     <!-- Left column: list -->
     <div class="w-[360px] flex-shrink-0 border-r flex flex-col min-h-0">
@@ -210,8 +299,9 @@
             <h3 class="text-xl font-semibold" x-text="selected?.first + ' ' + selected?.last"></h3>
             <div class="text-sm text-gray-600" x-text="selected?.email"></div>
             <div class="mt-2 text-xs inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-800 rounded"
-              x-show="selected?.permissions">
-              <span class="font-semibold uppercase tracking-wide" x-text="selected?.permissions"></span>
+              x-show="editPermissions || selected?.permissions">
+              <span class="font-semibold uppercase tracking-wide"
+                x-text="(editPermissions || selected?.permissions || '').toUpperCase()"></span>
             </div>
           </div>
           <div class="text-xs text-gray-500" x-show="selected?.spanish">
@@ -259,6 +349,15 @@
             </div>
 
           <div class="grid gap-4 sm:grid-cols-2 max-w-xl">
+            <label class="block text-sm">
+              <span class="font-medium text-gray-700">Permissions</span>
+              <select class="mt-1 w-full border rounded px-3 py-2"
+                x-model="editPermissions">
+                <template x-for="perm in permissionsOptions" :key="'edit-'+perm">
+                  <option :value="perm" x-text="formatPermission(perm)"></option>
+                </template>
+              </select>
+            </label>
             <label class="flex items-center gap-2 text-sm mt-1 sm:mt-6">
               <input type="checkbox" x-model="spanishChecked" />
               <span>Spanish speaker</span>
@@ -302,7 +401,7 @@
         Save Changes
       </button>
     </div>
-    <div class="flex-1 min-h-0 overflow-auto px-4 py-4">
+    <div class="flex-1 min-h-0 overflow-auto px-4 pb-4">
       <div class="text-sm text-gray-500" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
       <div class="text-sm text-gray-500" x-show="!weeklyTeamsLoading && !weeklyTeamLayouts.length">
         No weekly teams yet. Create a team to get started.
@@ -332,7 +431,7 @@
             <table class="min-w-full text-sm">
               <thead class="bg-slate-100 text-gray-700">
                 <tr>
-                  <th class="text-left font-medium px-3 py-2 w-48">Role</th>
+                  <th class="text-left font-medium px-3 py-2 w-48 sticky left-0 z-20 bg-slate-100">Role</th>
                   <template x-for="team in group.teams" :key="team.key">
                     <th class="text-left font-medium px-3 py-2 align-top">
                       <div class="font-semibold" x-text="team.teamName || '(untitled)'"></div>
@@ -344,7 +443,7 @@
               <tbody>
                 <template x-for="role in group.roles" :key="role.key">
                   <tr class="border-t">
-                    <th class="px-3 py-1 text-left bg-slate-50 align-middle" x-text="role.label"></th>
+                    <th class="px-3 py-1 text-left bg-slate-50 align-middle sticky left-0 z-10" x-text="role.label"></th>
                     <template x-for="team in group.teams" :key="team.key">
                       <td class="align-top min-w-[180px]">
                         <select class="w-full border rounded px-2 py-1 text-sm"

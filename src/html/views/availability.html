@@ -1,7 +1,7 @@
 <div x-data="availabilityApp()" x-init="init()" class="min-h-full bg-gray-50 overflow-y-auto">
   <div class="max-w-3xl mx-auto p-6">
     <div class="bg-white rounded-lg shadow p-5">
-      <h1 class="text-2xl font-semibold mb-1">Team Availability</h1>
+      <h1 class="text-2xl font-semibold mb-1">Your Availability</h1>
       <p class="text-sm text-gray-600 mb-5">Let us know which upcoming services you are <span class="font-semibold">unavailable</span> to serve.</p>
 
       <label class="block text-sm text-gray-700 mb-3">
@@ -56,6 +56,114 @@
         <button type="button" class="self-start text-sm text-blue-700 hover:underline"
           @click="clearSelections()" :disabled="saving">Clear all</button>
       </form>
+    </div>
+    <div x-cloak x-show="isAdmin" class="mt-6 bg-white rounded-lg shadow p-5 space-y-4">
+      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 class="text-lg font-semibold text-blue-900">Share the availability link</h2>
+          <p class="text-xs text-blue-800 break-all" x-text="shareLink"></p>
+        </div>
+        <div class="flex gap-2">
+          <button type="button" class="px-3 py-1.5 text-sm border rounded bg-white hover:bg-blue-100"
+            @click="copyShareLink()">Copy Link</button>
+          <button type="button" class="px-3 py-1.5 text-sm border rounded bg-blue-600 text-white hover:bg-blue-700"
+            @click="emailEditorOpen = !emailEditorOpen">
+            <span x-show="!emailEditorOpen">Show Email Text</span>
+            <span x-show="emailEditorOpen">Hide Email Text</span>
+          </button>
+        </div>
+      </div>
+
+      <div x-show="emailEditorOpen" class="space-y-3 text-sm">
+        <label class="block">
+          <span class="font-medium text-gray-700">Email subject</span>
+          <div class="mt-1 flex gap-2 items-center">
+            <div class="relative flex-1">
+              <span class="pointer-events-none absolute inset-y-0 left-0 pl-3 flex items-center text-gray-400">
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M6.75 3v2.25M17.25 3v2.25M3 8.25h18M5.25 6.75h13.5A2.25 2.25 0 0 1 21 9v9.75A2.25 2.25 0 0 1 18.75 21H5.25A2.25 2.25 0 0 1 3 18.75V9a2.25 2.25 0 0 1 2.25-2.25zM7.5 12h1.5m3 0h1.5m-6 3h1.5m3 0h1.5" />
+                </svg>
+              </span>
+              <input type="text" class="w-full border rounded px-3 py-2 pl-9" x-model="emailSubject" />
+            </div>
+            <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-blue-50"
+              @click="copyEmailSubject()">Copy subject</button>
+          </div>
+        </label>
+        <label class="block">
+          <span class="font-medium text-gray-700">Email message</span>
+          <textarea class="mt-1 w-full border rounded px-3 py-2 min-h-[140px]" x-model="emailBody"></textarea>
+        </label>
+        <div class="flex flex-wrap items-center gap-2">
+          <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-blue-50"
+            @click="copyEmailBody()">Copy email text</button>
+          <p class="text-xs text-gray-600">Update the text above and click copy to paste into your email client.</p>
+        </div>
+      </div>
+
+      <div class="border-t pt-4 space-y-3">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 class="text-base font-semibold text-gray-900">Email recipients</h3>
+            <p class="text-sm text-gray-600">Pick a team, then uncheck anyone you do not want to include.</p>
+          </div>
+          <div class="flex flex-wrap gap-2 text-sm items-center">
+            <span class="text-gray-700" x-text="`Selected: ${selectedRecipientEmails.length}`"></span>
+            <button type="button" class="px-3 py-1.5 border rounded bg-white hover:bg-blue-50"
+              @click="selectAllRecipients()" :disabled="!filteredRecipients.length">
+              Select all
+            </button>
+            <button type="button" class="px-3 py-1.5 border rounded bg-white hover:bg-blue-50"
+              @click="deselectAllRecipients()" :disabled="!selectedRecipientEmails.length">
+              Deselect all
+            </button>
+            <button type="button" class="px-3 py-1.5 border rounded bg-white hover:bg-blue-50"
+              @click="copyRecipientEmails()" :disabled="!selectedRecipientEmails.length">
+              Copy recipient emails
+            </button>
+            <button type="button"
+              class="px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              @click="sendAvailabilityEmail()"
+              :disabled="!selectedRecipientEmails.length || emailSending">
+              <span x-show="!emailSending">Send email</span>
+              <span x-show="emailSending">Sending...</span>
+            </button>
+          </div>
+          <div class="text-sm text-emerald-700" x-show="emailSendStatus" x-text="emailSendStatus"></div>
+          <div class="text-sm text-rose-600" x-show="emailSendError" x-text="emailSendError"></div>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2 text-sm">
+          <label class="block">
+            <span class="font-medium text-gray-700">Team</span>
+            <select class="mt-1 w-full border rounded px-3 py-2" x-model="selectedRecipientTeam"
+              @change="onRecipientTeamChange($event.target.value)">
+              <template x-for="team in recipientTeams" :key="team.value">
+                <option :value="team.value" x-text="team.label"></option>
+              </template>
+            </select>
+          </label>
+          <div class="flex items-center text-gray-600" x-show="recipientLoading">
+            Loading team members…
+          </div>
+          <div class="flex items-center text-rose-600" x-show="recipientError" x-text="recipientError"></div>
+        </div>
+        <div class="border rounded max-h-64 overflow-y-auto divide-y" x-show="filteredRecipients.length">
+          <template x-for="member in filteredRecipients" :key="member.email">
+            <label class="flex items-start gap-3 px-3 py-2 text-sm">
+              <input type="checkbox" class="mt-1" :value="member.email" x-model="selectedRecipientEmails">
+              <div class="flex gap-4 items-start">
+                <div class="font-medium text-gray-900" x-text="member.name || member.email"></div>
+                <div class="text-xs text-gray-500" x-text="member.email"></div>
+                <div class="text-xs text-gray-400" x-text="member.teams.join(', ')" x-show="member.teams.length"></div>
+              </div>
+            </label>
+          </template>
+        </div>
+        <div class="text-sm text-gray-500" x-show="!filteredRecipients.length && !recipientLoading">
+          No members found for this team.
+        </div>
+      </div>
     </div>
   </div>
 </div>

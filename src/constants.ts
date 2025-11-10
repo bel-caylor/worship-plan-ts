@@ -83,3 +83,18 @@ export const MEMBER_AVAILABILITY_COL = {
   serviceId: 'ServiceID',
   availability: 'Availability'
 } as const;
+
+export const SERVICE_TEAM_ASSIGNMENTS_SHEET = 'ServiceTeamAssignments';
+export const SERVICE_TEAM_ASSIGNMENTS_COL = {
+  serviceId: 'ServiceID',
+  serviceDate: 'ServiceDate',
+  serviceType: 'ServiceType',
+  teamType: 'Team',
+  weeklyTeamName: 'WeeklyTeam',
+  roleName: 'Role',
+  roleType: 'RoleType',
+  memberEmail: 'MemberEmail',
+  memberName: 'MemberName',
+  status: 'Status',
+  notes: 'Notes'
+} as const;

@@ -1,8 +1,11 @@
 import { getSongsWithLinksForView } from './features/songs';
+import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
+  const viewMode = String(e?.parameter?.mode || e?.parameter?.view || '').toLowerCase();
+  const guestMode = viewMode === 'guest';
 
   // JSON API: list files for a folder
   if (action === 'files') {
@@ -17,6 +20,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const tpl = HtmlService.createTemplateFromFile('index');
   tpl.rowsData = getSongsWithLinksForView();
   try { tpl.servicesData = listServices(); } catch (_) { tpl.servicesData = { items: [] }; }
+  tpl.guestMode = guestMode;
   try {
     // Provide the deployed Web App base URL to client for fetch fallbacks
     // Note: returns null when not deployed as a Web App
