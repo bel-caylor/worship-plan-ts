@@ -24,6 +24,19 @@
     // Guest mode injected by server (via ?mode=guest)
     window.__GUEST__ = <?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>;
   </script>
+  <script>
+    (function ensureRpcBase() {
+      if (window.__BASE__ && window.__BASE__ !== (location.origin + location.pathname)) return;
+      if (window.APP_RPC_BASE) {
+        window.__BASE__ = window.APP_RPC_BASE;
+        return;
+      }
+      try {
+        const meta = document.querySelector('meta[name="app-script-base"]');
+        if (meta && meta.content) window.__BASE__ = meta.content;
+      } catch (_) {}
+    })();
+  </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>

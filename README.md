@@ -56,5 +56,15 @@ Development conventions
 Build scripts
 - `npm run build` – bundle server, copy HTML, build CSS, wrap CSS
 - `npm run watch` – builds continuously and pushes with clasp
+- `npm run build:standalone` – full build + produce `dist-standalone/index.html` for static hosting
 - `npx clasp push -f` – force push if necessary (e.g., after manifest change)
 
+Standalone frontend option
+1. Deploy the Apps Script Web App (Execute as you, access anyone with link) and note the base URL (`https://script.google.com/macros/s/<DEPLOYMENT_ID>`).
+2. Build static assets: `APPS_SCRIPT_BASE=<base url> npm run build:standalone`. This writes a single self-contained `dist-standalone/index.html` (CSS + views inlined). If the env var is omitted, add `<meta name="app-script-base" content="...">` or set `window.APP_RPC_BASE` manually before loading `util.html`.
+3. Host `dist-standalone/index.html` on GitHub Pages / Netlify / etc. The client will:
+   - prefer `google.script.run` when embedded inside Apps Script (unchanged behavior)
+   - fall back to `fetch(<base>/exec)` elsewhere (requires the `base` from step 1)
+4. For local dev, serve `dist-standalone/` (e.g., `npx http-server dist-standalone -p 5173`). Apps Script automatically returns `Access-Control-Allow-Origin: *`, so no extra CORS configuration is required. Use `text/plain` JSON payloads to avoid preflight checks.
+
+Security tip: move toward a bearer token check in `rpc.ts` (stored in Script Properties) if the standalone site is public.

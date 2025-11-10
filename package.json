@@ -7,6 +7,7 @@
     "build": "rimraf dist && node esbuild.config.mjs && npm run copy:html && npm run copy:json && npm run css:build && node scripts/wrap-css.cjs",
     "push": "clasp push",
     "deploy": "npm run build && npx clasp push -f",
+    "build:standalone": "npm run build && node scripts/build-standalone.cjs",
     "watch": "concurrently -k \"npm:watch:build\" \"npm:watch:html\" \"npm:watch:json\" \"npm:watch:css\" \"npm:watch:push\"",
     "watch:build": "node esbuild.config.mjs --watch",
     "copy:html": "copyfiles -f \"src/html/**/*.html\" dist",

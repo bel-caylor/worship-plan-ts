@@ -1,6 +1,7 @@
 import { getSongsWithLinksForView } from './features/songs';
 import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
+import { rpc } from './rpc';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
@@ -29,4 +30,23 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
     tpl.baseUrl = '';
   }
   return tpl.evaluate().setTitle('Worship Planner');
+}
+
+const emptyJson = (payload: unknown) =>
+  ContentService
+    .createTextOutput(JSON.stringify(payload ?? null))
+    .setMimeType(ContentService.MimeType.JSON);
+
+export function doPost(e?: GoogleAppsScript.Events.DoPost) {
+  try {
+    const body = e?.postData?.contents || '';
+    const parsed = body ? JSON.parse(body) : {};
+    const method = String(parsed?.method || '');
+    if (!method) throw new Error('Missing RPC method');
+    const data = rpc({ method, payload: parsed?.payload });
+    return emptyJson({ ok: true, data });
+  } catch (err) {
+    const message = err && (err as Error).message ? (err as Error).message : 'RPC failed';
+    return emptyJson({ ok: false, error: message });
+  }
 }
