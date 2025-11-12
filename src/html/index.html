@@ -16,13 +16,31 @@
     <?!= JSON.stringify((servicesData && servicesData.items) ? servicesData.items : []).replace(/<\//g, '<\\/') ?>
   </script>
   <script>
-    window.__ROWS__ = JSON.parse(document.getElementById('rows-json').textContent);
-    try { window.__SERVICES__ = JSON.parse(document.getElementById('services-json').textContent); } catch(_) { window.__SERVICES__ = []; }
-    // console.info('rows loaded:', Array.isArray(window.__ROWS__) && window.__ROWS__.length);
+    const parseJsonFallback = (text, fallback) => {
+      if (!text || /<\?!=/.test(text)) return fallback;
+      try { return JSON.parse(text); } catch (_) { return fallback; }
+    };
+
+    const rowsEl = document.getElementById('rows-json');
+    const servicesEl = document.getElementById('services-json');
+    const existingRows = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
+    const existingServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
+    window.__ROWS__ = parseJsonFallback(rowsEl && rowsEl.textContent, existingRows);
+    window.__SERVICES__ = parseJsonFallback(servicesEl && servicesEl.textContent, existingServices);
+
+    const baseTemplate = `<?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?>`;
+    const guestTemplate = `<?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>`;
+    const parseTemplateString = (raw, fallback) => {
+      if (!raw || /<\?!=/.test(raw)) return fallback;
+      try { return JSON.parse(raw); } catch (_) { return fallback; }
+    };
+
+    const baseFromServer = parseTemplateString(baseTemplate, '');
+    const guestFromServer = parseTemplateString(guestTemplate, false);
     // Prefer server-provided Web App URL; fallback to current location
-    window.__BASE__ = <?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?> || (location.origin + location.pathname);
+    window.__BASE__ = baseFromServer || (location.origin + location.pathname);
     // Guest mode injected by server (via ?mode=guest)
-    window.__GUEST__ = <?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>;
+    window.__GUEST__ = guestFromServer;
   </script>
   <script>
     (function ensureRpcBase() {

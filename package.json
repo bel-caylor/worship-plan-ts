@@ -8,6 +8,8 @@
     "push": "clasp push",
     "deploy": "npm run build && npx clasp push -f",
     "build:standalone": "npm run build && node scripts/build-standalone.cjs",
+    "watch:standalone": "chokidar \"src/**/*\" -c \"npm run build:standalone\" --initial",
+    "dev:standalone": "concurrently -k \"npm:watch:standalone\" \"npx http-server dist-standalone -p 5173 -c-1\"",
     "watch": "concurrently -k \"npm:watch:build\" \"npm:watch:html\" \"npm:watch:json\" \"npm:watch:css\" \"npm:watch:push\"",
     "watch:build": "node esbuild.config.mjs --watch",
     "copy:html": "copyfiles -f \"src/html/**/*.html\" dist",

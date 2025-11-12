@@ -1,31 +1,66 @@
-<div class="sticky top-0 z-10 bg-white border-b">
-  <div class="h-14 px-4 flex items-center gap-4">
-    <h1 class="text-lg font-bold mr-2">Worship Planner</h1>
+<div class="sticky top-0 z-10 bg-white border-b" x-data="{ menuOpen: false }">
+  <div class="h-14 px-4 flex items-center gap-3">
+    <h1 class="text-lg font-bold mr-1">Worship Planner</h1>
 
-    <a href="#/plan"
-       class="px-2 py-1"
-       :class="route==='plan' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
-      Weekly Plan
-    </a>
+    <!-- Current view label (always visible) -->
+    <div class="text-sm text-gray-700 flex-1 min-w-0 text-center md:hidden">
+      <span class="truncate text-lg font-bold text-blue-700"
+            x-text="route==='plan' ? 'Weekly Plan' : (route==='songs' ? 'Song List' : (route==='team' ? 'Team' : 'Availability'))"></span>
+    </div>
 
-    <a href="#/songs"
-       class="px-2 py-1"
-        :class="route==='songs' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
-      Song List
-    </a>
+    <!-- Desktop tabs -->
+    <nav class="hidden md:flex items-center gap-2">
+      <a href="#/plan"
+         class="px-2 py-1"
+         :class="route==='plan' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+        Weekly Plan
+      </a>
 
-    <template x-if="!window.__GUEST__">
-    <a href="#/team"
-       class="px-2 py-1"
-       :class="route==='team' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
-      Team
-    </a>
-    </template>
+      <a href="#/songs"
+         class="px-2 py-1"
+         :class="route==='songs' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+        Song List
+      </a>
 
-    <a href="#/availability"
-       class="px-2 py-1"
-       :class="route==='availability' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
-      Availability
-    </a>
+      <template x-if="!window.__GUEST__">
+        <a href="#/team"
+           class="px-2 py-1"
+           :class="route==='team' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+          Team
+        </a>
+      </template>
+
+      <a href="#/availability"
+         class="px-2 py-1"
+         :class="route==='availability' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+        Availability
+      </a>
+    </nav>
+
+    <!-- Mobile hamburger -->
+    <div class="md:hidden relative" x-data="{ tooltip: false }">
+      <button type="button" class="p-2 rounded hover:bg-gray-100 border" aria-label="Open menu"
+              @click="menuOpen = !menuOpen" :aria-expanded="menuOpen">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+      <!-- Dropdown absolute box -->
+      <div class="absolute right-0 mt-2 w-48 bg-white border rounded-md shadow-lg" role="menu"
+           x-show="menuOpen" x-transition.origin.top.right @click.outside="menuOpen=false" @keydown.escape.window="menuOpen=false">
+        <nav class="py-1">
+          <a href="#/plan" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+             :class="route==='plan' ? 'font-semibold' : ''" @click="menuOpen=false">Weekly Plan</a>
+          <a href="#/songs" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+             :class="route==='songs' ? 'font-semibold' : ''" @click="menuOpen=false">Song List</a>
+          <template x-if="!window.__GUEST__">
+            <a href="#/team" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+               :class="route==='team' ? 'font-semibold' : ''" @click="menuOpen=false">Team</a>
+          </template>
+          <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+             :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
+        </nav>
+      </div>
+    </div>
   </div>
 </div>

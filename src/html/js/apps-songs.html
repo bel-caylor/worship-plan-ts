@@ -39,6 +39,7 @@
       isGuest: IS_GUEST,
       isModalContext: isModal,
       mobileListOpen: false,
+      filtersOpen: false,
       rows: window.__ROWS__ || [],
       filtered: [],
       selected: null,
@@ -159,7 +160,7 @@
         this.mediaFiles = [];
         this.mediaMessage = '';
         if (!row) return;
-        const url = String(row._folderUrl || '').trim();
+        const url = String((row && row._folderUrl) || '').trim();
         if (!url) {
           this.mediaMessage = 'No folder link available.';
           return;
@@ -453,6 +454,7 @@
       },
 
       openSongEditor(mode = 'create') {
+        console.log(mode);
         if (this.isGuest) {
           this.error = 'View only mode. Sign in to edit songs.';
           return;

@@ -3,13 +3,18 @@
 
     <!-- Sticky controls -->
     <div class="sticky top-0 z-10 bg-white/95 backdrop-blur border-b">
-        <div class="p-4 flex flex-wrap items-center gap-4 bg-gray-100">
+        <div class="p-4 flex items-center gap-4 bg-gray-100">
 
             <!-- Search Input -->
-            <input type="search" placeholder="Filter (title, theme, scripture…)" class="border rounded px-3 py-2 w-80"
+            <input type="search" placeholder="Filter (title, theme, scripture…)" class="hidden xl:block border rounded px-3 py-2 w-80 flex-1"
             x-model.debounce.200ms="q" @search="render(true)" />
 
 
+            <!-- Mobile Filters trigger -->
+            <button type="button" class="xl:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50" @click="filtersOpen = true">Filters</button>
+
+            <!-- Options/Filters group for md+ -->
+            <div class="hidden xl:flex items-center gap-4">
             <!-- Options Dropdown -->
             <div class="relative" x-data="{ open: false }">
                 <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
@@ -38,7 +43,7 @@
 
             <!-- Season dropdown -->
             <label class="text-sm flex flex-col">
-                <span class="text-gray-600 text-center">Season</span>
+                <span class="text-gray-600 text-center sr-only">Season</span>
                 <select class="border rounded px-2 py-1" x-model="selectedSeason" @change="render()">
                     <option value="">All seasons</option>
                     <template x-for="{key,label} in seasons" :key="key">
@@ -49,7 +54,7 @@
 
             <!-- Leader dropdown -->
             <label class="text-sm flex flex-col">
-                <span class="text-gray-600 text-center">Leader</span>
+                <span class="text-gray-600 text-center sr-only">Leader</span>
                 <select class="border rounded px-2 py-1" x-model="selectedLeader" @change="render()">
                     <option value="">All leaders</option>
                     <template x-for="name in leaderOptions" :key="name">
@@ -60,7 +65,7 @@
 
             <!-- Usage dropdown -->
             <label class="text-sm flex flex-col">
-                <span class="text-gray-600 text-center">Usage</span>
+                <span class="text-gray-600 text-center sr-only">Usage</span>
                 <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
                     <option value="">All usage</option>
                     <template x-for="u in usageOptions" :key="u">
@@ -68,34 +73,102 @@
                     </template>
                 </select>
             </label>
+            </div>
 
 
             <div class="flex flex-wrap items-center gap-2 ml-auto">
-                <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length} shown`"></span>
+                <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length}`"></span>
                 <span class="text-sm italic text-gray-500" x-show="loading">Loading…</span>
                 <span class="text-sm text-red-600" x-text="error"></span>
                 <template x-if="!isGuest">
-                  <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-gray-50"
-                    @click="openSongEditor('edit')" :disabled="!selected">
-                    Edit song
+                  <button type="button" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
+                    @click="openSongEditor('edit')" :disabled="!selected" title="Edit song" aria-label="Edit song">
+                    <!-- icon below xl, label on xl+ -->
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-5 w-5 xl:hidden">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536M16.5 3.964a2.25 2.25 0 113.182 3.182L7.5 19.5 3 21l1.5-4.5L16.5 3.964z" />
+                    </svg>
+                    <span class="hidden xl:inline">Edit song</span>
                   </button>
                 </template>
                 <template x-if="!isGuest">
-                  <button type="button" class="px-3 py-2 border rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-                    @click="openSongEditor('create')">
-                    Add song
+                  <button type="button" class="px-3 py-2 border rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"
+                    @click="openSongEditor('create')" title="Add song" aria-label="Add song">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-5 w-5 xl:hidden">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    <span class="hidden xl:inline">Add song</span>
                   </button>
                 </template>
-                <button type="button" class="md:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50"
-                  @click="mobileListOpen = true">
-                  Browse songs
+                <button type="button" class="md:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
+                  @click="mobileListOpen = true" title="Browse songs" aria-label="Browse songs">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-5 w-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M10 18a8 8 0 110-16 8 8 0 010 16z" />
+                  </svg>
+                  <span class="hidden xl:inline">Browse songs</span>
                 </button>
             </div>
         </div>
     </div>
 
+    <!-- Mobile Filters sheet -->
+    <div x-show="filtersOpen" x-cloak class="fixed inset-0 z-50 md:hidden">
+      <div class="absolute inset-0 bg-black/40" @click="filtersOpen=false"></div>
+      <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-lg p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="font-semibold">Filters</div>
+          <button type="button" class="text-sm underline" @click="filtersOpen=false">Close</button>
+        </div>
+        <div class="grid grid-cols-1 gap-3">
+          <label class="text-sm flex flex-col">
+            <span class="text-gray-600">Keyword</span>
+            <input type="search" class="border rounded px-3 py-2" placeholder="Filter (title, theme, scripture...)"
+              x-model.debounce.200ms="q" @search="render(true)" />
+          </label>
+          <label class="text-sm flex items-center gap-2">
+            <input type="checkbox" x-model="searchLyrics" @change="render()" />
+            <span>Lyrics</span>
+          </label>
+          <label class="text-sm flex items-center gap-2">
+            <input type="checkbox" x-model="spanishOnly" @change="render(true)" />
+            <span>Spanish</span>
+          </label>
+          <label class="text-sm flex items-center gap-2">
+            <input type="checkbox" x-model="showArchived" @change="render(true)" />
+            <span>Archived</span>
+          </label>
+          <label class="text-sm flex flex-col">
+            <span class="text-gray-600">Season</span>
+            <select class="border rounded px-2 py-1" x-model="selectedSeason" @change="render()">
+              <option value="">All seasons</option>
+              <template x-for="{key,label} in seasons" :key="key">
+                <option :value="key" x-text="label"></option>
+              </template>
+            </select>
+          </label>
+          <label class="text-sm flex flex-col">
+            <span class="text-gray-600">Leader</span>
+            <select class="border rounded px-2 py-1" x-model="selectedLeader" @change="render()">
+              <option value="">All leaders</option>
+              <template x-for="name in leaderOptions" :key="name">
+                <option :value="name" x-text="name"></option>
+              </template>
+            </select>
+          </label>
+          <label class="text-sm flex flex-col">
+            <span class="text-gray-600">Usage</span>
+            <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
+              <option value="">All usage</option>
+              <template x-for="u in usageOptions" :key="u">
+                <option :value="u" x-text="u"></option>
+              </template>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <!-- Content area fills the rest of the viewport; no page scroll -->
-    <div class="flex-1 min-h-0 p-4">
+    <div class="flex-1 min-h-0 p-4 z-0">
         <div class="flex gap-4 h-full relative">
             <!-- LEFT PANE: table scrolls -->
             <div class="hidden md:block w-full md:w-[360px] flex-shrink-0 h-full overflow-auto border rounded">
