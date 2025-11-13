@@ -871,6 +871,16 @@
           seen.add(key);
           names.push(clean);
         };
+        const defaultsMap = this.weeklyTeamDefaults || {};
+        let orderedDefaults = Array.isArray(defaultsMap?.[teamType]) ? defaultsMap[teamType] : null;
+        if (!orderedDefaults) {
+          const normalizedType = this.normalize(teamType);
+          const fallbackKey = Object.keys(defaultsMap).find(key => this.normalize(key) === normalizedType);
+          orderedDefaults = fallbackKey ? defaultsMap[fallbackKey] : [];
+        }
+        (orderedDefaults || []).forEach(entry => {
+          pushName(entry?.roleName || entry?.roleType);
+        });
         this.weeklyTeamsByType(teamType).forEach(team => {
           (Array.isArray(team.roles) ? team.roles : []).forEach(role => {
             pushName(role?.roleName || role?.roleType);

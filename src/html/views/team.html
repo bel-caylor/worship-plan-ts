@@ -13,7 +13,7 @@
         class="px-3 py-1 rounded-t-md transition border-t border-x"
         :class="activeTab==='weeklyTeams'
           ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
-          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+          : 'text-gray-600 border-gray-300 hover:text-blue-700 hover:bg-gray-100'"
         @click="activeTab='weeklyTeams'">
         Weekly Teams
       </button>
@@ -21,7 +21,7 @@
         class="px-3 py-1 rounded-t-md  transition border-t border-x"
         :class="activeTab==='roles'
           ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
-          : 'text-gray-600 border-transparent hover:text-blue-700 hover:bg-gray-100'"
+          : 'text-gray-600 border-gray-300 hover:text-blue-700 hover:bg-gray-100'"
         @click="activeTab='roles'">
         Roles
       </button>
@@ -208,9 +208,9 @@
             <table class="min-w-full text-sm">
               <thead class="bg-slate-100 text-gray-700">
                 <tr>
-                  <th class="text-left font-medium px-3 py-2 w-48 sticky left-0 z-20 bg-slate-100">Role</th>
+                  <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
                   <template x-for="column in layout.columns" :key="column.id">
-                    <th class="text-left font-medium px-3 py-2 align-top min-w-[200px]">
+                    <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
                       <div class="font-semibold" x-text="column.service.label"></div>
                       <div class="text-xs text-gray-500" x-text="column.service.ordinalLabel"></div>
                       <div class="text-xs text-gray-400"
@@ -225,7 +225,7 @@
                   <tr class="border-t">
                     <th class="px-3 py-1 text-left bg-slate-50 align-middle sticky left-0 z-10" x-text="row.label"></th>
                     <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
-                      <td class="align-top px-2 py-2 min-w-[200px]"
+                      <td class="align-top px-2 py-2 min-w-[150px]"
                         :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
                         <div class="flex flex-col gap-1">
                           <select class="w-full border rounded px-2 py-1 text-sm"
@@ -254,7 +254,7 @@
 
   <div class="flex-1 min-h-0 flex" x-show="activeTab==='roles'" x-cloak>
     <!-- Left column: list -->
-    <div class="w-[360px] flex-shrink-0 border-r flex flex-col min-h-0">
+    <div class="w-[150px] flex-shrink-0 border-r flex flex-col min-h-0">
       <div class="p-3 space-y-2 border-b">
         <button type="button" class="w-full px-3 py-2 text-sm font-medium border rounded bg-white hover:bg-blue-50" @click="openNewMember()">+ Add Member</button>
         <input type="search" class="w-full border rounded px-3 py-2 text-sm"
@@ -276,7 +276,6 @@
               :class="selectedEmail === person.email ? 'bg-blue-50 border-l-4 border-blue-400' : ''"
               @click="select(person.email)">
               <div class="font-medium" x-text="person.first + ' ' + person.last"></div>
-              <div class="text-xs text-gray-500" x-text="person.email"></div>
               <div class="text-xs text-gray-600 mt-1" x-show="person.teamRaw">
                 <span class="font-medium">Teams:</span>
                 <span x-text="person.teamRaw"></span>
@@ -431,7 +430,7 @@
             <table class="min-w-full text-sm">
               <thead class="bg-slate-100 text-gray-700">
                 <tr>
-                  <th class="text-left font-medium px-3 py-2 w-48 sticky left-0 z-20 bg-slate-100">Role</th>
+                  <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
                   <template x-for="team in group.teams" :key="team.key">
                     <th class="text-left font-medium px-3 py-2 align-top">
                       <div class="font-semibold" x-text="team.teamName || '(untitled)'"></div>

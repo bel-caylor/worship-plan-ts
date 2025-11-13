@@ -1,8 +1,43 @@
 <script>
+  const SONGS_CACHE_KEY = '__wpSongsCache';
+  let SONGS_BROWSER_HTML_PROMISE = null;
+  const fetchSongsBrowserHtml = async () => {
+    if (SONGS_BROWSER_HTML_PROMISE) return SONGS_BROWSER_HTML_PROMISE;
+    if (typeof window === 'undefined' || !window.fetch) {
+      SONGS_BROWSER_HTML_PROMISE = Promise.resolve('');
+      return SONGS_BROWSER_HTML_PROMISE;
+    }
+    SONGS_BROWSER_HTML_PROMISE = window.fetch('songs-browser.html', { credentials: 'same-origin' })
+      .then((res) => (res && res.ok ? res.text() : ''))
+      .catch(() => '');
+    return SONGS_BROWSER_HTML_PROMISE;
+  };
+  const getSongsCache = () => {
+    try {
+      const scope = typeof window !== 'undefined' ? window : globalThis;
+      scope[SONGS_CACHE_KEY] = scope[SONGS_CACHE_KEY] || { rows: null, lastFetched: 0, pending: null };
+      return scope[SONGS_CACHE_KEY];
+    } catch (_) {
+      return { rows: null, lastFetched: 0, pending: null };
+    }
+  };
+
   function songsApp(mode = 'default') {
     const IS_GUEST = !!(window.__GUEST__);
     const normalizedMode = String(mode || '').toLowerCase();
     const isModal = normalizedMode === 'modal';
+    const songsCache = getSongsCache();
+    const seededRows = (() => {
+      if (Array.isArray(songsCache.rows) && songsCache.rows.length) return songsCache.rows;
+      try {
+        if (typeof window !== 'undefined' && Array.isArray(window.__ROWS__) && window.__ROWS__.length) {
+          songsCache.rows = window.__ROWS__;
+          songsCache.lastFetched = songsCache.lastFetched || Date.now();
+          return songsCache.rows;
+        }
+      } catch (_) {}
+      return [];
+    })();
     const audioExts = new Set(['mp3','m4a','wav','aac','flac','ogg','wma','aiff','mid','midi']);
     const docRules = [
       { label: 'Guitar', patterns: [/gdoc\b/i, /\bguitar\b/i, /(^|[\s_-])g($|[\s_-])/i] },
@@ -40,7 +75,8 @@
       isModalContext: isModal,
       mobileListOpen: false,
       filtersOpen: false,
-      rows: window.__ROWS__ || [],
+      songsCache,
+      rows: Array.isArray(seededRows) ? seededRows : (window.__ROWS__ || []),
       filtered: [],
       selected: null,
       tableHeaders: ['Song','Last_Used'],
@@ -51,6 +87,7 @@
       selectedLeader: '',
       usageOptions: [],
       selectedUsage: '',
+      seedTokens: [],
 
       opts: { allowChristmas: true },
 
@@ -75,19 +112,11 @@
       songEditorSaving: false,
       songForm: makeSongForm(),
       editorOriginalName: '',
+      _layoutBootstrapped: false,
 
       async init() {
-        if (!Array.isArray(this.rows) || !this.rows.length) {
-          this.loading = true;
-          try {
-            const r = await callRpc('getSongsForView', null);
-            if (Array.isArray(r)) this.rows = r;
-          } catch (e) {
-            this.error = this.isGuest ? '' : 'Failed to load songs';
-          } finally {
-            this.loading = false;
-          }
-        }
+        await this.bootstrapLayout();
+        await this.ensureRowsLoaded();
 
         this.buildFilters();
         if (typeof window !== 'undefined' && window.innerWidth < 768) {
@@ -197,7 +226,7 @@
       },
 
       headerLabel(key) {
-        return key === 'Last_Used' ? 'Last Used' : key;
+        return key === 'Last_Used' ? 'Last' : key;
       },
 
       headerIcon(key) {
@@ -302,22 +331,28 @@
       friendlyMediaName(file) {
         const raw = String(file?.name || '').trim();
         if (!raw) return 'File';
-        const withoutSong = this.stripSongTitle(raw);
+        const normalizedRaw = this.normalizeMediaSymbols(raw);
+        const withoutSong = this.stripSongTitle(normalizedRaw);
         const base = this.removeExtension(withoutSong);
         const trimmed = this.trimDelimiters(base);
         if (!trimmed) return raw;
-        if (this.isAudioFile(file)) return this.audioLabelFrom(trimmed);
-        const doc = this.docLabelFrom(trimmed);
-        if (doc) return doc;
-        return this.normalizeResidual(trimmed) || raw;
+        const cleaned = this.removeTrailingSongReference(trimmed);
+        if (this.isAudioFile(file)) return this.removeTrailingSongReference(this.audioLabelFrom(cleaned)) || 'Audio';
+        const doc = this.docLabelFrom(cleaned);
+        if (doc) return this.removeTrailingSongReference(doc);
+        return this.removeTrailingSongReference(this.normalizeResidual(cleaned)) || raw;
       },
 
       stripSongTitle(name) {
-        const song = String(this.selected?.Song || '').trim();
+        const song = this.normalizeMediaSymbols(String(this.selected?.Song || '').trim());
         if (!song) return name;
         const escaped = song.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const rx = new RegExp(`^${escaped}[\\s._-]*`, 'i');
-        return name.replace(rx, '');
+        let result = name;
+        const leading = new RegExp(`^${escaped}(?:[\\s._-]+|$)`, 'i');
+        result = result.replace(leading, '');
+        const trailing = new RegExp(`(?:[\\s._-]+|^)${escaped}(?:[\\s._-]+)?$`, 'i');
+        result = result.replace(trailing, '');
+        return result.trim();
       },
 
       removeExtension(name) {
@@ -330,10 +365,29 @@
 
       normalizeResidual(str) {
         let out = String(str || '');
+        out = this.normalizeMediaSymbols(out);
         out = out.replace(/[_]+/g, ' ');
         out = out.replace(/\s{2,}/g, ' ');
         out = out.replace(/\s*\(/g, ' (').replace(/\s*\)/g, ')');
         return out.trim();
+      },
+
+      normalizeMediaSymbols(str) {
+        return String(str || '')
+          .replace(/[’‘]/g, "'")
+          .replace(/[“”]/g, '"')
+          .replace(/[‐‑–—]/g, '-');
+      },
+
+      removeTrailingSongReference(str) {
+        const song = this.normalizeMediaSymbols(String(this.selected?.Song || '').trim());
+        if (!song) return str;
+        const escaped = song.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const pattern = new RegExp(`(?:[\\s._-]+|^)${escaped}(?:[\\s._-]+)?$`, 'i');
+        let result = String(str || '').replace(pattern, '');
+        // Handle cases with duplicate whitespace after removal
+        result = result.replace(pattern, '');
+        return result.trim();
       },
 
       docLabelFrom(str) {
@@ -399,6 +453,21 @@
         } catch (_) { }
       },
 
+      openSongLink(url) {
+        const target = String(url || '').trim();
+        if (!target) return;
+        try {
+          const win = window.open(target, 'song-link', 'width=1100,height=720,resizable=yes,scrollbars=yes');
+          if (win) {
+            try { win.opener = null; } catch (_) { }
+          } else {
+            window.open(target, '_blank');
+          }
+        } catch (_) {
+          window.open(target, '_blank');
+        }
+      },
+
       fileIcon(mimeType) {
         const type = String(mimeType || '').toLowerCase();
         if (!type) return '\uD83D\uDCC4'; // page facing up
@@ -411,16 +480,26 @@
         return '\uD83D\uDCC4';
       },
 
-      searchTokens() {
+      tokenize(input) {
         return Array.from(
           new Set(
-            String(this.q || '')
+            String(input || '')
               .split(/[,\s]+/)
               .map(t => t.trim())
               .filter(Boolean)
               .map(t => t.toLowerCase())
           )
         );
+      },
+
+      searchTokens() {
+        return this.tokenize(this.q);
+      },
+
+      highlightTokens() {
+        const tokens = new Set(this.searchTokens());
+        (this.seedTokens || []).forEach(tok => tokens.add(tok));
+        return Array.from(tokens);
       },
 
       escapeHtml(str) {
@@ -433,7 +512,7 @@
       highlightedLyrics() {
         const base = this.selected?.Lyrics || this.selected?.['Lyrics (PD)'] || '';
         if (!base) return this.escapeHtml('(No lyrics)');
-        const tokens = this.searchTokens();
+        const tokens = this.highlightTokens();
         let html = this.escapeHtml(base);
         if (tokens.length) {
           const parts = tokens
@@ -441,7 +520,7 @@
             .filter(Boolean);
           if (parts.length) {
             const rx = new RegExp(`(${parts.join('|')})`, 'gi');
-            html = html.replace(rx, '<mark>$1</mark>');
+            html = html.replace(rx, '<mark class="px-0.5 bg-yellow-200 text-gray-900 rounded">$1</mark>');
           }
         }
         return html;
@@ -454,7 +533,6 @@
       },
 
       openSongEditor(mode = 'create') {
-        console.log(mode);
         if (this.isGuest) {
           this.error = 'View only mode. Sign in to edit songs.';
           return;
@@ -517,7 +595,7 @@
             data: payload
           });
           if (Array.isArray(res?.items)) {
-            this.rows = res.items;
+            this.updateRows(res.items, { skipRender: true });
             this.buildFilters();
             this.render(true);
             const match = this.findSongByName(payload.Song);
@@ -529,6 +607,110 @@
           this.songEditorError = (e && e.message) ? e.message : 'Unable to save song.';
         } finally {
           this.songEditorSaving = false;
+        }
+      },
+
+      async bootstrapLayout() {
+        if (this._layoutBootstrapped) return;
+        const host = (this.$refs && this.$refs.browserHost) ? this.$refs.browserHost : null;
+        if (!host) return;
+        const initTree = () => {
+          try {
+            if (window.Alpine && typeof window.Alpine.initTree === 'function') {
+              window.Alpine.initTree(host);
+            }
+          } catch (_) {}
+        };
+        try {
+          const tpl = document.getElementById('songs-browser-template');
+          if (tpl && tpl.content) {
+            const fragment = tpl.content.cloneNode(true);
+            host.innerHTML = '';
+            host.appendChild(fragment);
+            this._layoutBootstrapped = true;
+            initTree();
+            return;
+          }
+        } catch (_) {}
+        try {
+          const html = await fetchSongsBrowserHtml();
+          if (html) {
+            host.innerHTML = html;
+            this._layoutBootstrapped = true;
+            initTree();
+          }
+        } catch (err) {
+          console.error('Failed to bootstrap songs layout', err);
+        }
+      },
+
+      updateRows(rows, opts = {}) {
+        if (!Array.isArray(rows)) return;
+        this.rows = rows;
+        this.syncCacheFromRows(rows);
+        if (!opts.skipRender) this.render(true);
+      },
+
+      syncCacheFromRows(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        if (this.songsCache) {
+          this.songsCache.rows = list;
+          this.songsCache.lastFetched = Date.now();
+        }
+        try {
+          if (typeof window !== 'undefined') window.__ROWS__ = list;
+        } catch (_) {}
+      },
+
+      async ensureRowsLoaded() {
+        const cache = this.songsCache || {};
+        if (Array.isArray(this.rows) && this.rows.length) {
+          this.syncCacheFromRows(this.rows);
+          return;
+        }
+        if (Array.isArray(cache.rows) && cache.rows.length) {
+          this.rows = cache.rows;
+          return;
+        }
+        if (cache.pending) {
+          this.loading = true;
+          try {
+            await cache.pending;
+            this.rows = Array.isArray(cache.rows) ? cache.rows : [];
+            this.syncCacheFromRows(this.rows);
+          } catch (e) {
+            if (!this.isGuest) this.error = 'Failed to load songs';
+          } finally {
+            this.loading = false;
+          }
+          return;
+        }
+        this.loading = true;
+        cache.pending = (async () => {
+          try {
+            const r = await callRpc('getSongsForView', null);
+            if (Array.isArray(r)) {
+              cache.rows = r;
+              cache.lastFetched = Date.now();
+              try {
+                if (typeof window !== 'undefined') window.__ROWS__ = r;
+              } catch (_) {}
+            } else {
+              cache.rows = [];
+            }
+            return cache.rows;
+          } finally {
+            cache.pending = null;
+          }
+        })();
+        try {
+          await cache.pending;
+          this.rows = Array.isArray(cache.rows) ? cache.rows : [];
+          this.syncCacheFromRows(this.rows);
+        } catch (e) {
+          if (!this.isGuest) this.error = 'Failed to load songs';
+        } finally {
+          this.loading = false;
         }
       },
 
@@ -558,6 +740,7 @@
 
         if (has('seed')) {
           const next = normalize(data.seed);
+          this.seedTokens = this.tokenize(next);
           if (this.q !== next) this.q = next;
         }
 
