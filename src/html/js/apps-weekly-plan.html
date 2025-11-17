@@ -5,7 +5,7 @@
       isGuest: IS_GUEST,
       showDetails: false,
       showOrder: false,
-      showScripture: true,
+      activeContentTab: 'scripture',
       loadingServices: true,
       loadingOrder: false,
       // cache + persistence
@@ -21,6 +21,11 @@
       scriptureText: '',
       orderItemTypes: [],
       orderRows: [],
+      teamAssignments: [],
+      teamAssignmentsLoading: false,
+      teamAssignmentsError: '',
+      teamAssignmentsSupported: true,
+      teamAssignmentsUnsupportedReason: '',
       // service detail autosave
       savingDetails: false,
       saveDetailsTimer: null,
@@ -313,8 +318,9 @@
         this.scriptureText = '';
         this.orderRows = [];
         this.showOrder = false;
-        this.showScripture = true;
+        this.activeContentTab = 'scripture';
         this.showDetails = true;
+        this.resetTeamAssignments();
         this.$nextTick(() => {
           if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch (_) { }
         });
@@ -339,6 +345,8 @@
           this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '' };
           this.orderRows = [];
           this.showOrder = false;
+          this.activeContentTab = 'scripture';
+          this.resetTeamAssignments();
           notify('Service deleted.', 'success');
         } catch (e) {
           console.error(e);
@@ -362,13 +370,13 @@
             this.loadingServices = false;
           }
           if (newId) this.selectedServiceId = newId;
+          this.loadTeamAssignments(this.selectedServiceId || newId || '');
           this.detailsDirty = false;
           this.detailsError = '';
           if (!this.orderRows || this.orderRows.length === 0) {
             this.orderRows = this.defaultOrderFor(this.form.type);
             this.ensureOrderOptionsFromRows();
             this.showOrder = true;
-            this.showScripture = false;
             // Persist initial default order to ServiceItems immediately
             this.queueSaveOrder(true);
           } else {
@@ -376,6 +384,9 @@
               const sid = this.selectedServiceId || newId;
               if (sid) await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder() });
             } catch (e2) { console.error(e2); notify('Saved service, but failed to save order.', 'error'); }
+          }
+          if (this.showOrder) {
+            this.activeContentTab = 'order';
           }
         } catch (e) {
           console.error(e);
@@ -442,8 +453,54 @@
         })().finally(() => { this.loadingOrder = false; });
         try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch (_) { }
         this.showDetails = true;
-        // Hide scripture section when loading an existing service
-        this.showScripture = false;
+        this.activeContentTab = 'order';
+        this.loadTeamAssignments(this.selectedServiceId);
+      },
+
+      resetTeamAssignments() {
+        this.teamAssignments = [];
+        this.teamAssignmentsError = '';
+        this.teamAssignmentsLoading = false;
+      },
+
+      async loadTeamAssignments(serviceId) {
+        if (!this.teamAssignmentsSupported) return;
+        const targetId = String(serviceId || '').trim();
+        if (!targetId) {
+          this.resetTeamAssignments();
+          return;
+        }
+        this.teamAssignmentsLoading = true;
+        this.teamAssignmentsError = '';
+        try {
+          const res = await callRpc('getServiceTeamAssignments', { serviceId: targetId });
+          const list = Array.isArray(res?.teams) ? res.teams : [];
+          this.teamAssignments = list.map(team => ({
+            teamType: String(team?.teamType || 'Team'),
+            weeklyTeamName: String(team?.weeklyTeamName || ''),
+            roles: Array.isArray(team?.roles) ? team.roles.map(role => ({
+              roleName: String(role?.roleName || role?.roleType || 'Role'),
+              roleType: String(role?.roleType || ''),
+              memberName: String(role?.memberName || ''),
+              memberEmail: String(role?.memberEmail || ''),
+              status: String(role?.status || ''),
+              notes: String(role?.notes || '')
+            })) : []
+          }));
+        } catch (err) {
+          const message = (err && err.message) ? err.message : 'Failed to load team assignments.';
+          if (/Unknown RPC method/i.test(message)) {
+            this.teamAssignmentsSupported = false;
+            this.teamAssignmentsUnsupportedReason = 'Team assignments require the latest server deployment. Push the updated Apps Script to enable this tab.';
+            this.resetTeamAssignments();
+            console.warn(message);
+          } else {
+            console.error(err);
+            this.teamAssignmentsError = message;
+          }
+        } finally {
+          this.teamAssignmentsLoading = false;
+        }
       },
 
       chapterCountFor(bookName) {

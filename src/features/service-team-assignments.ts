@@ -263,6 +263,57 @@ export function getTeamScheduleSnapshot(input?: { limit?: number } & ListService
   };
 }
 
+type ServiceTeamAssignmentGroup = {
+  teamType: string;
+  weeklyTeamName: string;
+  roles: Array<{
+    roleName: string;
+    roleType: string;
+    memberEmail: string;
+    memberName: string;
+    status: string;
+    notes: string;
+  }>;
+};
+
+export function getServiceTeamAssignments(input: { serviceId?: string }) {
+  const serviceId = norm(input?.serviceId);
+  if (!serviceId) throw new Error('Service ID is required.');
+  const rows = readAssignmentRows().filter(row => row.serviceId === serviceId);
+  const groups = new Map<string, ServiceTeamAssignmentGroup>();
+  rows.forEach(row => {
+    const key = normLower(row.teamType) || 'team';
+    if (!groups.has(key)) {
+      groups.set(key, {
+        teamType: row.teamType || 'Team',
+        weeklyTeamName: row.weeklyTeamName || '',
+        roles: []
+      });
+    }
+    const group = groups.get(key)!;
+    if (!group.weeklyTeamName && row.weeklyTeamName) group.weeklyTeamName = row.weeklyTeamName;
+    group.roles.push({
+      roleName: row.roleName || row.roleType || 'Role',
+      roleType: row.roleType || '',
+      memberEmail: row.memberEmail || '',
+      memberName: row.memberName || '',
+      status: row.status || '',
+      notes: row.notes || ''
+    });
+  });
+  const teams = Array.from(groups.values())
+    .map(group => ({
+      ...group,
+      roles: group.roles.sort((a, b) => a.roleName.localeCompare(b.roleName))
+    }))
+    .sort((a, b) => groupLabel(a).localeCompare(groupLabel(b)));
+  return { serviceId, teams };
+}
+
+function groupLabel(group: ServiceTeamAssignmentGroup): string {
+  return (group.teamType || '').toLowerCase();
+}
+
 export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignmentInput[] }) {
   const entries = Array.isArray(payload?.assignments) ? payload.assignments : [];
   if (!entries.length) return { updated: 0 };

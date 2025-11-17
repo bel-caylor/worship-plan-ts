@@ -1,9 +1,9 @@
 <div x-data="weeklyPlanApp()" x-init="init()"
   @use-song.window="applySuggestion(suggestTargetIndex, { name: $event.detail.name }); showSuggestModal=false"
-  class="min-h-screen flex flex-col overflow-y-auto pt-6 md:pt-8">
-  <div class="p-3 border-b flex items-center gap-3 bg-gray-100">
+  class="h-full flex flex-col overflow-hidden flex-1 min-h-0">
+  <div class="p-3 border-b flex items-center gap-3 bg-blue-800">
     <div class="flex items-center gap-2">
-      <label class="text-sm text-gray-700">Existing Service</label>
+      <label class="text-sm text-white">Existing Services</label>
       <select class="border rounded px-2 py-1 min-w-[320px]" x-model="selectedServiceId">
         <option value="" disabled selected>Select...</option>
         <template x-for="s in existingServices" :key="s.id || (s.date + s.time)">
@@ -95,219 +95,326 @@
       please wait.</div>
   </div>
 
-  <div class="p-4" x-show="showDetails" x-cloak>
-    <h3 class="text-lg font-semibold mb-3 sr-only">Service Details</h3>
-    <div class="flex gap-2 flex-wrap">
-      <div class="pr-6">
-        <h1 class="font-bold text-2xl" x-html="formattedDateTimeHtml()"></h1>
-      </div>
-      <label class="text-sm flex-1">Service Type
-        <select class="mt-1 w-full border rounded px-2 py-1" x-model="form.type" @change="queueSaveDetails()">
-          <option value="Communion">Communion</option>
-          <option value="Offering">Offering</option>
-        </select>
-      </label>
-      <label class="text-sm flex-1">Leader
-        <div class="mt-1">
-          <select x-ref="leaderSel" class="border rounded px-2 py-1 w-full" x-model="leaderSelect"
-            @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect; queueSaveDetails()">
-            <template x-for="n in leaderChoices" :key="'lead-'+n">
-              <option :value="n" x-text="n"></option>
-            </template>
-            <option value="__custom">Custom...</option>
+  <div class="bg-gray-100 flex flex-col flex-1 min-h-0 overflow-hidden" x-show="showDetails" x-cloak>
+    <div class="p-4">
+      <h3 class="text-lg font-semibold mb-3 sr-only">Service Details</h3>
+      <div class="flex gap-2 flex-wrap">
+        <div class="pr-6">
+          <h1 class="font-bold text-2xl" x-html="formattedDateTimeHtml()"></h1>
+        </div>
+        <label class="text-sm flex-1">Service Type
+          <select class="mt-1 w-full border rounded px-2 py-1" x-model="form.type" @change="queueSaveDetails()">
+            <option value="Communion">Communion</option>
+            <option value="Offering">Offering</option>
           </select>
-        </div>
-        <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full border rounded px-2 py-1"
-            placeholder="Type leader name" x-model="form.leader" @input="queueSaveDetails()" /></template>
-      </label>
-      <label class="text-sm min-w-32 flex-1">Preacher
-        <div class="mt-1">
-          <select x-ref="preacherSel" class="border rounded px-2 py-1 w-full" x-model="preacherSelect"
-            @change="form.preacher = preacherSelect==='__custom' ? '' : preacherSelect; queueSaveDetails()">
-            <template x-for="n in preacherChoices" :key="'prech-'+n">
-              <option :value="n" x-text="n"></option>
-            </template>
-            <option value="__custom">Custom...</option>
-          </select>
-        </div>
-        <template x-if="preacherSelect==='__custom'"><input type="text" class="mt-2 w-full border rounded px-2 py-1"
-            placeholder="Type preacher name" x-model="form.preacher" @input="queueSaveDetails()" /></template>
-      </label>
-    </div>
-
-    <div class="pt-2">
-      <div class="border rounded w-full">
-        <button type="button" class="w-full flex items-center px-3 py-2" @click="showScripture = !showScripture">
-          <span class="mr-2 select-none text-3xl text-blue-700" x-text="showScripture ? '▾' : '▸'"></span>
-          <span class="font-medium">Scripture</span>
-        </button>
-        <div class="p-3 border-t" x-show="showScripture" x-cloak>
-          <div class="flex items-center gap-2">
-            <input class="flex-1 border rounded px-2 py-1" type="text" placeholder="e.g., John 3:5-6, 8-10"
-              x-model="form.scripture" @input="queueSaveDetails()" />
-            <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
-              @click="fetchScripture()">Fetch Text</button>
-          </div>
-          <textarea class="mt-2 w-full border rounded px-2 py-1" rows="6" x-model="scriptureText" @input="queueSaveDetails()"
-            placeholder="Scripture text (editable)"></textarea>
-            <div class="mt-2 flex">
-            <label class="text-sm block">Theme
-                <input type="text" class="mt-1 w-full border rounded px-2 py-1" x-model="form.theme" @input="queueSaveDetails(); updateSuggestDefaults()" />
-            </label>
-            <label class="text-sm block flex-1">Keywords
-                <input type="text" class="mt-1 w-full border rounded px-2 py-1" placeholder="Auto from Scripture; comma separated" x-model="form.keywords" @input="queueSaveDetails(); updateSuggestDefaults()" />
-            </label>
-            </div>
-            <label class="text-sm block mt-2">Notes
-              <textarea class="mt-1 w-full border rounded px-2 py-1" rows="3" x-model="form.notes" @input="queueSaveDetails()"></textarea>
-            </label>
-        </div>
-      </div>
-    </div>
-
-    <div class="mt-4 border rounded p-3" x-show="showOrder" x-cloak>
-      <div class="flex items-center justify-between mb-2">
-        <div class="flex items-center gap-3">
-          <span class="font-medium">Order of Worship</span>
-          <span class="text-xs text-gray-500" x-show="savingOrder">Saving…</span>
-          <span class="text-xs text-gray-500" x-show="!savingOrder && savedAt">Saved</span>
-        </div>
-        <div class="flex gap-2">
-          <template x-if="!isGuest">
-            <button
-              class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
-              @click="addOrderRow()">+ Add Row</button>
-          </template>
-        </div>
-      </div>
-      <div class="relative max-h-[50vh] overflow-auto">
-        <div x-cloak x-show="loadingOrder"
-          class="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-          <div class="inline-flex items-center gap-2 text-sm text-indigo-700">
-            <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
-              <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
-            </svg>
-            <span>Loading order...</span>
-          </div>
-        </div>
-        <table class="min-w-full border text-sm">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="border px-2 py-1 w-14 text-left">#</th>
-              <th class="border px-2 py-1 text-left">Item</th>
-              <th class="border px-2 py-1 text-left">Detail</th>
-              <th class="border px-2 py-1 text-left">Leader</th>
-              <th class="border px-2 py-1 text-left">Notes</th>
-              <template x-if="!isGuest">
-                <th class="border px-2 py-1 w-28">Actions</th>
+        </label>
+        <label class="text-sm flex-1">Leader
+          <div class="mt-1">
+            <select x-ref="leaderSel" class="border rounded px-2 py-1 w-full" x-model="leaderSelect"
+              @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect; queueSaveDetails()">
+              <template x-for="n in leaderChoices" :key="'lead-'+n">
+                <option :value="n" x-text="n"></option>
               </template>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="(row, i) in orderRows" :key="'ord-'+i">
-              <tr>
-                <td class="border px-2 py-1" x-text="i+1"></td>
-                <td class="border px-2 py-1">
-                  <select class="border rounded px-2 py-1 w-full" x-model="row.itemType" @change="queueSaveOrder(true)"
-                    :disabled="isGuest">
-                    <option :value="row.itemType" x-text="row.itemType"></option>
-                    <template x-for="t in orderItemTypes" :key="t">
-                      <option :value="t" x-text="t"></option>
-                    </template>
-                  </select>
-                </td>
-                <td class="border px-2 py-1 relative">
-                  <div class="flex items-center gap-2 relative">
-                    <template x-if="loadingSuggestion && suggestTargetIndex === i">
-                      <div class="absolute inset-y-0 right-12 flex items-center text-xs text-indigo-600">
-                        <svg class="h-3.5 w-3.5 animate-spin mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                          <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
-                          <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
-                        </svg>
-                        <span>Thinking...</span>
+              <option value="__custom">Custom...</option>
+            </select>
+          </div>
+          <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full border rounded px-2 py-1"
+              placeholder="Type leader name" x-model="form.leader" @input="queueSaveDetails()" /></template>
+        </label>
+        <label class="text-sm min-w-32 flex-1">Preacher
+          <div class="mt-1">
+            <select x-ref="preacherSel" class="border rounded px-2 py-1 w-full" x-model="preacherSelect"
+              @change="form.preacher = preacherSelect==='__custom' ? '' : preacherSelect; queueSaveDetails()">
+              <template x-for="n in preacherChoices" :key="'prech-'+n">
+                <option :value="n" x-text="n"></option>
+              </template>
+              <option value="__custom">Custom...</option>
+            </select>
+          </div>
+          <template x-if="preacherSelect==='__custom'"><input type="text" class="mt-2 w-full border rounded px-2 py-1"
+              placeholder="Type preacher name" x-model="form.preacher" @input="queueSaveDetails()" /></template>
+        </label>
+      </div>
+    </div>
+
+    <div class="mt-6 px-1 pb-1 flex flex-col flex-1 min-h-0">
+      <div class="border-b px-2 flex items-center gap-1 text-sm">
+        <button type="button"
+          class="px-3 py-1 rounded-t-md transition border-t border-x"
+          :class="activeContentTab==='scripture'
+            ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+            : 'text-gray-600 border-gray-300 hover:text-blue-700 hover:bg-gray-100'"
+          @click="activeContentTab='scripture'">
+          Scripture
+        </button>
+        <button type="button"
+          class="px-3 py-1 rounded-t-md transition border-t border-x"
+          :class="activeContentTab==='order'
+            ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+            : 'text-gray-600 border-gray-300 hover:text-blue-700 hover:bg-gray-100'"
+          @click="activeContentTab='order'">
+          Order of Worship
+        </button>
+        <button type="button"
+          class="px-3 py-1 rounded-t-md transition border-t border-x"
+          :class="activeContentTab==='team'
+            ? 'bg-white border-gray-300 text-blue-700 font-semibold -mb-px'
+            : 'text-gray-600 border-gray-300 hover:text-blue-700 hover:bg-gray-100'"
+          @click="activeContentTab='team'">
+          Team
+        </button>
+      </div>
+
+      <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='scripture'" x-cloak>
+        <div class="border rounded w-full bg-white flex-1 min-h-0 flex flex-col">
+          <div class="px-3 flex items-center justify-between">
+            <span class="font-medium sr-only">Scripture</span>
+            <div class="text-xs text-gray-500" x-show="savingDetails || savedAt">
+              <span x-show="savingDetails">Saving…</span>
+              <span x-show="!savingDetails && savedAt">Saved</span>
+            </div>
+          </div>
+          <div class="p-3 space-y-3 overflow-auto flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <input class="flex-1 border rounded px-2 py-1 min-w-[220px]" type="text" placeholder="e.g., John 3:5-6, 8-10"
+                x-model="form.scripture" @input="queueSaveDetails()" />
+              <button class="px-3 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
+                @click="fetchScripture()">Fetch Text</button>
+            </div>
+            <textarea class="w-full border rounded px-2 py-1" rows="6" x-model="scriptureText" @input="queueSaveDetails()"
+              placeholder="Scripture text (editable)"></textarea>
+            <div class="flex flex-wrap gap-3">
+              <label class="text-sm block flex-1 min-w-[160px]">
+                <span class="font-medium text-gray-700">Theme</span>
+                <input type="text" class="mt-1 w-full border rounded px-2 py-1" x-model="form.theme"
+                  @input="queueSaveDetails(); updateSuggestDefaults()" />
+              </label>
+              <label class="text-sm block flex-1 min-w-[200px]">
+                <span class="font-medium text-gray-700">Keywords</span>
+                <input type="text" class="mt-1 w-full border rounded px-2 py-1"
+                  placeholder="Auto from Scripture; comma separated" x-model="form.keywords"
+                  @input="queueSaveDetails(); updateSuggestDefaults()" />
+              </label>
+            </div>
+            <label class="text-sm block mt-2">
+              <span class="font-medium text-gray-700">Notes</span>
+              <textarea class="mt-1 w-full border rounded px-2 py-1" rows="3" x-model="form.notes"
+                @input="queueSaveDetails()"></textarea>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='order'" x-cloak>
+        <div x-show="!showOrder" x-cloak class="border rounded p-4 text-sm text-gray-600">
+          Save or load a service to build the order of worship.
+        </div>
+        <div class="border rounded p-3 flex-1 min-h-0 flex flex-col" x-show="showOrder" x-cloak>
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-3">
+              <span class="font-medium sr-only">Order of Worship</span>
+              <span class="text-xs text-gray-500" x-show="savingOrder">Saving…</span>
+              <span class="text-xs text-gray-500" x-show="!savingOrder && savedAt">Saved</span>
+            </div>
+            <div class="flex gap-2">
+              <template x-if="!isGuest">
+                <button
+                  class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
+                  @click="addOrderRow()">+ Add Row</button>
+              </template>
+            </div>
+          </div>
+          <div class="relative flex-1 min-h-0 overflow-auto">
+            <div x-cloak x-show="loadingOrder"
+              class="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+              <div class="inline-flex items-center gap-2 text-sm text-indigo-700">
+                <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
+                  <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
+                </svg>
+                <span>Loading order...</span>
+              </div>
+            </div>
+            <table id="order-of-worship" class="min-w-full border text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="border px-2 py-1 w-14 text-left">#</th>
+                  <th class="border px-2 py-1 text-left">Item</th>
+                  <th class="border px-2 py-1 text-left">Detail</th>
+                  <th class="border px-2 py-1 text-left">Leader</th>
+                  <th class="border px-2 py-1 text-left">Notes</th>
+                  <template x-if="!isGuest">
+                    <th class="border px-2 py-1 w-28">Actions</th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="(row, i) in orderRows" :key="'ord-'+i">
+                  <tr>
+                    <td class="border px-2 py-1" x-text="i+1"></td>
+                    <td class="border px-2 py-1">
+                      <select class="border rounded px-2 py-1 w-full" x-model="row.itemType" @change="queueSaveOrder(true)"
+                        :disabled="isGuest">
+                        <option :value="row.itemType" x-text="row.itemType"></option>
+                        <template x-for="t in orderItemTypes" :key="t">
+                          <option :value="t" x-text="t"></option>
+                        </template>
+                      </select>
+                    </td>
+                    <td class="border px-2 py-1 relative">
+                      <div class="flex items-center gap-2 relative">
+                        <template x-if="loadingSuggestion && suggestTargetIndex === i">
+                          <div class="absolute inset-y-0 right-12 flex items-center text-xs text-indigo-600">
+                            <svg class="h-3.5 w-3.5 animate-spin mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
+                              <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
+                            </svg>
+                            <span>Thinking...</span>
+                          </div>
+                        </template>
+                        <input class="border rounded px-2 py-1 w-full" x-model="row.detail" @input="queueSaveOrder()"
+                          @blur="queueSaveOrder(true)" placeholder="e.g., Song title" :disabled="isGuest" />
+                        <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
+                          title="Suggest song" aria-label="Suggest song"
+                          x-show="!isGuest && /song/i.test(String(row.itemType||''))"
+                          :disabled="loadingSuggestion || isGuest"
+                          @click.stop="suggestForRow(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                            class="w-4 h-4">
+                            <path
+                              d="M12 18V12.75M12 12.75c.518 0 1.021-.066 1.5-.189M12 12.75c-.518 0-1.021-.066-1.5-.189M14.25 20.039A9.02 9.02 0 0 1 12 20.25c-.769 0-1.521-.073-2.25-.211M13.5 22.422A14.706 14.706 0 0 1 12 22.5c-.507 0-1.007-.026-1.5-.078M14.25 18v-.192c0-.983.658-1.823 1.508-2.316A7.46 7.46 0 0 0 19.5 9c0-4.142-3.358-7.5-7.5-7.5S4.5 4.858 4.5 9c0 2.773 1.505 5.194 3.742 6.492.85.493 1.508 1.333 1.508 2.316V18" />
+                          </svg>
+                        </button>
+                        <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
+                          title="Suggest scripture" aria-label="Suggest scripture"
+                          x-show="!isGuest && /call to worship|scripture/i.test(String(row.itemType||''))"
+                          :disabled="loadingSuggestion || isGuest"
+                          @click.stop="suggestForRow(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                            class="w-4 h-4">
+                            <path
+                              d="M12 6.042C10.408 4.617 8.305 3.75 6 3.75c-1.052 0-2.062.18-3 .512v14.25c.938-.332 1.948-.512 3-.512 2.305 0 4.408.867 6 2.292m0-14.25C13.592 4.617 15.695 3.75 18 3.75c1.052 0 2.062.18 3 .512v14.25c-.938-.332-1.948-.512-3-.512-2.305 0-4.408.867-6 2.292m0-14.25v14.25" />
+                          </svg>
+                        </button>
+                        <button class="px-2 py-1 rounded text-blue-800 hover:bg-blue-50" title="View Scripture Text"
+                          x-show="row.scriptureText"
+                          @click.stop="viewRowScripture(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                            <path d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/>
+                          </svg>
+                        </button>
+                        <div x-show="false"></div>
                       </div>
+                    </td>
+                    <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.leader" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
+                        placeholder="Leader" :disabled="isGuest" /></td>
+                    <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.notes" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
+                        placeholder="Notes" :disabled="isGuest" /></td>
+                    <template x-if="!isGuest">
+                      <td class="border px-2 py-1">
+                      <div class="flex items-center gap-1">
+                        <button type="button" aria-label="Move up"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0"
+                          @click="moveOrderRow(i,-1)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
+                            aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                          </svg>
+                        </button>
+                        <button type="button" aria-label="Move down"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0"
+                          @click="moveOrderRow(i,1)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
+                            aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                          </svg>
+                        </button>
+                        <button type="button" aria-label="Remove"
+                          class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-0"
+                          @click="removeOrderRow(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
+                            aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </div>
+                      </td>
                     </template>
-                    <input class="border rounded px-2 py-1 w-full" x-model="row.detail" @input="queueSaveOrder()"
-                      @blur="queueSaveOrder(true)" placeholder="e.g., Song title" :disabled="isGuest" />
-                    <!-- Suggest songs -->
-                    <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
-                      title="Suggest song" aria-label="Suggest song"
-                      x-show="!isGuest && /song/i.test(String(row.itemType||''))"
-                      :disabled="loadingSuggestion || isGuest"
-                      @click.stop="suggestForRow(i)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                        class="w-4 h-4">
-                        <path
-                          d="M12 18V12.75M12 12.75c.518 0 1.021-.066 1.5-.189M12 12.75c-.518 0-1.021-.066-1.5-.189M14.25 20.039A9.02 9.02 0 0 1 12 20.25c-.769 0-1.521-.073-2.25-.211M13.5 22.422A14.706 14.706 0 0 1 12 22.5c-.507 0-1.007-.026-1.5-.078M14.25 18v-.192c0-.983.658-1.823 1.508-2.316A7.46 7.46 0 0 0 19.5 9c0-4.142-3.358-7.5-7.5-7.5S4.5 4.858 4.5 9c0 2.773 1.505 5.194 3.742 6.492.85.493 1.508 1.333 1.508 2.316V18" />
-                      </svg>
-                    </button>
-                    <!-- Suggest scripture -->
-                    <button class="px-2 py-1 rounded bg-blue-50 text-blue-800 border border-blue-300 hover:bg-blue-100"
-                      title="Suggest scripture" aria-label="Suggest scripture"
-                      x-show="!isGuest && /call to worship|scripture/i.test(String(row.itemType||''))"
-                      :disabled="loadingSuggestion || isGuest"
-                      @click.stop="suggestForRow(i)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                        class="w-4 h-4">
-                        <path
-                          d="M12 6.042C10.408 4.617 8.305 3.75 6 3.75c-1.052 0-2.062.18-3 .512v14.25c.938-.332 1.948-.512 3-.512 2.305 0 4.408.867 6 2.292m0-14.25C13.592 4.617 15.695 3.75 18 3.75c1.052 0 2.062.18 3 .512v14.25c-.938-.332-1.948-.512-3-.512-2.305 0-4.408.867-6 2.292m0-14.25v14.25" />
-                      </svg>
-                    </button>
-                    <!-- Eye button to view stored scripture text -->
-                    <button class="px-2 py-1 rounded text-blue-800 hover:bg-blue-50" title="View Scripture Text"
-                      x-show="row.scriptureText"
-                      @click.stop="viewRowScripture(i)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
-                        <path d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/>
-                      </svg>
-                    </button>
-                  <!-- Inline scripture suggestions dropdown -->
-                    <div x-show="false"></div>
-                  </div>
-                </td>
-                <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.leader" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                    placeholder="Leader" :disabled="isGuest" /></td>
-                <td class="border px-2 py-1"><input class="border rounded px-2 py-1 w-full" x-model="row.notes" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                    placeholder="Notes" :disabled="isGuest" /></td>
-                <template x-if="!isGuest">
-                  <td class="border px-2 py-1">
-                  <div class="flex items-center gap-1">
-                    <button type="button" aria-label="Move up"
-                      class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0"
-                      @click="moveOrderRow(i,-1)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                        aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-                      </svg>
-                    </button>
-                    <button type="button" aria-label="Move down"
-                      class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-0"
-                      @click="moveOrderRow(i,1)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                        aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                      </svg>
-                    </button>
-                    <button type="button" aria-label="Remove"
-                      class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-0"
-                      @click="removeOrderRow(i)">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                        aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                          d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                      </svg>
-                    </button>
-                  </div>
-                  </td>
+                  </tr>
                 </template>
-              </tr>
-            </template>
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='team'" x-cloak>
+        <div class="border rounded p-4 bg-white space-y-4">
+          <div x-show="!teamAssignmentsSupported" x-cloak
+            class="text-sm text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded"
+            x-text="teamAssignmentsUnsupportedReason || 'Team assignments are not available in this environment yet.'">
+          </div>
+          <div x-show="teamAssignmentsSupported && !selectedServiceId" x-cloak class="text-sm text-gray-600">
+            Load or save a service to view team assignments.
+          </div>
+          <div x-show="teamAssignmentsSupported && selectedServiceId" x-cloak class="space-y-3">
+            <div x-show="teamAssignmentsLoading" x-cloak
+              class="inline-flex items-center gap-2 text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded">
+              <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
+                <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
+              </svg>
+              <span>Loading team assignments…</span>
+            </div>
+            <div x-show="teamAssignmentsError" x-cloak
+              class="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded"
+              x-text="teamAssignmentsError"></div>
+            <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
+              class="text-sm text-gray-600">
+              No team assignments have been added for this service yet.
+            </div>
+            <div class="flex-1 min-h-0 overflow-auto space-y-3">
+              <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
+                <div class="border rounded">
+                <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
+                  <div>
+                    <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
+                    <div class="text-xs text-gray-500" x-show="team.weeklyTeamName"
+                      x-text="'Weekly team: ' + team.weeklyTeamName"></div>
+                  </div>
+                  <div class="text-xs text-gray-500" x-show="team.roles && team.roles.length"
+                    x-text="team.roles.length + ' roles'"></div>
+                </div>
+                <div class="divide-y">
+                  <template x-for="role in team.roles" :key="team.teamType + (role.roleName || '') + (role.memberEmail || '')">
+                    <div class="px-3 py-2 flex items-center justify-between gap-3">
+                      <div>
+                        <div class="text-sm font-medium text-gray-800" x-text="role.roleName || role.roleType || 'Role'"></div>
+                        <div class="text-xs text-gray-500" x-show="role.roleType && role.roleType !== role.roleName"
+                          x-text="role.roleType"></div>
+                      </div>
+                      <div class="text-sm text-right text-gray-900">
+                        <div x-text="role.memberName || 'Unassigned'"></div>
+                        <div class="text-xs text-gray-500" x-show="role.memberEmail" x-text="role.memberEmail"></div>
+                        <div class="text-xs text-amber-600" x-show="role.status && role.status.toLowerCase() !== 'assigned'"
+                          x-text="role.status"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="px-3 py-2 text-sm text-gray-500" x-show="!team.roles || !team.roles.length">
+                    No roles assigned in this team yet.
+                  </div>
+                </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -437,6 +544,3 @@
     </div>
   </div>
 </div>
-
-
-

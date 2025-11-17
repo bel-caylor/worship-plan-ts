@@ -1,4 +1,4 @@
-const APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbyaW-quYYbnfWUy0k3uWywuljUB4Eh6gmQIz8JyesJE2LgUmHyMlS5axkwpfFJwxPWM'; // no /exec
+const APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbw5bFw0KZxQpPVCRJ_NaP03ZbvXZ_bw2NCa5YEHpDU4XsxOQluWCgXexV5pFMqDNFU'; // no /exec
 
 export default {
   async fetch(request) {

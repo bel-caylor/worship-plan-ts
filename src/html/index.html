@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html class="h-full">
 
 <head>
   <meta charset="utf-8" />
@@ -52,7 +52,7 @@
       try {
         const meta = document.querySelector('meta[name="app-script-base"]');
         if (meta && meta.content) window.__BASE__ = meta.content;
-      } catch (_) {}
+      } catch (_) { }
     })();
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
@@ -67,29 +67,27 @@
 
 </head>
 
-<body x-data="app()" x-init="init()" class="min-h-screen overflow-y-auto bg-gray-50">
+<body x-data="app()" x-init="init()" class="h-full bg-gray-50 overflow-hidden flex flex-col">
 
   <!-- Topbar -->
   <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
 
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
-  <main class="min-h-[calc(100vh-56px)]">
-    <div class="h-full">
-      <template x-if="route==='songs'">
-        <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
-      </template>
+  <main class="h-[calc(100vh-58px)] overflow-hidden flex flex-col flex-1 min-h-0">
+    <template x-if="route==='songs'">
+      <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
+    </template>
 
-      <div x-show="route==='plan'" class="h-full">
-        <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
-      </div>
+    <div x-show="route==='plan'" class="h-full flex-1 min-h-0 flex flex-col">
+      <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
+    </div>
 
-      <div x-show="route==='team' && !window.__GUEST__" class="h-full">
-        <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
-      </div>
+    <div x-show="route==='team' && !window.__GUEST__" class="h-full flex-1 min-h-0">
+      <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
+    </div>
 
-      <div x-show="route==='availability'" class="h-full">
-        <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
-      </div>
+    <div x-show="route==='availability'" class="h-full flex-1 min-h-0">
+      <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
     </div>
   </main>
 
@@ -100,7 +98,7 @@
         route: 'plan',
         init() {
           const isGuest = !!(window.__GUEST__);
-          const allowed = new Set(isGuest ? ['plan','songs','availability'] : ['plan','songs','team','availability']);
+          const allowed = new Set(isGuest ? ['plan', 'songs', 'availability'] : ['plan', 'songs', 'team', 'availability']);
           const normalize = (value) => String(value || '').trim().toLowerCase();
           const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
           const setRoute = (value) => {
@@ -138,6 +136,4 @@
 </body>
 
 </html>
-
-
 
