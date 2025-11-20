@@ -67,4 +67,53 @@
       try { alert(String(message ?? '')); } catch(_) {}
     }
   }
+
+  (function (global) {
+    if (global && typeof global.songPreview === 'function') return;
+    function normalizePreview(data) {
+      if (!data || !data.hasSong) return { hasSong: false };
+      return {
+        hasSong: true,
+        songName: data.song?.Song || data.songName || '(Untitled)',
+        reason: data.song?.Reason || data.reason || '',
+        leader: data.song?.Leader || data.leader || '',
+        season: data.song?.Season || data.season || '',
+        themes: data.song?.Themes || data.themes || '',
+        scriptures: data.song?.Scriptures || data.scriptures || '',
+        keywords: data.song?.Keywords || data.keywords || '',
+        lyrics: data.song?.Lyrics || data.song?.['Lyrics (PD)'] || data.lyrics || '',
+        aiReason: data.aiReason || '',
+        additional: data.additional || '',
+        showUse: !!data.isModalContext,
+        onUse: typeof data.useSong === 'function' ? () => data.useSong() : null,
+        onCopy: typeof data.onCopy === 'function'
+          ? (evt) => data.onCopy(evt)
+          : (typeof data.copyLyrics === 'function' ? (evt) => data.copyLyrics(evt) : null),
+        link: data.song?.Link || data.link || '',
+        showMedia: !!data.mediaFiles,
+        mediaFiles: Array.isArray(data.mediaFiles) ? data.mediaFiles : [],
+        mediaLoading: !!data.mediaLoading,
+        mediaMessage: data.mediaMessage || 'No files in folder.',
+        stats: {
+          uses: data.stats?.uses || data.song?.Uses || '',
+          usage: data.stats?.usage || data.song?.Usage || '',
+          years: data.stats?.years || data.song?.Years_Used || '',
+          lastUsed: data.stats?.lastUsed || data.song?.Last_Used || '',
+          firstUsed: data.stats?.firstUsed || data.song?.First_Used || ''
+        },
+        folderUrl: data.song?._folderUrl || '',
+        onOpenFolder: typeof data.openFolder === 'function' ? () => data.openFolder(data.song?._folderUrl) : null,
+        starred: !!data.starred,
+        onToggleStar: typeof data.onToggleStar === 'function' ? () => data.onToggleStar() : null
+      };
+    }
+    global.songPreview = function songPreview(initial = {}) {
+      return {
+        preview: normalizePreview(initial),
+        update(data) {
+          this.preview = normalizePreview(data);
+        }
+      };
+    };
+  })(typeof window !== 'undefined' ? window : this);
 </script>

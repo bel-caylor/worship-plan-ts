@@ -25,7 +25,8 @@ export const SERVICES_COL = {
   scriptureText: 'Scripture Text',
   theme: 'Theme',
   keywords: 'Keywords',
-  notes: 'Notes'
+  notes: 'Notes',
+  suggestedSongs: 'Suggested Songs'
 } as const;
 
 // Order of Worship sheet configuration
@@ -87,7 +88,6 @@ export const MEMBER_AVAILABILITY_COL = {
 export const SERVICE_TEAM_ASSIGNMENTS_SHEET = 'ServiceTeamAssignments';
 export const SERVICE_TEAM_ASSIGNMENTS_COL = {
   serviceId: 'ServiceID',
-  serviceDate: 'ServiceDate',
   serviceType: 'ServiceType',
   teamType: 'Team',
   weeklyTeamName: 'WeeklyTeam',

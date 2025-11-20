@@ -8,7 +8,6 @@ import { listServices, ListServicesOptions, ServiceItem } from './services';
 
 type ServiceTeamAssignmentRow = {
   serviceId: string;
-  serviceDate: string;
   serviceType: string;
   teamType: string;
   weeklyTeamName: string;
@@ -23,7 +22,6 @@ type ServiceTeamAssignmentRow = {
 
 type SaveAssignmentInput = {
   serviceId: string;
-  serviceDate?: string;
   serviceType?: string;
   teamType: string;
   weeklyTeamName?: string;
@@ -50,32 +48,13 @@ function headerIndexOptional(headers: string[], label: string) {
   return headers.findIndex(h => h.trim().toLowerCase() === label.trim().toLowerCase());
 }
 
-function toISODate(value: any): string {
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, '0');
-    const d = String(value.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  const raw = String(value ?? '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  return '';
-}
-
-function sheetDateValue(iso: string): Date | string {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '';
-  const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-}
-
 function ensureAssignmentSheet(): GoogleAppsScript.Spreadsheet.Sheet {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(SERVICE_TEAM_ASSIGNMENTS_SHEET);
   if (!sh) {
     sh = ss.insertSheet(SERVICE_TEAM_ASSIGNMENTS_SHEET);
-    sh.getRange(1, 1, 1, 11).setValues([[
+    sh.getRange(1, 1, 1, 10).setValues([[
       SERVICE_TEAM_ASSIGNMENTS_COL.serviceId,
-      SERVICE_TEAM_ASSIGNMENTS_COL.serviceDate,
       SERVICE_TEAM_ASSIGNMENTS_COL.serviceType,
       SERVICE_TEAM_ASSIGNMENTS_COL.teamType,
       SERVICE_TEAM_ASSIGNMENTS_COL.weeklyTeamName,
@@ -103,7 +82,6 @@ function readAssignmentRows(): ServiceTeamAssignmentRow[] {
     .map(v => String(v ?? '').trim());
 
   const idxServiceId = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceId);
-  const idxServiceDate = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceDate);
   const idxServiceType = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceType);
   const idxTeamType = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.teamType);
   const idxWeeklyTeam = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.weeklyTeamName);
@@ -123,7 +101,6 @@ function readAssignmentRows(): ServiceTeamAssignmentRow[] {
     if (!serviceId || !teamType || !roleName) return;
     rows.push({
       serviceId,
-      serviceDate: idxServiceDate >= 0 ? toISODate(row[idxServiceDate]) : '',
       serviceType: idxServiceType >= 0 ? norm(row[idxServiceType]) : '',
       teamType,
       weeklyTeamName: idxWeeklyTeam >= 0 ? norm(row[idxWeeklyTeam]) : '',
@@ -348,7 +325,6 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
       .map(v => String(v ?? '').trim());
 
     const idxServiceId = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceId);
-    const idxServiceDate = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceDate);
     const idxServiceType = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceType);
     const idxTeamType = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.teamType);
     const idxWeeklyTeam = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.weeklyTeamName);
@@ -382,7 +358,6 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
         const colCount = Math.max(headers.length, sh.getLastColumn());
         const rowValues = Array.from({ length: colCount }, () => '');
         rowValues[idxServiceId] = entry.serviceId;
-        if (idxServiceDate >= 0) rowValues[idxServiceDate] = sheetDateValue(norm(entry.serviceDate));
         if (idxServiceType >= 0) rowValues[idxServiceType] = norm(entry.serviceType);
         rowValues[idxTeamType] = entry.teamType;
         if (idxWeeklyTeam >= 0) rowValues[idxWeeklyTeam] = norm(entry.weeklyTeamName);
@@ -399,7 +374,6 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
     rowsToDelete.sort((a, b) => b - a).forEach(row => sh.deleteRow(row));
     rowUpdates.forEach(({ rowNumber, entry }) => {
       if (idxServiceId >= 0) sh.getRange(rowNumber, idxServiceId + 1).setValue(entry.serviceId);
-      if (idxServiceDate >= 0) sh.getRange(rowNumber, idxServiceDate + 1).setValue(sheetDateValue(norm(entry.serviceDate)));
       if (idxServiceType >= 0) sh.getRange(rowNumber, idxServiceType + 1).setValue(norm(entry.serviceType));
       if (idxTeamType >= 0) sh.getRange(rowNumber, idxTeamType + 1).setValue(entry.teamType);
       if (idxWeeklyTeam >= 0) sh.getRange(rowNumber, idxWeeklyTeam + 1).setValue(norm(entry.weeklyTeamName));

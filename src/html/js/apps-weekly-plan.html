@@ -57,7 +57,12 @@
       showSuggestModal: false,
       suggestTargetIndex: -1,
       loadingSuggestion: false,
-      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '' },
+      recommendedSongs: [],
+      recommendedSongsError: '',
+      recommendedSongsLoading: false,
+      recommendedSongIndex: -1,
+      embeddedSongsInstance: null,
+      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' },
       showCreateServicesModal: false,
       batchStartDate: '',
       batchWeeks: 12,
@@ -144,6 +149,15 @@
             } catch (_) { }
           });
         })().finally(() => { this.loadingServices = false; });
+        try {
+          window.addEventListener('embedded-songs-ready', (evt) => {
+            const inst = evt && evt.detail && evt.detail.instance;
+            if (inst) {
+              this.embeddedSongsInstance = inst;
+              this.applySongsBrowserAiFilter();
+            }
+          });
+        } catch (_) { /* ignore */ }
       },
 
       ensureSuggestStore() {
@@ -311,7 +325,7 @@
         this.selectedServiceId = '';
         const nextDate = this.nextServiceDateFromExistingISO();
         const defType = this.defaultServiceTypeForDateISO(nextDate);
-        this.form = { id: '', date: nextDate, time: (d.time || '10:00 AM'), type: defType, leader: (d.leader || 'Darden'), preacher: (d.preacher || d.sermon || 'Tom'), scripture: '', theme: '', keywords: '', notes: '' };
+        this.form = { id: '', date: nextDate, time: (d.time || '10:00 AM'), type: defType, leader: (d.leader || 'Darden'), preacher: (d.preacher || d.sermon || 'Tom'), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
         this.ensureDefaults();
         this.scripture = { book: 'John', chapter: 3, start: '1', end: '' };
         this.form.scripture = '';
@@ -321,9 +335,11 @@
         this.activeContentTab = 'scripture';
         this.showDetails = true;
         this.resetTeamAssignments();
+        this.resetRecommendations();
         this.$nextTick(() => {
           if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch (_) { }
         });
+        this.$nextTick(() => this.applySongsBrowserAiFilter());
       },
 
       async deleteSelectedService() {
@@ -342,11 +358,12 @@
           }
           // Clear current form
           this.selectedServiceId = '';
-          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '' };
+          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
           this.orderRows = [];
           this.showOrder = false;
           this.activeContentTab = 'scripture';
           this.resetTeamAssignments();
+          this.resetRecommendations();
           notify('Service deleted.', 'success');
         } catch (e) {
           console.error(e);
@@ -382,12 +399,10 @@
           } else {
             try {
               const sid = this.selectedServiceId || newId;
-              if (sid) await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder() });
+              if (sid) await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder(), serviceDate: this.form?.date || '' });
             } catch (e2) { console.error(e2); notify('Saved service, but failed to save order.', 'error'); }
           }
-          if (this.showOrder) {
-            this.activeContentTab = 'order';
-          }
+          // stay on current tab (default scripture) after save
         } catch (e) {
           console.error(e);
           const msg = (e && e.message) ? e.message : 'Failed to save service';
@@ -415,6 +430,8 @@
         this.form.theme = svc.theme || '';
         this.form.keywords = svc.keywords || '';
         this.form.notes = svc.notes || '';
+        this.form.suggestedSongs = svc.suggestedSongs || '';
+        this.syncRecommendationsFromStored();
         this.leaderSelect = this.leaderChoices.includes(this.form.leader) ? this.form.leader : '__custom';
         this.preacherSelect = this.preacherChoices.includes(this.form.preacher) ? this.form.preacher : '__custom';
         if (resetDirty) this.detailsDirty = false;
@@ -439,6 +456,7 @@
         this.savingDetails = false;
         const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
         if (!svc) return notify('Select a service first', 'info');
+        this.resetRecommendations();
         this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
         this.loadingOrder = true;
         (async () => {
@@ -453,7 +471,7 @@
         })().finally(() => { this.loadingOrder = false; });
         try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch (_) { }
         this.showDetails = true;
-        this.activeContentTab = 'order';
+        this.activeContentTab = 'scripture';
         this.loadTeamAssignments(this.selectedServiceId);
       },
 
@@ -461,6 +479,126 @@
         this.teamAssignments = [];
         this.teamAssignmentsError = '';
         this.teamAssignmentsLoading = false;
+      },
+
+      resetRecommendations() {
+        this.recommendedSongs = [];
+        this.recommendedSongsError = '';
+        this.recommendedSongsLoading = false;
+        this.recommendedSongIndex = -1;
+        this.form.suggestedSongs = '';
+        this.applySongsBrowserAiFilter();
+      },
+
+      syncRecommendationsFromStored() {
+        try {
+          const raw = String(this.form?.suggestedSongs || '').trim();
+          if (!raw) {
+            this.recommendedSongs = [];
+            this.recommendedSongIndex = -1;
+            this.recommendedSongsError = '';
+            this.applySongsBrowserAiFilter();
+            return;
+          }
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            this.recommendedSongs = parsed.map((rec) => ({
+              name: String(rec?.name || '').trim(),
+              reason: String(rec?.reason || '').trim(),
+              lyrics: String(rec?.lyrics || rec?.lyricSnippet || '').trim()
+            })).filter(rec => rec.name || rec.reason || rec.lyrics);
+            this.recommendedSongIndex = this.recommendedSongs.length ? 0 : -1;
+            this.recommendedSongsError = '';
+            this.applySongsBrowserAiFilter();
+            return;
+          }
+        } catch (_) { /* ignore */ }
+        this.recommendedSongs = [];
+        this.recommendedSongIndex = -1;
+        this.recommendedSongsError = '';
+        this.applySongsBrowserAiFilter();
+      },
+
+      storeRecommendedSongsForService() {
+        try {
+          const payload = (Array.isArray(this.recommendedSongs) ? this.recommendedSongs : [])
+            .map(rec => ({
+              name: String(rec?.name || '').trim(),
+              reason: String(rec?.reason || '').trim(),
+              lyrics: String(rec?.lyrics || '').trim()
+            }))
+            .filter(rec => rec.name || rec.reason || rec.lyrics);
+          const serialized = payload.length ? JSON.stringify(payload) : '';
+          const changed = this.form.suggestedSongs !== serialized;
+          this.form.suggestedSongs = serialized;
+          return changed;
+        } catch (_) {
+          return false;
+        }
+      },
+
+      activeRecommendedSong() {
+        if (!Array.isArray(this.recommendedSongs) || !this.recommendedSongs.length) return null;
+        if (this.recommendedSongIndex < 0 || this.recommendedSongIndex >= this.recommendedSongs.length) return this.recommendedSongs[0];
+        return this.recommendedSongs[this.recommendedSongIndex];
+      },
+
+      async copyRecommendedLyrics() {
+        try {
+          const song = this.activeRecommendedSong();
+          if (!song || !song.lyrics) return;
+          await navigator.clipboard.writeText(song.lyrics);
+          notify('Lyrics copied to clipboard.', 'success', 2000);
+        } catch (_) {
+          notify('Unable to copy lyrics.', 'error', 2000);
+        }
+      },
+
+      recommendedSongPreview() {
+        const song = this.activeRecommendedSong();
+        if (!song) {
+          return { hasSong: false };
+        }
+        return {
+          hasSong: true,
+          songName: song.name || '(Untitled)',
+          reason: song.reason || '',
+          keywords: this.form?.keywords || '',
+          lyrics: song.lyrics || '',
+          onCopy: () => this.copyRecommendedLyrics()
+        };
+      },
+
+      recommendedSongTitles() {
+        return (Array.isArray(this.recommendedSongs) ? this.recommendedSongs : [])
+          .map((rec) => {
+            const title = String(rec?.name || '').trim();
+            if (!title) return null;
+            return {
+              title,
+              reason: String(rec?.reason || '').trim()
+            };
+          })
+          .filter(Boolean);
+      },
+
+      applySongsBrowserAiFilter() {
+        const titles = this.recommendedSongTitles();
+        const applyTo = (cmp) => {
+          if (cmp && typeof cmp.setAiSongTitles === 'function') {
+            cmp.setAiSongTitles(titles);
+          }
+        };
+        if (this.embeddedSongsInstance) {
+          applyTo(this.embeddedSongsInstance);
+          return;
+        }
+        this.$nextTick(() => {
+          try {
+            const cmp = this.$refs?.embeddedSongsApp?.__x?.$data;
+            applyTo(cmp);
+          } catch (_) { /* ignore */ }
+        });
       },
 
       async loadTeamAssignments(serviceId) {
@@ -560,6 +698,71 @@
           const msg = (e && e.message) ? e.message : 'Failed to fetch scripture text';
           notify(msg, 'error', 3200);
         }
+      },
+
+      async updateNotesWithThemes(passageText, reference) {
+        const text = String(passageText || '').trim();
+        if (!text) return;
+        const ref = String(reference || '').trim();
+        this.recommendedSongsLoading = true;
+        this.recommendedSongsError = '';
+        let needsSave = false;
+        try {
+          const res = await callRpc('summarizeScriptureThemes', { text, reference: ref, leader: this.form.leader, songLimit: 10 });
+          const summary = String(res?.summary || '').trim();
+          if (summary) {
+            if (this.form.notes !== summary) {
+              this.form.notes = summary;
+              needsSave = true;
+            }
+          }
+          if (Array.isArray(res?.recommendedSongs)) {
+            this.recommendedSongs = res.recommendedSongs.map((rec) => ({
+              name: String(rec?.name || '').trim(),
+              lyrics: String(rec?.lyrics || rec?.lyricExcerpt || '').trim(),
+              reason: String(rec?.reason || '').trim()
+            })).filter(rec => rec.name || rec.lyrics || rec.reason);
+            this.recommendedSongIndex = this.recommendedSongs.length ? 0 : -1;
+            if (this.storeRecommendedSongsForService()) needsSave = true;
+          } else {
+            this.recommendedSongs = [];
+            this.recommendedSongIndex = -1;
+            if (this.storeRecommendedSongsForService()) needsSave = true;
+          }
+          if (res?.summaryError) {
+            console.warn('Theme summary warning:', res.summaryError);
+          } else if (res?.error) {
+            console.warn('Theme summary warning:', res.error);
+          }
+          if (res?.recommendedSongsError) {
+            this.recommendedSongsError = res.recommendedSongsError;
+            console.warn('Song recommendation warning:', res.recommendedSongsError);
+          } else {
+            this.recommendedSongsError = '';
+          }
+        } catch (err) {
+          const message = (err && err.message) ? err.message : '';
+          if (/Unknown RPC method/i.test(message)) {
+            console.info('Theme summaries not yet supported on this deployment.');
+          } else {
+            console.error('Failed to summarize scripture themes', err);
+            this.recommendedSongsError = 'Unable to fetch song recommendations.';
+          }
+        } finally {
+          this.recommendedSongsLoading = false;
+        }
+        if (needsSave) this.queueSaveDetails(true);
+        this.applySongsBrowserAiFilter();
+      },
+
+      async fetchSongSuggestions() {
+        const text = String(this.scriptureText || '').trim();
+        const ref = String(this.form?.scripture || '').trim();
+        if (!text || !ref) {
+          notify('Enter a scripture reference and fetch the text first.', 'info');
+          return;
+        }
+        await this.updateNotesWithThemes(text, ref);
       },
 
       // Create a comma-separated keyword list from passage text
@@ -726,15 +929,19 @@
             // Song suggestion via modal (existing behavior)
             this.suggestOpenIndex = i;
             this.suggestTargetIndex = i;
-            const slot = this.slotFor(i);
-            const theme = String(this.form.theme || '');
-            const scripture = String(this.scriptureText || this.form.scripture || '');
-            const res = await callRpc('suggestSongs', { theme, scripture, slot, k: 6 });
-            this.suggestions = Array.isArray(res?.items) ? res.items : [];
-            this.updateSuggestDefaults(i);
-            this.showSuggestModal = true;
-            return;
+          const slot = this.slotFor(i);
+          const theme = String(this.form.theme || '');
+          const scripture = String(this.scriptureText || this.form.scripture || '');
+          const res = await callRpc('suggestSongs', { theme, scripture, slot, k: 6 });
+          this.suggestions = Array.isArray(res?.items) ? res.items : [];
+          this.updateSuggestDefaults(i);
+          this.showSuggestModal = true;
+          const existing = String(this.orderRows[i]?.detail || '').trim();
+          if (existing) {
+            this.$nextTick(() => this.focusSongInSuggestModal(existing));
           }
+          return;
+        }
 
           // Scripture suggestions based on adjacent songs or service context
           const neighbors = this.adjacentSongs(i);
@@ -1116,16 +1323,21 @@
         this.suggestOpenIndex = -1;
         this.suggestions = [];
         this.queueSaveOrder(true);
-        this.bumpSongUsage(chosen);
+        this.bumpSongUsage(chosen, this.orderRows[i]?.itemType, this.orderRows[i]?.leader);
       },
 
-      async bumpSongUsage(name) {
+      async bumpSongUsage(name, itemType, leaderName) {
         if (this.isGuest) return;
         try {
           const songName = String(name || '').trim();
           if (!songName) return;
           const date = String(this.form?.date || '').trim();
-          const res = await callRpc('updateSongUsage', { name: songName, date });
+          const usage = this.usageFromItemType(itemType || '');
+          const payload = { name: songName, date };
+          if (usage) payload.usage = usage;
+          const leaderValue = String(leaderName || this.form?.leader || '').trim();
+          if (leaderValue) payload.leader = leaderValue;
+          const res = await callRpc('updateSongUsage', payload);
           const target = this.normalizeTitle(songName);
           const applyPatch = (row) => {
             if (!row) return;
@@ -1134,13 +1346,14 @@
               if (res && res.lastUsed) row.Last_Used = res.lastUsed;
               if (res && typeof res.uses === 'number') row.Uses = res.uses;
               if (res && res.years) row.Years_Used = res.years;
+              if (res && res.usage) row.Usage = res.usage;
+              if (res && res.leader) row.Leader = res.leader;
             }
           };
           if (Array.isArray(window.__ROWS__)) {
             window.__ROWS__.forEach(applyPatch);
           }
-          const modal = this.$refs?.suggestApp;
-          const store = modal && modal.__x ? modal.__x.$data : null;
+          const store = this.suggestModalStore();
           if (store) {
             try {
               if (Array.isArray(store.rows)) store.rows.forEach(applyPatch);
@@ -1150,6 +1363,96 @@
           }
         } catch (e) {
           console.error('Failed to update song usage', e);
+        }
+      },
+
+      suggestModalStore() {
+        try {
+          const modal = this.$refs?.suggestApp;
+          if (modal && modal.__x && modal.__x.$data) {
+            return modal.__x.$data;
+          }
+        } catch (_) { }
+        return null;
+      },
+
+      async focusSongInSuggestModal(name) {
+        const title = String(name || '').trim();
+        if (!title) return;
+        const store = this.suggestModalStore();
+        if (!store) return;
+        if (typeof store.focusOnSong === 'function') {
+          try {
+            const focused = await store.focusOnSong.call(store, title, { clearFilters: true });
+            if (focused) return;
+          } catch (_) { }
+        }
+        const forceRender = () => {
+          try {
+            if (typeof store.render === 'function') {
+              store.render.call(store, true);
+            }
+          } catch (_) { }
+        };
+        const relaxFilters = () => {
+          let changed = false;
+          const ensure = (key, value) => {
+            if (store[key] !== value) {
+              store[key] = value;
+              changed = true;
+            }
+          };
+          ensure('selectedSeason', '');
+          ensure('selectedLeader', '');
+          ensure('selectedUsage', '');
+          ensure('spanishOnly', false);
+          ensure('showArchived', true);
+          return changed;
+        };
+        try {
+          if (typeof store.ensureRowsLoaded === 'function') {
+            await store.ensureRowsLoaded.call(store);
+          }
+        } catch (_) { }
+        let match = null;
+        try {
+          if (typeof store.findSongByName === 'function') {
+            match = store.findSongByName(title);
+          }
+        } catch (_) { }
+        if (!match) {
+          const rows = Array.isArray(store.rows) ? store.rows : [];
+          match = this.findSongRowByName(title, rows);
+        }
+        if (match) {
+          const qChanged = store.q !== title;
+          const filtersChanged = relaxFilters();
+          if (qChanged) {
+            store.q = title;
+          }
+          if (qChanged || filtersChanged) {
+            forceRender();
+          } else {
+            forceRender();
+          }
+          try {
+            if (typeof store.select === 'function') {
+              await store.select.call(store, match);
+            } else {
+              store.selected = match;
+            }
+          } catch (_) {
+            store.selected = match;
+          }
+          return;
+        }
+        const qChanged = store.q !== title;
+        const filtersChanged = relaxFilters();
+        if (qChanged) store.q = title;
+        if (qChanged || filtersChanged) {
+          forceRender();
+        } else {
+          forceRender();
         }
       },
 
@@ -1259,7 +1562,8 @@
             scriptureText: this.scriptureText,
             theme: this.form.theme,
             keywords: this.form.keywords,
-            notes: this.form.notes
+            notes: this.form.notes,
+            suggestedSongs: this.form.suggestedSongs
           };
           this.updateCachedService(newId, patch);
           this.detailsDirty = false;
@@ -1296,7 +1600,7 @@
         this.saveOrderError = '';
         try {
           const sid = this.selectedServiceId;
-          await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder() });
+          await callRpc('saveOrder', { serviceId: sid, items: this.serializedOrder(), serviceDate: this.form?.date || '' });
           this.savedAt = Date.now();
         } catch (e) {
           console.error(e);

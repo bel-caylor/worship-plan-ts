@@ -64,3 +64,7 @@ export function findManyHeaderIndices(headers: string[], labels: string[]): numb
     }
     return idxs;
 }
+
+function norm(value: string) {
+    return String(value || '').toLowerCase().trim();
+}

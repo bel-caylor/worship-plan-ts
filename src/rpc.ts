@@ -9,6 +9,7 @@ import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaul
 import { getTeamScheduleSnapshot, getServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
 import { sendAvailabilityEmail } from './features/messaging';
+import { summarizePassageWithSongs } from './features/scripture';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -39,6 +40,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return saveSongEntry(payload as any);
       case 'aiScripturesForLyrics':
         return aiScripturesForLyrics(payload as any);
+      case 'summarizeScriptureThemes':
+        return summarizePassageWithSongs(payload as any);
       case 'rebuildSongUsage': return rebuildSongUsageFromPlanner();
       case 'getServicePeople':
         return getServicePeople();

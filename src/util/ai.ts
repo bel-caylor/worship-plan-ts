@@ -1,6 +1,12 @@
 // src/util/ai.ts
 type SongLite = { name: string; lyrics?: string };
 
+export type SongRecommendation = {
+  name: string;
+  lyrics: string;
+  reason?: string;
+};
+
 export type SongMetadataInput = {
   name: string;
   lyrics?: string;
@@ -100,6 +106,123 @@ ${reasonLine ? `\n${reasonLine}\n` : '\n'}Return a JSON array of up to ${k} refe
     try { Logger.log('AI error: ' + (err as any)?.message); } catch (_) {}
     return { refs: heuristics, error: 'AI request failed' };
   }
+}
+
+export function summarizeScriptureThemes(input: { text: string; reference?: string }) {
+  const text = String(input?.text || '').trim();
+  const reference = String(input?.reference || '').trim();
+  if (!text) {
+    return { summary: '', error: 'No passage text provided' };
+  }
+  const key = getOpenAiKey();
+  if (!key) return { summary: '', error: 'OPENAI_API_KEY not set in Script Properties' };
+
+  const limited = text.length > 2800 ? `${text.slice(0, 2800)}...` : text;
+  const sys = 'You assist worship planners by distilling Scripture passages into pastoral themes.';
+  const user = `Scripture reference: ${reference || 'Unknown'}\n\nScripture text:\n${limited}\n\nSummarize the themes of this text in 2 sentences or fewer. Reply with a single line that begins with "Main Themes:"`;
+
+  try {
+    let summary = String(callOpenAi(sys, user, key) || '').trim();
+    if (summary && !/^Main Themes:/i.test(summary)) {
+      summary = `Main Themes: ${summary}`;
+    }
+    return { summary };
+  } catch (err) {
+    const message = (err && (err as any).message) ? (err as any).message : 'AI summary failed';
+    return { summary: '', error: message };
+  }
+}
+
+export function recommendSongsForPassage(input: {
+  passageText: string;
+  reference?: string;
+  songs: SongLite[];
+  limit?: number;
+  themes?: string;
+}) {
+  const text = String(input?.passageText || '').trim();
+  const reference = String(input?.reference || '').trim();
+  const songList = Array.isArray(input?.songs) ? input.songs : [];
+  const normalized = songList
+    .map(song => ({
+      name: String(song?.name || '').trim(),
+      lyrics: String(song?.lyrics || '').trim()
+    }))
+    .filter(song => song.name && song.lyrics);
+  if (!text || !normalized.length) return { songs: [] };
+  const limit = Math.max(1, Math.min(15, Number(input?.limit ?? 10)));
+  const themes = String(input?.themes || '').trim();
+  const key = getOpenAiKey();
+  if (!key) return { songs: [], error: 'OPENAI_API_KEY not set in Script Properties' };
+
+  const catalog = normalized
+    .map((song, idx) => `${idx + 1}. ${song.name}: ${truncateForAi(song.lyrics, 420)}`)
+    .join('\n\n');
+  const sys = 'You are a worship-planning assistant. Recommend songs from the provided catalog whose lyrics align with the Scripture theme. Only choose from the provided titles.';
+  const themeLine = themes ? `\nIdentified themes:\n${truncateForAi(themes, 400)}\n` : '\n';
+  const user = `Scripture reference: ${reference || 'Unknown'}\n\nScripture text:\n${truncateForAi(text, 1800)}${themeLine}\nSong catalog:\n${catalog}\n\nReturn a JSON array (max ${limit}) like [{"name":"Song Title","reason":"why it fits","lyricExcerpt":"quoted lyric"}]. Use only the given songs.`;
+
+  try {
+    const res = callOpenAi(sys, user, key);
+    const parsed = safeJsonParse(res);
+    const songs = normalizeRecommendations(parsed, normalized).slice(0, limit);
+    return { songs };
+  } catch (err) {
+    const message = (err && (err as any).message) ? (err as any).message : 'AI song recommendation failed';
+    return { songs: [], error: message };
+  }
+}
+
+function truncateForAi(value: string, max = 400) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}...`;
+}
+
+function normalizeRecommendations(raw: unknown, catalog: SongLite[]): SongRecommendation[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  const map = new Map(
+    catalog.map(song => [normalizeSongTitle(song.name), { name: song.name, lyrics: song.lyrics || '' }])
+  );
+  const out: SongRecommendation[] = [];
+  const seen = new Set<string>();
+  for (const entry of arr) {
+    if (!entry) continue;
+    const candidate =
+      (entry as any)?.name ||
+      (entry as any)?.title ||
+      (entry as any)?.song ||
+      (entry as any)?.Song;
+    const normalizedName = normalizeSongTitle(String(candidate || ''));
+    if (!normalizedName || seen.has(normalizedName)) continue;
+    seen.add(normalizedName);
+    const match = map.get(normalizedName);
+    const reason = String((entry as any)?.reason || (entry as any)?.why || '').trim();
+    const lyricExcerpt = String((entry as any)?.lyricExcerpt || (entry as any)?.lyrics || '').trim();
+    if (match) {
+      out.push({
+        name: match.name,
+        lyrics: match.lyrics || lyricExcerpt,
+        reason
+      });
+    } else if (lyricExcerpt) {
+      out.push({
+        name: String(candidate || '').trim() || 'Song',
+        lyrics: lyricExcerpt,
+        reason
+      });
+    }
+  }
+  return out;
+}
+
+function normalizeSongTitle(value: string) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, '')
+    .trim();
 }
 
 let _lastAiCallTs = 0;

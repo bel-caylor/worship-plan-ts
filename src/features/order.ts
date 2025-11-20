@@ -1,11 +1,13 @@
 // src/features/order.ts
 import { ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
+import { updateSongRecency } from './songs';
 
 export type OrderItem = {
   order: number;
   itemType: string;
   detail?: string;
+  scriptureText?: string;
   leader?: string;
   notes?: string;
 };
@@ -37,7 +39,6 @@ export function getOrder(serviceId: string) {
       order: orderIdx >= 0 ? Number(r[orderIdx] ?? 0) : 0,
       itemType: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
       detail: detailIdx >= 0 ? String(r[detailIdx] ?? '') : '',
-      // @ts-ignore include optional field
       scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
       leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
       notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
@@ -47,9 +48,10 @@ export function getOrder(serviceId: string) {
   return { items };
 }
 
-export function saveOrder(input: { serviceId: string; items: OrderItem[] }) {
+export function saveOrder(input: { serviceId: string; items: OrderItem[]; serviceDate?: string }) {
   const serviceId = String(input?.serviceId || '').trim();
   const items = Array.isArray(input?.items) ? input.items : [];
+  const serviceDate = normalizeServiceDate(input?.serviceDate);
   if (!serviceId) throw new Error('serviceId required');
   const sh = getSheetByName(ORDER_SHEET);
 
@@ -85,7 +87,7 @@ export function saveOrder(input: { serviceId: string; items: OrderItem[] }) {
     }
 
     const unused = new Set(existing.map(e => e.sheetRow));
-    const pickVals = (it: OrderItem & { scriptureText?: string }, idx: number) => {
+    const pickVals = (it: OrderItem, idx: number) => {
       const vals: any[] = Array.from({ length: lastCol }, () => '');
       if (serviceIdx >= 0) vals[serviceIdx] = serviceId;
       if (orderIdx >= 0) vals[orderIdx] = Number(it.order ?? idx + 1);
@@ -122,5 +124,65 @@ export function saveOrder(input: { serviceId: string; items: OrderItem[] }) {
   } finally {
     lock.releaseLock();
   }
+
+  try {
+    updateSongsFromOrder(items, serviceDate);
+  } catch (err) {
+    try { Logger.log(`updateSongsFromOrder failed: ${err}`); } catch (_) { }
+  }
+
   return { ok: true };
+}
+
+function normalizeServiceDate(input?: string) {
+  const raw = String(input || '').trim();
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  try {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+  } catch (_) { /* ignore */ }
+  return raw;
+}
+
+function looksLikeSongSlot(label: string) {
+  const s = String(label || '').trim().toLowerCase();
+  if (!s) return false;
+  if (s.includes('song')) return true;
+  if (s.includes('worship')) return true;
+  return false;
+}
+
+function updateSongsFromOrder(items: OrderItem[], serviceDate?: string) {
+  if (!Array.isArray(items) || !items.length) return;
+  const seen = new Set<string>();
+  const date = String(serviceDate || '').trim();
+  for (const it of items) {
+    const usageLabel = String(it?.itemType || '').trim();
+    const detail = String(it?.detail || '').trim();
+    if (!detail || !usageLabel) continue;
+    if (!looksLikeSongSlot(usageLabel)) continue;
+    const leader = String(it?.leader || '').trim();
+    const leaderKey = leader.toLowerCase();
+    const key = `${detail.toLowerCase()}|${usageLabel.toLowerCase()}|${leaderKey}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const updateInput: any = {
+      name: detail,
+      usage: usageLabel,
+      incrementUses: false
+    };
+    if (leader) updateInput.leader = leader;
+    if (date) updateInput.date = date;
+    try {
+      updateSongRecency(updateInput);
+    } catch (err) {
+      try { Logger.log(`updateSongRecency failed for ${detail}: ${err}`); } catch (_) { }
+    }
+  }
 }

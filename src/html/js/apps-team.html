@@ -659,7 +659,6 @@
               const assignment = this.effectiveScheduleAssignment(column.id, layout.teamType, row.label) || {};
               assignments.push({
                 serviceId: column.id,
-                serviceDate: column.service?.date || '',
                 serviceType: column.service?.type || '',
                 teamType: layout.teamType,
                 weeklyTeamName: this.scheduleWeeklyTeamNameForService(layout.teamType, column.service),

@@ -9,37 +9,37 @@
     </div>
 
     <!-- Desktop tabs -->
-    <nav class="hidden md:flex items-center gap-2">
+    <nav class="app-tabs app-tabs--underline hidden md:flex">
       <a href="#/plan"
-         class="px-2 py-1"
-         :class="route==='plan' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+         class="app-tab"
+         :class="route==='plan' ? 'is-active' : ''">
         Weekly Plan
       </a>
 
       <a href="#/songs"
-         class="px-2 py-1"
-         :class="route==='songs' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+         class="app-tab"
+         :class="route==='songs' ? 'is-active' : ''">
         Song List
       </a>
 
       <template x-if="!window.__GUEST__">
         <a href="#/team"
-           class="px-2 py-1"
-           :class="route==='team' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+           class="app-tab"
+           :class="route==='team' ? 'is-active' : ''">
           Team
         </a>
       </template>
 
       <a href="#/availability"
-         class="px-2 py-1"
-         :class="route==='availability' ? 'font-semibold border-b-2 border-blue-600' : 'text-gray-700'">
+         class="app-tab"
+         :class="route==='availability' ? 'is-active' : ''">
         Availability
       </a>
     </nav>
 
     <!-- Mobile hamburger -->
     <div class="md:hidden relative" x-data="{ tooltip: false }">
-      <button type="button" class="p-2 rounded hover:bg-gray-100 border" aria-label="Open menu"
+      <button type="button" class="btn btn--icon btn--muted" aria-label="Open menu"
               @click="menuOpen = !menuOpen" :aria-expanded="menuOpen">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />

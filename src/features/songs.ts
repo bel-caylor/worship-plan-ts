@@ -9,11 +9,18 @@ import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
 import { aiSongMetadata } from '../util/ai';
 
-type UpdateSongUsageInput = {
-  name?: string;
-  date?: string;
-  incrementUses?: boolean;
-};
+type UpdateSongUsageInput = {
+  name?: string;
+  date?: string;
+  incrementUses?: boolean;
+  usage?: string;
+  leader?: string;
+};
+
+export type SongLyricSample = {
+  name: string;
+  lyrics: string;
+};
 
 function normalizeSongTitle(s: string) {
   return String(s || '')
@@ -25,9 +32,9 @@ function normalizeSongTitle(s: string) {
     .trim();
 }
 
-function toSheetDate(input: string) {
-  const s = String(input || '').trim();
-  if (!s) return '';
+function toSheetDate(input: string) {
+  const s = String(input || '').trim();
+  if (!s) return '';
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
     const [yy, mm, dd] = s.split('-').map(Number);
     return new Date(Date.UTC(yy, mm - 1, dd));
@@ -38,12 +45,26 @@ function toSheetDate(input: string) {
       return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
     }
   } catch (_) { /* ignore */ }
-  return s;
-}
-
-export function updateSongRecency(input: UpdateSongUsageInput) {
-  const nameRaw = String(input?.name || '').trim();
-  if (!nameRaw) throw new Error('Song name required');
+  return s;
+}
+
+function normalizeUsageLabel(label: string) {
+  const trimmed = String(label || '').trim();
+  if (!trimmed) return '';
+  const s = trimmed.toLowerCase();
+  if (s.includes('call to worship') || s.includes('opening')) return 'Call to Worship';
+  if (/\bsong\s*2\b/.test(s)) return 'Song2';
+  if (/\bsong\s*3\b/.test(s)) return 'Song3';
+  if (/\bsong\s*4\b/.test(s)) return 'Song4';
+  if (s.includes('communion')) return 'Communion';
+  if (s.includes('offering')) return 'Offering';
+  if (s.includes('closing')) return 'Closing';
+  return trimmed;
+}
+
+export function updateSongRecency(input: UpdateSongUsageInput) {
+  const nameRaw = String(input?.name || '').trim();
+  if (!nameRaw) throw new Error('Song name required');
 
   const sh = getSheetByName(SONG_SHEET);
   const lastRow = sh.getLastRow();
@@ -68,13 +89,23 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
     if (plain >= 0) return plain;
     return headers.findIndex(h => h.toLowerCase() === 'use count' || h.toLowerCase().includes('uses'));
   })();
-  const yearsIdx = (() => {
-    const plain = col('Years_Used');
-    if (plain >= 0) return plain;
-    const spaced = col('Years Used');
-    if (spaced >= 0) return spaced;
-    return headers.findIndex(h => h.toLowerCase().includes('years') && h.toLowerCase().includes('used'));
-  })();
+  const yearsIdx = (() => {
+    const plain = col('Years_Used');
+    if (plain >= 0) return plain;
+    const spaced = col('Years Used');
+    if (spaced >= 0) return spaced;
+    return headers.findIndex(h => h.toLowerCase().includes('years') && h.toLowerCase().includes('used'));
+  })();
+  const usageIdx = (() => {
+    const direct = col('Usage');
+    if (direct >= 0) return direct;
+    return headers.findIndex(h => h.toLowerCase().includes('usage'));
+  })();
+  const leaderIdx = (() => {
+    const configured = col(TARGET_LEADER_COL);
+    if (configured >= 0) return configured;
+    return headers.findIndex(h => h.toLowerCase().includes('leader'));
+  })();
 
   const dataRange = sh.getRange(2, 1, lastRow - 1, lastCol);
   const values = dataRange.getValues();
@@ -95,42 +126,91 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
   const absoluteRow = matchIdx + 2;
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
-  try {
-    let lastUsedDate = '';
-    if (lastUsedIdx >= 0 && input?.date) {
-      const val = toSheetDate(input.date);
-      sh.getRange(absoluteRow, lastUsedIdx + 1).setValue(val);
-      lastUsedDate = String(input.date || '');
-    }
-    let usesCount: number | undefined;
-    if (usesIdx >= 0 && (input?.incrementUses ?? true)) {
-      const current = Number(values[matchIdx][usesIdx]) || 0;
-      usesCount = current + 1;
-      sh.getRange(absoluteRow, usesIdx + 1).setValue(usesCount);
-    }
-    if (yearsIdx >= 0 && input?.date) {
-      const current = String(values[matchIdx][yearsIdx] ?? '').trim();
-      const year = String(input.date).slice(0, 4);
-      if (year && /^\d{4}$/.test(year)) {
-        const parts = current ? current.split(',').map(s => s.trim()).filter(Boolean) : [];
-        if (!parts.includes(year)) {
-          parts.push(year);
-          parts.sort((a, b) => Number(a) - Number(b));
-          sh.getRange(absoluteRow, yearsIdx + 1).setValue(parts.join(', '));
-        }
-      }
-    }
-    return {
-      updated: true,
-      lastUsed: lastUsedDate || input?.date || '',
-      uses: usesCount
-    };
-  } finally {
-    lock.releaseLock();
-  }
-
-  return { updated: true, lastUsed: input?.date || '' };
-}
+  try {
+    let lastUsedDate = '';
+    if (lastUsedIdx >= 0 && input?.date) {
+      const val = toSheetDate(input.date);
+      sh.getRange(absoluteRow, lastUsedIdx + 1).setValue(val);
+      lastUsedDate = String(input.date || '');
+    }
+    let usesCount: number | undefined;
+    if (usesIdx >= 0 && (input?.incrementUses ?? true)) {
+      const current = Number(values[matchIdx][usesIdx]) || 0;
+      usesCount = current + 1;
+      sh.getRange(absoluteRow, usesIdx + 1).setValue(usesCount);
+    }
+    if (yearsIdx >= 0 && input?.date) {
+      const current = String(values[matchIdx][yearsIdx] ?? '').trim();
+      const year = String(input.date).slice(0, 4);
+      if (year && /^\d{4}$/.test(year)) {
+        const parts = current ? current.split(',').map(s => s.trim()).filter(Boolean) : [];
+        if (!parts.includes(year)) {
+          parts.push(year);
+          parts.sort((a, b) => Number(a) - Number(b));
+          sh.getRange(absoluteRow, yearsIdx + 1).setValue(parts.join(', '));
+        }
+      }
+    }
+    let usageValue = '';
+    let leaderValue = '';
+    if (usageIdx >= 0 && input?.usage) {
+      const normalized = normalizeUsageLabel(input.usage);
+      if (normalized) {
+        const existing = String(values[matchIdx][usageIdx] ?? '');
+        const entries = existing
+          ? existing.split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        const hasEntry = entries.some(e => e.toLowerCase() === normalized.toLowerCase());
+        if (!hasEntry) {
+          entries.push(normalized);
+          const updatedVal = entries.join(', ');
+          sh.getRange(absoluteRow, usageIdx + 1).setValue(updatedVal);
+          usageValue = updatedVal;
+        } else {
+          usageValue = existing;
+        }
+      }
+    }
+    if (leaderIdx >= 0 && input?.leader) {
+      const normalizedLeader = String(input.leader || '').trim();
+      if (normalizedLeader) {
+        const existing = String(values[matchIdx][leaderIdx] ?? '');
+        const entries = existing
+          ? existing.split(',').map(s => s.trim()).filter(Boolean)
+          : [];
+        const hasLeader = entries.some(e => e.toLowerCase() === normalizedLeader.toLowerCase());
+        if (!hasLeader) {
+          entries.push(normalizedLeader);
+          entries.sort((a, b) => a.localeCompare(b));
+          const updatedLeader = entries.join(', ');
+          sh.getRange(absoluteRow, leaderIdx + 1).setValue(updatedLeader);
+          leaderValue = updatedLeader;
+        } else {
+          leaderValue = existing;
+        }
+        if (!leaderValue) leaderValue = normalizedLeader;
+      }
+    } else if (input?.leader) {
+      leaderValue = String(input.leader || '').trim();
+    }
+    return {
+      updated: true,
+      lastUsed: lastUsedDate || input?.date || '',
+      uses: usesCount,
+      usage: usageValue,
+      leader: leaderValue
+    };
+  } finally {
+    lock.releaseLock();
+  }
+
+  return {
+    updated: true,
+    lastUsed: input?.date || '',
+    usage: input?.usage ? normalizeUsageLabel(input.usage) : '',
+    leader: input?.leader ? String(input.leader).trim() : ''
+  };
+}
 
 
 export function linkSongMedia() {

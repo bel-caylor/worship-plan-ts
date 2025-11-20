@@ -22,10 +22,76 @@
     }
   };
 
+  const loadStarredFromStorage = () => {
+    try {
+      const raw = localStorage.getItem('wp.starredSongs') || '[]';
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        const normalized = list.map(v => String(v || '').toLowerCase()).filter(Boolean);
+        const uniqueOrder = [];
+        const set = new Set();
+        for (const key of normalized) {
+          if (key && !set.has(key)) {
+            set.add(key);
+            uniqueOrder.push(key);
+          }
+        }
+        return { set, order: uniqueOrder };
+      }
+    } catch (_) {}
+    return { set: new Set(), order: [] };
+  };
+
+  const createStarStore = () => {
+    let state = loadStarredFromStorage();
+    const listeners = new Set();
+    const notify = (sourceId = null) => {
+      listeners.forEach(fn => {
+        try { fn(state, sourceId); } catch (_) { }
+      });
+    };
+    const save = () => {
+      try {
+        localStorage.setItem('wp.starredSongs', JSON.stringify(state.order));
+      } catch (_) {}
+    };
+    const subscribe = (fn) => {
+      if (typeof fn !== 'function') return () => {};
+      listeners.add(fn);
+      try { fn(state, null); } catch (_) {}
+      return () => listeners.delete(fn);
+    };
+    window.addEventListener('storage', (evt) => {
+      if (evt && evt.key === 'wp.starredSongs') {
+        state = loadStarredFromStorage();
+        notify();
+      }
+    });
+    return {
+      get() {
+        return { set: new Set(state.set), order: state.order.slice() };
+      },
+      update(updater, sourceId) {
+        if (typeof updater !== 'function') return;
+        const draft = { set: new Set(state.set), order: state.order.slice() };
+        const next = updater(draft) || draft;
+        state = { set: next.set instanceof Set ? next.set : new Set(), order: Array.isArray(next.order) ? next.order : [] };
+        save();
+        notify(sourceId);
+      },
+      subscribe
+    };
+  };
+
+  const SONG_STAR_STORE = createStarStore();
+  let SONGS_APP_INSTANCE_COUNTER = 0;
+
   function songsApp(mode = 'default') {
+    const instanceId = ++SONGS_APP_INSTANCE_COUNTER;
     const IS_GUEST = !!(window.__GUEST__);
     const normalizedMode = String(mode || '').toLowerCase();
     const isModal = normalizedMode === 'modal';
+    const isEmbedded = normalizedMode === 'embedded';
     const songsCache = getSongsCache();
     const seededRows = (() => {
       if (Array.isArray(songsCache.rows) && songsCache.rows.length) return songsCache.rows;
@@ -70,9 +136,28 @@
       Archive: isFlagOn(row?.Archive ?? row?.archive ?? row?.ARCHIVE ?? row?.Archived ?? '')
     });
 
+    const initialStarState = SONG_STAR_STORE.get();
+    const arraysEqual = (a, b) => {
+      if (!Array.isArray(a) || !Array.isArray(b)) return false;
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
+    };
+    const setsEqual = (a, b) => {
+      if (!(a instanceof Set) || !(b instanceof Set)) return false;
+      if (a.size !== b.size) return false;
+      for (const v of a) {
+        if (!b.has(v)) return false;
+      }
+      return true;
+    };
+
     return {
       isGuest: IS_GUEST,
       isModalContext: isModal,
+      isEmbedded,
       mobileListOpen: false,
       filtersOpen: false,
       songsCache,
@@ -104,6 +189,10 @@
       mediaFiles: [],
       mediaLoading: false,
       mediaMessage: '',
+      _aiTitleSet: null,
+      _aiReasonMap: null,
+      starredTitles: initialStarState.set,
+      starredOrder: initialStarState.order,
 
       _defaultsTs: 0,
       showSongEditor: false,
@@ -113,6 +202,9 @@
       songForm: makeSongForm(),
       editorOriginalName: '',
       _layoutBootstrapped: false,
+      _pendingSelectTitle: '',
+      _instanceId: instanceId,
+      _cleanupFns: [],
 
       async init() {
         await this.bootstrapLayout();
@@ -147,6 +239,20 @@
             () => this.syncDefaults()
           );
         } catch (_) {}
+        if (this.isEmbedded) {
+          try {
+            window.dispatchEvent(new CustomEvent('embedded-songs-ready', { detail: { instance: this } }));
+          } catch (_) { /* ignore */ }
+        }
+        const unsubscribeStars = SONG_STAR_STORE.subscribe((state) => {
+          const sameOrder = arraysEqual(this.starredOrder, state.order);
+          const sameSet = this.starredTitles && state.set && setsEqual(this.starredTitles, state.set);
+          if (sameOrder && sameSet) return;
+          this.starredTitles = new Set(state.set);
+          this.starredOrder = state.order.slice();
+          this.render(false);
+        });
+        this._cleanupFns.push(() => unsubscribeStars && unsubscribeStars());
       },
 
       buildFilters() {
@@ -316,8 +422,112 @@
           });
         }
 
+        const starOrder = Array.isArray(this.starredOrder) ? this.starredOrder : [];
+        const orderMap = new Map();
+        starOrder.forEach((key, idx) => {
+          if (key && !orderMap.has(key)) orderMap.set(key, idx);
+        });
+        const starredBucket = [];
+        const aiOnly = [];
+        const remainder = [];
+        for (const row of out) {
+          const key = this.normalizeTitle(row?.Song || row?.song);
+          if (key && orderMap.has(key)) {
+            starredBucket.push({ row, rank: orderMap.get(key) });
+          } else if (this.isAiSuggestion(row)) {
+            aiOnly.push(row);
+          } else {
+            remainder.push(row);
+          }
+        }
+        if (starredBucket.length) {
+          starredBucket.sort((a, b) => a.rank - b.rank);
+        }
+        out = starredBucket.map(entry => entry.row).concat(aiOnly, remainder);
+
         this.filtered = out;
-        if (resetSelection || !this.selected || !out.includes(this.selected)) this.selected = out[0] || null;
+        let target = null;
+        if (this._pendingSelectTitle) {
+          const needle = this._pendingSelectTitle;
+          target = out.find(r => this.normalizeTitle(r?.Song) === needle) || null;
+        }
+        if (resetSelection || !this.selected || !out.includes(this.selected)) {
+          this.selected = target || out[0] || null;
+        } else if (target) {
+          this.selected = target;
+        }
+        this._pendingSelectTitle = '';
+      },
+
+      isStarred(row) {
+        if (!row) return false;
+        const key = this.normalizeTitle(row.Song || row.song);
+        return !!(key && this.starredTitles && this.starredTitles.has(key));
+      },
+
+      toggleStar(row) {
+        if (!row) return;
+        const key = this.normalizeTitle(row.Song || row.song);
+        if (!key) return;
+        SONG_STAR_STORE.update((draft) => {
+          if (!(draft.set instanceof Set)) draft.set = new Set();
+          if (!Array.isArray(draft.order)) draft.order = [];
+          if (draft.set.has(key)) {
+            draft.set.delete(key);
+            draft.order = draft.order.filter(k => k !== key);
+          } else {
+            draft.set.add(key);
+            const filtered = draft.order.filter(k => k !== key);
+            draft.order = [key, ...filtered];
+          }
+          return draft;
+        }, this._instanceId);
+      },
+
+      clearStarred() {
+        if (!this.starredTitles || !this.starredTitles.size) return;
+        this.starredTitles = new Set();
+        this.starredOrder = [];
+        this.render(false);
+        SONG_STAR_STORE.update(() => ({
+          set: new Set(),
+          order: []
+        }), this._instanceId);
+      },
+
+      setAiSongTitles(titles) {
+        const entries = Array.isArray(titles) ? titles : [];
+        const titleSet = new Set();
+        const reasonMap = new Map();
+        for (const entry of entries) {
+          let title = '';
+          let reason = '';
+          if (typeof entry === 'string') {
+            title = entry;
+          } else if (entry && typeof entry === 'object') {
+            title = entry.title || entry.name || entry.song || '';
+            reason = entry.reason || '';
+          }
+          const normalized = this.normalizeTitle(title);
+          if (!normalized) continue;
+          titleSet.add(normalized);
+          if (reason) reasonMap.set(normalized, reason);
+        }
+        this._aiTitleSet = titleSet.size ? titleSet : null;
+        this._aiReasonMap = reasonMap.size ? reasonMap : null;
+        this.render(true);
+      },
+
+      isAiSuggestion(row) {
+        if (!row || !this._aiTitleSet) return false;
+        return this._aiTitleSet.has(this.normalizeTitle(row?.Song || ''));
+      },
+
+      aiReasonForSong(row) {
+        if (!row || !this._aiReasonMap) return '';
+        const key = this.normalizeTitle(row?.Song || row?.song);
+        if (!key) return '';
+        return this._aiReasonMap.get(key) || '';
       },
 
       format(v) {
@@ -526,10 +736,117 @@
         return html;
       },
 
+      normalizeTitle(value) {
+        return String(value || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]+/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      },
+
+      assignRowUids(rows) {
+        if (!Array.isArray(rows)) return;
+        rows.forEach((row, idx) => {
+          if (!row || typeof row !== 'object') return;
+          if (row._uid) return;
+          const base = this.normalizeTitle(row.Song || row.song) || 'row';
+          const last = String(row.Last_Used || row.last_used || '');
+          row._uid = `${base}::${last}::${idx}`;
+        });
+      },
+
       findSongByName(name) {
-        const needle = String(name || '').trim().toLowerCase();
+        const needle = this.normalizeTitle(name);
         if (!needle) return null;
-        return (this.rows || []).find(r => String(r?.Song || '').trim().toLowerCase() === needle) || null;
+        return (this.rows || []).find(r => this.normalizeTitle(r?.Song) === needle) || null;
+      },
+
+      queueSelectSong(name) {
+        this._pendingSelectTitle = this.normalizeTitle(name);
+      },
+
+      async focusOnSong(name, { clearFilters = true } = {}) {
+        const title = this.normalizeTitle(name);
+        if (!title) return false;
+        if (typeof this.ensureRowsLoaded === 'function') {
+          try { await this.ensureRowsLoaded(); } catch (_) {}
+        }
+        this.queueSelectSong(title);
+        const setIfNeeded = (key, value) => {
+          if (this[key] !== value) this[key] = value;
+        };
+        if (clearFilters) {
+          setIfNeeded('selectedSeason', '');
+          setIfNeeded('selectedLeader', '');
+          setIfNeeded('selectedUsage', '');
+          setIfNeeded('spanishOnly', false);
+          setIfNeeded('showArchived', true);
+        }
+        if (Array.isArray(this.seedTokens) && this.seedTokens.length) {
+          this.seedTokens = [];
+        }
+        if (this.q) {
+          this.q = '';
+        }
+        this.render(true);
+        return true;
+      },
+
+      songBrowserPreviewContext() {
+        const selected = this.selected;
+        if (!selected) return { hasSong: false };
+        const stats = {
+          uses: selected.Uses || selected.uses || '',
+          usage: selected.Usage || selected.usage || '',
+          years: selected.Years_Used || selected.years_used || '',
+          lastUsed: selected.Last_Used || selected.last_used || '',
+          firstUsed: selected.First_Used || selected.first_used || ''
+        };
+        const mediaList = Array.isArray(this.mediaFiles)
+          ? this.mediaFiles.map(file => ({
+              url: file.url,
+              label: this.friendlyMediaName(file),
+              icon: this.fileIcon(file.mimeType)
+            }))
+          : [];
+        const aiReason = this.aiReasonForSong(selected);
+        return {
+          hasSong: true,
+          song: selected,
+          reason: selected.Reason || '',
+          aiReason,
+          leader: selected.Leader || '',
+          season: selected.Season || '',
+          themes: selected.Themes || '',
+          scriptures: selected.Scriptures || '',
+          keywords: selected.Keywords || '',
+          lyrics: selected.Lyrics || selected['Lyrics (PD)'] || '',
+          isModalContext: this.isModalContext,
+          starred: this.isStarred(selected),
+          stats,
+          link: selected.Link || selected.link || '',
+          folderUrl: selected._folderUrl || selected.folderUrl || '',
+          copyLyrics: (evt) => {
+            if (!evt || evt.isTrusted === false) return;
+            try {
+              const lyr = selected?.Lyrics || selected?.['Lyrics (PD)'] || '';
+              if (!lyr) return;
+              navigator.clipboard?.writeText(lyr);
+              notify && notify('Lyrics copied to clipboard.', 'success', 2000);
+            } catch (_) {
+              notify && notify('Unable to copy lyrics.', 'error', 2000);
+            }
+          },
+          useSong: () => {
+            if (this.isModalContext && selected?.Song) {
+              this.$dispatch('use-song', { index: this.$root?.suggestTargetIndex, name: selected.Song });
+            }
+          },
+          mediaFiles: mediaList,
+          mediaLoading: this.mediaLoading,
+          mediaMessage: this.mediaMessage,
+          onToggleStar: () => this.toggleStar(selected)
+        };
       },
 
       openSongEditor(mode = 'create') {
@@ -653,6 +970,7 @@
 
       syncCacheFromRows(rows) {
         const list = Array.isArray(rows) ? rows : [];
+        this.assignRowUids(list);
         if (this.songsCache) {
           this.songsCache.rows = list;
           this.songsCache.lastFetched = Date.now();
@@ -670,6 +988,7 @@
         }
         if (Array.isArray(cache.rows) && cache.rows.length) {
           this.rows = cache.rows;
+          this.assignRowUids(this.rows);
           return;
         }
         if (cache.pending) {
@@ -690,6 +1009,7 @@
           try {
             const r = await callRpc('getSongsForView', null);
             if (Array.isArray(r)) {
+              this.assignRowUids(r);
               cache.rows = r;
               cache.lastFetched = Date.now();
               try {
@@ -706,6 +1026,7 @@
         try {
           await cache.pending;
           this.rows = Array.isArray(cache.rows) ? cache.rows : [];
+          this.assignRowUids(this.rows);
           this.syncCacheFromRows(this.rows);
         } catch (e) {
           if (!this.isGuest) this.error = 'Failed to load songs';

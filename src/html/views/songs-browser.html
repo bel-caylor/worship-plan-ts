@@ -7,12 +7,12 @@
 
             <!-- Search Input -->
             <input type="search" placeholder="Filter (title, theme, scripture…)"
-                class="hidden xl:block border rounded px-3 py-2 w-80 flex-1" x-model.debounce.200ms="q"
+                class="hidden xl:block form-control w-80 flex-1" x-model.debounce.200ms="q"
                 @search="render(true)" />
 
 
             <!-- Mobile Filters trigger -->
-            <button type="button" class="xl:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50"
+            <button type="button" class="xl:hidden btn btn--muted btn--lg"
                 @click="filtersOpen = true">Filters</button>
 
             <!-- Options/Filters group for md+ -->
@@ -20,7 +20,7 @@
                 <!-- Options Dropdown -->
                 <div class="relative" x-data="{ open: false }">
                     <button type="button"
-                        class="px-3 py-[2px] border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
+                        class="btn btn--muted btn--xs"
                         @click="open = !open">
                         Options
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -47,7 +47,7 @@
                 <!-- Season dropdown -->
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600 text-center sr-only">Season</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedSeason" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedSeason" @change="render()">
                         <option value="">All seasons</option>
                         <template x-for="{key,label} in seasons" :key="key">
                             <option :value="key" x-text="label"></option>
@@ -58,7 +58,7 @@
                 <!-- Leader dropdown -->
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600 text-center sr-only">Leader</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedLeader" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedLeader" @change="render()">
                         <option value="">All leaders</option>
                         <template x-for="name in leaderOptions" :key="name">
                             <option :value="name" x-text="name"></option>
@@ -69,7 +69,7 @@
                 <!-- Usage dropdown -->
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600 text-center sr-only">Usage</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedUsage" @change="render()">
                         <option value="">All usage</option>
                         <template x-for="u in usageOptions" :key="u">
                             <option :value="u" x-text="u"></option>
@@ -83,9 +83,15 @@
                 <span class="text-sm text-gray-700" x-text="`${filtered.length} of ${rows.length}`"></span>
                 <span class="text-sm italic text-gray-500" x-show="loading">Loading…</span>
                 <span class="text-sm text-red-600" x-text="error"></span>
-                <template x-if="!isGuest && !isModalContext">
+                <button type="button"
+                    class="btn btn--outline btn--xs text-amber-700"
+                    @click="clearStarred()"
+                    :disabled="!starredTitles || !starredTitles.size">
+                    Clear stars
+                </button>
+                <template x-if="!isGuest && !isModalContext && !isEmbedded">
                     <button type="button"
-                        class="px-3 py-2 border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
+                        class="btn btn--muted btn--lg"
                         @click="openSongEditor('edit')" :disabled="!selected" title="Edit song" aria-label="Edit song">
                         <!-- icon below xl, label on xl+ -->
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -96,9 +102,9 @@
                         <span class="hidden xl:inline">Edit song</span>
                     </button>
                 </template>
-                <template x-if="!isGuest && !isModalContext">
+                <template x-if="!isGuest && !isModalContext && !isEmbedded">
                     <button type="button"
-                        class="px-3 py-2 border rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-2"
+                        class="btn btn--accent-soft btn--lg"
                         @click="openSongEditor('create')" title="Add song" aria-label="Add song">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                             class="h-5 w-5 xl:hidden">
@@ -108,7 +114,7 @@
                     </button>
                 </template>
                 <button type="button"
-                    class="md:hidden px-3 py-2 border rounded bg-white hover:bg-gray-50 flex items-center gap-2"
+                    class="md:hidden btn btn--muted btn--lg"
                     @click="mobileListOpen = true" title="Browse songs" aria-label="Browse songs">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                         class="h-5 w-5">
@@ -126,12 +132,12 @@
         <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-lg p-4 space-y-3">
             <div class="flex items-center justify-between">
                 <div class="font-semibold">Filters</div>
-                <button type="button" class="text-sm underline" @click="filtersOpen=false">Close</button>
+                <button type="button" class="btn btn--link" @click="filtersOpen=false">Close</button>
             </div>
             <div class="grid grid-cols-1 gap-3">
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600">Keyword</span>
-                    <input type="search" class="border rounded px-3 py-2"
+                    <input type="search" class="form-control"
                         placeholder="Filter (title, theme, scripture...)" x-model.debounce.200ms="q"
                         @search="render(true)" />
                 </label>
@@ -149,7 +155,7 @@
                 </label>
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600">Season</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedSeason" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedSeason" @change="render()">
                         <option value="">All seasons</option>
                         <template x-for="{key,label} in seasons" :key="key">
                             <option :value="key" x-text="label"></option>
@@ -158,7 +164,7 @@
                 </label>
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600">Leader</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedLeader" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedLeader" @change="render()">
                         <option value="">All leaders</option>
                         <template x-for="name in leaderOptions" :key="name">
                             <option :value="name" x-text="name"></option>
@@ -167,7 +173,7 @@
                 </label>
                 <label class="text-sm flex flex-col">
                     <span class="text-gray-600">Usage</span>
-                    <select class="border rounded px-2 py-1" x-model="selectedUsage" @change="render()">
+                    <select class="form-control form-control--dense" x-model="selectedUsage" @change="render()">
                         <option value="">All usage</option>
                         <template x-for="u in usageOptions" :key="u">
                             <option :value="u" x-text="u"></option>
@@ -179,13 +185,14 @@
     </div>
 </div>
 <!-- Content area fills the rest of the viewport; no page scroll -->
-<div class="h-full min-h-0 p-4 z-0" :class="isModalContext ? 'mt-14' : ''">
+<div class="h-full min-h-0 p-4 z-0" :class="isModalContext ? 'mt-14' : 'mt-16'">
     <div class="flex gap-4 h-full relative">
         <!-- LEFT PANE: table scrolls -->
-        <div class="hidden md:block w-[200px] lg:w-[360px] flex-shrink-0 h-full overflow-auto border rounded">
-            <table class="min-w-full">
+        <div class="hidden md:block w-[220px] lg:w-[380px] flex-shrink-0 h-full overflow-auto border rounded">
+            <table class="app-table">
                 <thead class="bg-gray-50 sticky top-0 z-10">
                     <tr>
+                        <th class="w-8 text-center text-xs">★</th>
                         <template x-for="h in tableHeaders" :key="h">
                             <th class="text-left py-2 cursor-pointer select-none" @click="sort(h)">
                                 <span class="inline-block w-4 text-xs align-top text-right"
@@ -196,16 +203,24 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <template x-for="(r, i) in filtered" :key="i">
-                        <tr class="odd:bg-white even:bg-gray-50 hover:bg-indigo-50 cursor-pointer"
-                            :class="selected === r ? 'ring-2 ring-indigo-400' : ''" @click="select(r)">
+                    <template x-for="(r, i) in filtered" :key="r._uid || normalizeTitle(r?.Song) || i">
+                        <tr class="odd:bg-white even:bg-gray-50 hover:bg-indigo-50 cursor-pointer transition"
+                            :class="[selected === r ? 'ring-2 ring-indigo-400' : '', isAiSuggestion(r) ? 'border-l-4 border-amber-400 bg-amber-50/70' : '', isStarred(r) ? 'bg-blue-50/60' : '']"
+                            @click="select(r)">
+                            <td class="px-2 py-2 text-center align-middle">
+                                <button type="button" class="text-lg leading-none"
+                                  :class="isStarred(r) ? 'text-amber-500' : 'text-gray-300 hover:text-amber-500'"
+                                  title="Toggle star" @click.stop="toggleStar(r)">
+                                  ★
+                                </button>
+                            </td>
                             <template x-for="h in tableHeaders" :key="h">
                                 <td class="px-3 py-2 text-xs lg:text-sm" x-text="format(r[h])"></td>
                             </template>
                         </tr>
                     </template>
                     <tr x-show="!filtered.length">
-                        <td class="px-3 py-6 text-center text-gray-500" :colspan="tableHeaders.length">
+                        <td class="px-3 py-6 text-center text-gray-500" :colspan="tableHeaders.length + 1">
                             No results
                         </td>
                     </tr>
@@ -215,171 +230,147 @@
 
         <!-- RIGHT PANE: Preview -->
         <div class="flex-1 h-full overflow-auto border rounded p-4">
-            <div x-show="selected">
-                <!-- HEADER -->
-                <div class="flex items-start justify-between gap-3">
-                    <div>
-                        <h2 class="text-2xl font-semibold" x-text="selected?.Song || '(Untitled)'"></h2>
-                        <div class="mt-1 text-xs font-semibold uppercase text-rose-600" x-show="isArchived(selected)">
-                            Archived
-                        </div>
-
-                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Leader">
-                            Leader: <span class="font-medium" x-text="selected?.Leader"></span>
-                        </div>
-
-                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Season">
-                            Season: <span class="font-medium" x-text="selected?.Season"></span>
-                        </div>
-
-                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Themes">
-                            Themes: <span class="font-medium" x-text="selected?.Themes"></span>
-                        </div>
-
-                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Scriptures">
-                            Scriptures: <span class="font-medium" x-text="selected?.Scriptures"></span>
-                        </div>
-
-                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Keywords">
-                            Keywords: <span class="font-medium" x-text="selected?.Keywords"></span>
-                        </div>
-
-                        <a :href="selected?.Link" class="mt-1 text-sm "
-                          x-show="selected?.Link"
-                          @click.prevent="openSongLink(selected?.Link)">
-                            Link: <span class="font-medium text-blue-700" x-text="selected?.Link"></span>
-                        </a>
-                    </div>
-
-                    <div class="text-sm text-right text-gray-600">
-                        <button type="button"
-                            class="mb-2 inline-flex items-center justify-center px-3 py-1.5 border rounded bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100 disabled:opacity-50"
-                            x-show="isModalContext" :disabled="!selected"
-                            @click="$dispatch('use-song', { index: $root.suggestTargetIndex, name: selected?.Song || '' })">
-                            Use This Song
-                        </button>
-                        <div x-show="selected?.Uses">Uses: <span class="font-medium" x-text="selected?.Uses"></span>
-                        </div>
-                        <div x-show="selected?.Usage">Usage: <span class="font-medium" x-text="selected?.Usage"></span>
-                        </div>
-                        <div x-show="selected?.Years_Used">Years Used: <span class="font-medium"
-                                x-text="selected?.Years_Used"></span></div>
-                        <div x-show="selected?.Last_Used">Last used: <span class="font-medium"
-                                x-text="format(selected?.Last_Used)"></span></div>
-                        <div x-show="selected?.First_Used">First used: <span class="font-medium"
-                                x-text="format(selected?.First_Used)"></span></div>
-                        <div x-show="selected?._folderUrl" class="mt-2">
-                            <a class="inline-flex items-center gap-2 px-2 py-1 border rounded hover:bg-gray-50"
-                                :href="selected?._folderUrl || '#'" target="_blank" rel="noopener">
-                                <span class="font-semibold text-sm">Open Folder</span>
-                            </a>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- MEDIA -->
-                <div class="flex gap-1 align-middle mt-1">
-                    <div class="text-sm font-medium text-gray-700">Media:</div>
-                    <div x-show="mediaLoading" class="text-sm text-gray-500">Loading files...</div>
-
-                    <ul x-show="!mediaLoading && mediaFiles.length" class="space-y-1 inline-flex flex-wrap gap-1">
-                        <template x-for="(file, i) in mediaFiles" :key="i">
-                            <li class="!mt-0">
-                                <a class="text-blue-600 hover:text-blue-800 hover:underline" :href="file.url"
-                                    target="_blank" rel="noopener">
-                                    <span x-text="fileIcon(file.mimeType)"></span>
-                                    <span x-text="friendlyMediaName(file)"></span>
+                    <div x-data="songPreview(songBrowserPreviewContext())"
+                      x-init="update(songBrowserPreviewContext())"
+                      x-effect="update(songBrowserPreviewContext())">
+                        <template x-if="preview?.hasSong">
+                          <div class="h-full flex flex-col gap-4">
+                            <div class="flex items-start justify-between gap-4">
+                              <div class="space-y-2 text-sm text-gray-600">
+                                <div x-show="preview.aiReason" class="text-xs uppercase tracking-wide font-semibold text-amber-700">
+                                  AI suggestion
+                                </div>
+                                <div x-show="preview.aiReason" class="text-sm text-gray-700" x-text="preview.aiReason"></div>
+                                <h3 class="text-3xl font-semibold text-blue-900" x-text="preview.songName || '(Untitled)'"></h3>
+                                <div x-show="preview.reason">
+                                  <span class="font-medium text-gray-700">Reason:</span>
+                                  <span x-text="preview.reason"></span>
+                                </div>
+                                <div class="flex flex-wrap gap-x-8 gap-y-1">
+                                  <div x-show="preview.leader">Leader: <span class="font-semibold" x-text="preview.leader"></span></div>
+                                  <div x-show="preview.season">Season: <span class="font-semibold" x-text="preview.season"></span></div>
+                                </div>
+                                <div class="flex flex-wrap gap-x-8 gap-y-1">
+                                  <div x-show="preview.themes">Themes: <span class="font-semibold" x-text="preview.themes"></span></div>
+                                  <div x-show="preview.scriptures">Scriptures: <span class="font-semibold" x-text="preview.scriptures"></span></div>
+                                </div>
+                                <div x-show="preview.keywords">
+                                  Keywords: <span class="font-semibold" x-text="preview.keywords"></span>
+                                </div>
+                              </div>
+                              <div class="text-sm text-right text-gray-600 space-y-1 flex flex-col items-end">
+                                <button type="button" class="btn btn--outline btn--xs" x-show="preview.onToggleStar"
+                                  @click="preview.onToggleStar?.()">
+                                  <span x-text="preview.starred ? '★ Starred' : '☆ Star'"></span>
+                                </button>
+                                <button type="button" class="btn btn--outline btn--xs" x-show="preview.showUse" @click="preview.onUse?.()">
+                                  Use This Song
+                                </button>
+                                <button type="button" class="btn btn--link btn--sm text-blue-700" x-show="preview.onCopy" @click="preview.onCopy?.($event)">
+                                  Copy Lyrics
+                                </button>
+                                <a class="text-sm text-blue-700 hover:underline" x-show="preview.link" :href="preview.link" target="_blank" rel="noopener">
+                                  Song Link
                                 </a>
-                            </li>
+                                <a class="text-sm text-blue-700 hover:underline" x-show="preview.folderUrl" :href="preview.folderUrl" target="_blank" rel="noopener">
+                                  Open Folder
+                                </a>
+                                <div x-show="preview.stats?.uses">Uses: <span class="font-semibold" x-text="preview.stats.uses"></span></div>
+                                <div x-show="preview.stats?.usage">Usage: <span class="font-semibold" x-text="preview.stats.usage"></span></div>
+                                <div x-show="preview.stats?.years">Years: <span class="font-semibold" x-text="preview.stats.years"></span></div>
+                                <div x-show="preview.stats?.lastUsed">Last used: <span class="font-semibold" x-text="preview.stats.lastUsed"></span></div>
+                                <div x-show="preview.stats?.firstUsed">First used: <span class="font-semibold" x-text="preview.stats.firstUsed"></span></div>
+                              </div>
+                            </div>
+                            <div class="flex-1 flex flex-col">
+                              <div class="text-sm font-medium text-gray-700 mb-1">Lyrics</div>
+                              <pre class="flex-1 bg-gray-50 border rounded p-3 overflow-auto whitespace-pre-wrap"
+                                x-text="preview.lyrics || 'Lyrics preview will appear after selecting a song.'"></pre>
+                            </div>
+                            <div>
+                              <div class="text-sm font-medium text-gray-700 mb-1">Media</div>
+                              <div class="text-sm text-gray-500" x-show="preview.mediaLoading">Loading files...</div>
+                              <ul x-show="!preview.mediaLoading && preview.mediaFiles && preview.mediaFiles.length" class="space-y-1">
+                                <template x-for="(file, idx) in preview.mediaFiles" :key="idx">
+                                  <li class="text-sm">
+                                    <a class="text-blue-600 hover:underline inline-flex items-center gap-2" :href="file.url" target="_blank" rel="noopener">
+                                      <span x-text="file.icon"></span>
+                                      <span x-text="file.label"></span>
+                                    </a>
+                                  </li>
+                                </template>
+                              </ul>
+                              <div class="text-sm text-gray-500" x-show="!preview.mediaLoading && (!preview.mediaFiles || !preview.mediaFiles.length)"
+                                x-text="preview.mediaMessage || 'No files in folder.'"></div>
+                            </div>
+                          </div>
                         </template>
-                    </ul>
-
-                    <div x-show="!mediaLoading && !mediaFiles.length" class="text-sm text-gray-500"
-                        x-text="mediaMessage || 'No files in folder.'"></div>
-                </div>
-
-                <!-- NOTES -->
-                <div class="mt-3" x-show="selected?.Notes">
-                    <div class="text-sm font-medium text-gray-700 mb-1">Notes</div>
-                    <div class="text-sm whitespace-pre-wrap" x-text="selected?.Notes"></div>
-                </div>
-
-                <!-- LYRICS -->
-                <div class="mt-4">
-                    <div class="flex items-center justify-between mb-1">
-                        <div class="text-sm font-medium text-gray-700">Lyrics</div>
-                        <button type="button" class="text-sm underline"
-                            @click="copy(selected.Lyrics || selected['Lyrics (PD)'])">Copy</button>
+                        <template x-if="!preview?.hasSong">
+                          <div class="text-sm text-gray-500">Select a song to preview.</div>
+                        </template>
                     </div>
-                    <pre class="bg-gray-50 border rounded p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap"
-                        x-html="highlightedLyrics()"></pre>
-                </div>
-            </div>
-
-            <div x-show="!selected" class="text-gray-500">Select a song to preview.</div>
         </div>
 
     </div>
 </div>
 
 <!-- Song editor modal -->
-<div x-show="showSongEditor" x-cloak class="fixed inset-0 z-50 flex items-center justify-center">
-    <div class="absolute inset-0 bg-black/40" @click="cancelSongEditor()"></div>
-    <div class="relative bg-white rounded-lg shadow-lg max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
+<div x-show="showSongEditor" x-cloak class="modal-overlay z-50" @click.self="cancelSongEditor()">
+    <div class="modal-panel max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
         <div class="px-4 py-3 border-b flex items-center justify-between">
             <div class="font-semibold" x-text="songEditorMode === 'edit' ? 'Edit Song' : 'Add Song'"></div>
-            <button type="button" class="text-sm text-blue-700 hover:underline"
+            <button type="button" class="btn btn--link"
                 @click="cancelSongEditor()">Close</button>
         </div>
         <form class="p-4 space-y-4" @submit.prevent="saveSongEditor()">
             <div class="grid md:grid-cols-2 gap-4">
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Song title</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Song" x-ref="songTitle"
+                    <input type="text" class="form-control" x-model="songForm.Song" x-ref="songTitle"
                         required>
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Leader(s)</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Leader"
+                    <input type="text" class="form-control" x-model="songForm.Leader"
                         placeholder="Comma separated">
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Season</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Season">
+                    <input type="text" class="form-control" x-model="songForm.Season">
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Usage</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Usage">
+                    <input type="text" class="form-control" x-model="songForm.Usage">
                 </label>
                 <label class="text-sm flex flex-col gap-1 md:col-span-2">
                     <span class="font-medium text-gray-700">Themes</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Themes"
+                    <input type="text" class="form-control" x-model="songForm.Themes"
                         placeholder="Comma separated">
                 </label>
                 <label class="text-sm flex flex-col gap-1 md:col-span-2">
                     <span class="font-medium text-gray-700">Keywords</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Keywords"
+                    <input type="text" class="form-control" x-model="songForm.Keywords"
                         placeholder="Comma separated">
                 </label>
                 <label class="text-sm flex flex-col gap-1 md:col-span-2">
                     <span class="font-medium text-gray-700">Scriptures</span>
-                    <input type="text" class="border rounded px-3 py-2" x-model="songForm.Scriptures"
+                    <input type="text" class="form-control" x-model="songForm.Scriptures"
                         placeholder="Comma separated">
                 </label>
                 <label class="text-sm flex flex-col gap-1 md:col-span-2">
                     <span class="font-medium text-gray-700">Link</span>
-                    <input type="url" class="border rounded px-3 py-2" x-model="songForm.Link"
+                    <input type="url" class="form-control" x-model="songForm.Link"
                         placeholder="https://...">
                 </label>
             </div>
             <div class="grid md:grid-cols-2 gap-4">
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Notes</span>
-                    <textarea class="border rounded px-3 py-2 min-h-[80px]" x-model="songForm.Notes"></textarea>
+                    <textarea class="form-control min-h-[80px]" x-model="songForm.Notes"></textarea>
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Lyrics</span>
-                    <textarea class="border rounded px-3 py-2 min-h-[120px]" x-model="songForm.Lyrics"></textarea>
+                    <textarea class="form-control min-h-[120px]" x-model="songForm.Lyrics"></textarea>
                 </label>
             </div>
             <div class="flex items-center gap-4">
@@ -394,9 +385,9 @@
             </div>
             <div class="text-sm text-rose-600" x-show="songEditorError" x-text="songEditorError"></div>
             <div class="flex justify-end gap-2 pt-2">
-                <button type="button" class="px-4 py-2 border rounded hover:bg-gray-50" @click="cancelSongEditor()"
+                <button type="button" class="btn btn--muted btn--lg" @click="cancelSongEditor()"
                     :disabled="songEditorSaving">Cancel</button>
-                <button type="submit" class="px-4 py-2 rounded bg-emerald-600 text-white disabled:opacity-50"
+                <button type="submit" class="btn btn--accent btn--lg"
                     :disabled="songEditorSaving">
                     <span x-show="!songEditorSaving">Save song</span>
                     <span x-show="songEditorSaving">Saving…</span>
@@ -413,11 +404,11 @@
         <div class="ml-auto h-full w-full max-w-md bg-white shadow-xl border-l flex flex-col">
             <div class="px-4 py-3 border-b flex items-center justify-between">
                 <div class="font-semibold">Select a song</div>
-                <button type="button" class="text-sm text-blue-600 hover:underline"
+                <button type="button" class="btn btn--link"
                     @click="mobileListOpen = false">Close</button>
             </div>
             <div class="flex-1 overflow-auto">
-                <table class="min-w-full">
+                <table class="app-table">
                     <thead class="bg-gray-50 sticky top-0 z-10">
                         <tr>
                             <template x-for="h in tableHeaders" :key="h">

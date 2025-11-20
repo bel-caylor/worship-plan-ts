@@ -12,7 +12,9 @@ export type AddServiceInput = {
   scriptureText?: string; // optional override text
   // optional free text fields
   theme?: string;
+  keywords?: string;
   notes?: string;
+  suggestedSongs?: string;
 };
 
 export type ListServicesOptions = {
@@ -40,6 +42,7 @@ export type ServiceItem = {
   theme: string;
   keywords: string;
   notes: string;
+  suggestedSongs: string;
 };
 
 const SERVICES_CACHE_KEY = 'listServices:v1';
@@ -137,6 +140,21 @@ const nextSundayOnOrAfter = (date: Date): Date => {
   return copy;
 };
 
+const deriveDateFromServiceId = (id: string): string => {
+  const m = String(id || '').match(/^(\d{4}-\d{2}-\d{2})_/);
+  return m ? m[1] : '';
+};
+
+const deriveTimeFromServiceId = (id: string): string => {
+  const m = String(id || '').match(/_(\d{1,2})(?::(\d{2}))?(am|pm)\b/i);
+  if (!m) return '';
+  const hour = Number(m[1] || 0);
+  const minutes = m[2] ? m[2].padStart(2, '0') : '00';
+  const mer = (m[3] || '').toUpperCase();
+  if (!hour || !mer) return '';
+  return `${hour}:${minutes} ${mer}`;
+};
+
 const defaultServiceTypeForDate = (date: Date): string => {
   const nth = Math.floor((date.getDate() - 1) / 7) + 1;
   return (nth === 1 || nth === 3 || nth === 5) ? 'Communion' : 'Offering';
@@ -149,8 +167,15 @@ const todayISO = () => {
 
 export function addService(input: AddServiceInput) {
   const sh = getSheetByName(SERVICES_SHEET);
+  const spreadsheetTz = (() => {
+    try {
+      return SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+    } catch (_) {
+      return Session.getScriptTimeZone?.() || 'Etc/UTC';
+    }
+  })();
 
-  const lastCol = sh.getLastColumn();
+  let lastCol = sh.getLastColumn();
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
 
@@ -170,6 +195,7 @@ export function addService(input: AddServiceInput) {
   const themeIdx = col(SERVICES_COL.theme);
   const keywordsIdx = col(SERVICES_COL.keywords);
   const notesIdx = col(SERVICES_COL.notes);
+  let suggestedSongsIdx = col(SERVICES_COL.suggestedSongs);
 
   // Build a deterministic ServiceID from date + time, e.g., 2025-11-02_10am
   let computedId = '';
@@ -228,6 +254,15 @@ export function addService(input: AddServiceInput) {
     }
   }
 
+  if (suggestedSongsIdx < 0) {
+    const newColNumber = lastCol + 1;
+    sh.insertColumnAfter(lastCol);
+    sh.getRange(1, newColNumber).setValue(SERVICES_COL.suggestedSongs);
+    headers.push(SERVICES_COL.suggestedSongs);
+    suggestedSongsIdx = headers.length - 1;
+    lastCol = sh.getLastColumn();
+  }
+
   // Build the row sized to current header count
   const vals: any[] = Array.from({ length: lastCol }, () => '');
 
@@ -272,6 +307,7 @@ export function addService(input: AddServiceInput) {
     (vals as any)[keywordsIdx] = keywords;
   }
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
+  if (suggestedSongsIdx >= 0) vals[suggestedSongsIdx] = input.suggestedSongs ?? '';
 
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
@@ -288,7 +324,7 @@ export function addService(input: AddServiceInput) {
 function fetchServicesUnfiltered(): ServiceItem[] {
   const sh = getSheetByName(SERVICES_SHEET);
   const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
+  let lastCol = sh.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return [];
 
   // Try cached response keyed by sheet shape (lastRow/lastCol)
@@ -325,6 +361,7 @@ function fetchServicesUnfiltered(): ServiceItem[] {
       const themeIdx = col(SERVICES_COL.theme);
       const keywordsIdx = col(SERVICES_COL.keywords);
       const notesIdx = col(SERVICES_COL.notes);
+  let suggestedSongsIdx = col(SERVICES_COL.suggestedSongs);
 
       const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
       const toISO = (v: any) => {
@@ -345,8 +382,7 @@ function fetchServicesUnfiltered(): ServiceItem[] {
       const toTime = (v: any) => {
         try {
           if (v instanceof Date && !isNaN(v.getTime())) {
-            const tz = Session.getScriptTimeZone?.() || 'Etc/UTC';
-            return Utilities.formatDate(v, tz as string, 'h:mm a');
+            return Utilities.formatDate(v, spreadsheetTz as string, 'h:mm a');
           }
           const s = String(v ?? '').trim();
           // If it's already a friendly time string, keep it
@@ -364,19 +400,25 @@ function fetchServicesUnfiltered(): ServiceItem[] {
         }
       };
 
-      const rows = body.map(r => ({
-        id: idIdx >= 0 ? String(r[idIdx] ?? '') : '',
-        date: dateIdx >= 0 ? toISO(r[dateIdx]) : '',
-        time: timeIdx >= 0 ? toTime(r[timeIdx]) : '',
-        type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
-        leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
-        preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
-        scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
-        scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
-        theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
-        keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
-        notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
-      }));
+      const rows = body.map(r => {
+        const rawId = idIdx >= 0 ? String(r[idIdx] ?? '') : '';
+        const rawDate = dateIdx >= 0 ? toISO(r[dateIdx]) : '';
+        const rawTime = timeIdx >= 0 ? toTime(r[timeIdx]) : '';
+        return {
+          id: rawId,
+          date: rawDate || deriveDateFromServiceId(rawId),
+          time: rawTime || deriveTimeFromServiceId(rawId),
+          type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
+          leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
+          preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
+          scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
+          scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
+          theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
+          keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
+          notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : '',
+          suggestedSongs: suggestedSongsIdx >= 0 ? String(r[suggestedSongsIdx] ?? '') : ''
+        };
+      });
 
       const toKey = (it: any) => (it.id && String(it.id)) || `${it.date || ''} ${it.time || ''}`;
       rows.sort((a, b) => String(toKey(b)).localeCompare(String(toKey(a))));
@@ -424,8 +466,7 @@ function fetchServicesUnfiltered(): ServiceItem[] {
   const toTime = (v: any) => {
     try {
       if (v instanceof Date && !isNaN(v.getTime())) {
-        const tz = Session.getScriptTimeZone?.() || 'Etc/UTC';
-        return Utilities.formatDate(v, tz as string, 'h:mm a');
+        return Utilities.formatDate(v, spreadsheetTz as string, 'h:mm a');
       }
       const s = String(v ?? '').trim();
       // If it's already a friendly time string, keep it
@@ -444,19 +485,25 @@ function fetchServicesUnfiltered(): ServiceItem[] {
     }
   };
 
-  const items = body.map(r => ({
-    id: idIdx >= 0 ? String(r[idIdx] ?? '') : '',
-    date: dateIdx >= 0 ? toISO(r[dateIdx]) : '',
-    time: timeIdx >= 0 ? toTime(r[timeIdx]) : '',
-    type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
-    leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
-    preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
-    scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
-    scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
-    theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
-    keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
-    notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
-  }));
+  const items = body.map(r => {
+    const rawId = idIdx >= 0 ? String(r[idIdx] ?? '') : '';
+    const rawDate = dateIdx >= 0 ? toISO(r[dateIdx]) : '';
+    const rawTime = timeIdx >= 0 ? toTime(r[timeIdx]) : '';
+    return {
+      id: rawId,
+      date: rawDate || deriveDateFromServiceId(rawId),
+      time: rawTime || deriveTimeFromServiceId(rawId),
+      type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
+      leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
+      preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
+      scripture: scriptureIdx >= 0 ? String(r[scriptureIdx] ?? '') : '',
+      scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
+      theme: themeIdx >= 0 ? String(r[themeIdx] ?? '') : '',
+      keywords: keywordsIdx >= 0 ? String(r[keywordsIdx] ?? '') : '',
+      notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : '',
+      suggestedSongs: suggestedSongsIdx >= 0 ? String(r[suggestedSongsIdx] ?? '') : ''
+    };
+  });
 
   // Sort descending by ServiceID (fallback to date+time)
   const toKey = (it: any) => (it.id && String(it.id)) || `${it.date || ''} ${it.time || ''}`;
@@ -551,6 +598,7 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
       if (typeIdx >= 0) row[typeIdx] = svcType;
       if (leaderIdx >= 0) row[leaderIdx] = DEFAULT_LEADER;
       if (preacherIdx >= 0) row[preacherIdx] = DEFAULT_PREACHER;
+      if (suggestedSongsIdx >= 0) row[suggestedSongsIdx] = input.suggestedSongs ?? '';
       rows.push(row);
       created.push({ id: serviceId, date: entry.iso, time: DEFAULT_SERVICE_TIME, type: svcType });
     }
@@ -568,13 +616,11 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
 export function saveService(input: AddServiceInput & { id?: string }) {
   const sh = getSheetByName(SERVICES_SHEET);
 
-  const lastCol = sh.getLastColumn();
+  let lastCol = sh.getLastColumn();
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
 
   const idIdx = col(SERVICES_COL.id);
-  const dateIdx = col(SERVICES_COL.date);
-  const timeIdx = col(SERVICES_COL.time);
   const typeIdx = col(SERVICES_COL.type);
   const leaderIdx = col(SERVICES_COL.leader);
   const preacherIdx = col(SERVICES_COL.preacher);
@@ -588,57 +634,15 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   const themeIdx = col(SERVICES_COL.theme);
   const keywordsIdx = col(SERVICES_COL.keywords);
   const notesIdx = col(SERVICES_COL.notes);
-
-  // Compute an ID from provided date/time just like addService
-  let computedId = '';
-  try {
-    let y = 0, m = 0, d = 0;
-    const inDate = input.date;
-    if (inDate instanceof Date && !isNaN(inDate.getTime())) {
-      y = inDate.getFullYear(); m = inDate.getMonth() + 1; d = inDate.getDate();
-    } else if (typeof inDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(inDate)) {
-      const [yy, mm, dd] = inDate.split('-').map(Number);
-      y = yy; m = mm; d = dd;
-    }
-
-    let hh = 0, min = 0;
-    const t = String(input.time || '').trim();
-    if (t) {
-      const ampm = t.match(/\b(AM|PM)\b/i)?.[1]?.toUpperCase() || '';
-      const nums = t.match(/(\d{1,2})(?::(\d{2}))?/);
-      if (nums) {
-        hh = Number(nums[1]);
-        min = nums[2] ? Number(nums[2]) : 0;
-        if (ampm === 'AM') {
-          if (hh === 12) hh = 0;
-        } else if (ampm === 'PM') {
-          if (hh !== 12) hh += 12;
-        }
-      }
-    } else {
-      hh = 10; min = 0;
-    }
-
-    if (y && m && d) {
-      const MM = String(m).padStart(2, '0');
-      const DD = String(d).padStart(2, '0');
-      let h12 = hh % 12; if (h12 === 0) h12 = 12;
-      const suffix = hh < 12 ? 'am' : 'pm';
-      const minutePart = min ? `:${String(min).padStart(2, '0')}` : '';
-      computedId = `${y}-${MM}-${DD}_${h12}${minutePart}${suffix}`;
-    }
-  } catch (_) {
-    computedId = '';
-  }
+  let suggestedSongsIdx = col(SERVICES_COL.suggestedSongs);
 
   const originalId = String(input.id || '').trim();
-  const newId = computedId || originalId;
+  if (!originalId) throw new Error('Service ID is required to update a service.');
+  const newId = originalId;
 
   // Build row data according to headers
   const vals: any[] = Array.from({ length: lastCol }, () => '');
   if (idIdx >= 0) vals[idIdx] = newId;
-  if (dateIdx >= 0) vals[dateIdx] = toSheetDateValue(input.date);
-  if (timeIdx >= 0) vals[timeIdx] = input.time ?? '';
   if (typeIdx >= 0) vals[typeIdx] = input.type ?? '';
   if (leaderIdx >= 0) vals[leaderIdx] = normalizeDisplayName(input.leader ?? '');
   if (preacherIdx >= 0) vals[preacherIdx] = normalizeDisplayName(input.preacher ?? '');
@@ -664,6 +668,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
     (vals as any)[keywordsIdx] = keywords;
   }
   if (notesIdx >= 0) vals[notesIdx] = input.notes ?? '';
+  if (suggestedSongsIdx >= 0) vals[suggestedSongsIdx] = input.suggestedSongs ?? '';
 
   // Find row by originalId (preferred) or by computedId
   const lastRow = sh.getLastRow();
