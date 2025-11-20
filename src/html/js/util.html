@@ -104,7 +104,7 @@
         folderUrl: data.song?._folderUrl || '',
         onOpenFolder: typeof data.openFolder === 'function' ? () => data.openFolder(data.song?._folderUrl) : null,
         starred: !!data.starred,
-        onToggleStar: typeof data.onToggleStar === 'function' ? () => data.onToggleStar() : null
+        onToggleStar: typeof data.onToggleStar === 'function' ? (evt) => data.onToggleStar(evt) : null
       };
     }
     global.songPreview = function songPreview(initial = {}) {

@@ -12,7 +12,7 @@
           </option>
         </template>
       </select>
-      <button class="btn btn--outline"
+      <button class="btn btn--surface"
         :disabled="loadingServices || !selectedServiceId"
         @click="loadSelected()">Load</button>
       <template x-if="!selectedServiceId && !isGuest">
@@ -21,7 +21,7 @@
       </template>
       <template x-if="!isGuest">
         <button
-          class="ml-1 btn btn--danger btn--square"
+          class="ml-1 btn btn--surface btn--danger btn--square"
           :disabled="loadingServices || !selectedServiceId"
           title="Delete service"
           @click="selectedServiceId && confirm('Delete this service and all its items?') && deleteSelectedService()">
@@ -46,7 +46,7 @@
       </span>
       <template x-if="!isGuest">
         <button
-          class="btn btn--outline"
+          class="btn btn--surface"
           :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
       </template>
     </div>
@@ -114,7 +114,7 @@
               <template x-for="n in leaderChoices" :key="'lead-'+n">
                 <option :value="n" x-text="n"></option>
               </template>
-              <option value="__custom">Custom...</option>
+              <option value="__custom">Custom</option>
             </select>
           </div>
           <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
@@ -171,10 +171,10 @@
           </div>
           <div class="p-3 space-y-3 overflow-auto flex-1">
             <div class="flex flex-wrap items-center gap-2">
-              <input class="flex-1 form-control form-control--dense min-w-[220px]" type="text" placeholder="e.g., John 3:5-6, 8-10"
-                x-model="form.scripture" @input="queueSaveDetails()" />
               <button class="btn btn--outline btn--sm"
                 @click="fetchScripture()">Fetch Text</button>
+              <input class="flex-1 form-control form-control--dense min-w-[220px]" type="text" placeholder="e.g., John 3:5-6, 8-10"
+                x-model="form.scripture" @input="queueSaveDetails()" />
             </div>
             <textarea class="w-full form-control form-control--dense" rows="6" x-model="scriptureText" @input="queueSaveDetails()"
               placeholder="Scripture text (editable)"></textarea>
@@ -197,10 +197,9 @@
                 @input="queueSaveDetails()"></textarea>
             </label>
             <div class="mt-6 border rounded">
-              <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <div class="flex flex-wrap items-center justify-start gap-2 px-3 py-2">
                 <div>
                   <span class="font-medium text-gray-700">Songs Browser</span>
-                  <p class="text-xs text-gray-500">Browse and filter the full song library without leaving the plan.</p>
                 </div>
                 <div class="flex items-center gap-2 text-xs text-gray-600">
                   <button type="button"
@@ -511,6 +510,19 @@
           .scripture-ref-main.is-selected {
             background-color: #fde68a;
             border-left-color: #d97706;
+          }
+          .scripture-chunk {
+            margin-bottom: 1rem;
+          }
+          .scripture-chunk:last-child {
+            margin-bottom: 0;
+          }
+          .scripture-ref-block {
+            font-weight: 600;
+            margin: 0.5rem 0 0.25rem;
+          }
+          .scripture-chunk:first-child .scripture-ref-block {
+            margin-top: 0;
           }
         </style>
         <div class="flex gap-3 h-full">

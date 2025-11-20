@@ -811,19 +811,112 @@ export function getServicePeople() {
   };
 }
 
-export function esvPassage(input: { reference: string, html?: boolean }) {
-  const reference = String(input?.reference || '').trim();
-  if (!reference) return { reference, text: '' };
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const normalizeReferenceSpacing = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
 
-  const props = PropertiesService.getScriptProperties();
-  const token = String(props.getProperty('ESV_API_TOKEN') || '');
-  if (!token) {
-    return { reference, text: '', html: '', error: 'ESV_API_TOKEN not set in Script Properties' };
+const BIBLE_BOOK_NAMES = [
+  'Genesis','Exodus','Leviticus','Numbers','Deuteronomy',
+  'Joshua','Judges','Ruth','1 Samuel','2 Samuel',
+  '1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra',
+  'Nehemiah','Esther','Job','Psalms','Proverbs',
+  'Ecclesiastes','Song of Solomon','Isaiah','Jeremiah','Lamentations',
+  'Ezekiel','Daniel','Hosea','Joel','Amos','Obadiah',
+  'Jonah','Micah','Nahum','Habakkuk','Zephaniah','Haggai',
+  'Zechariah','Malachi',
+  'Matthew','Mark','Luke','John','Acts',
+  'Romans','1 Corinthians','2 Corinthians','Galatians','Ephesians',
+  'Philippians','Colossians','1 Thessalonians','2 Thessalonians','1 Timothy',
+  '2 Timothy','Titus','Philemon','Hebrews','James',
+  '1 Peter','2 Peter','1 John','2 John','3 John','Jude','Revelation'
+];
+
+const BOOK_REGEX_SRC = BIBLE_BOOK_NAMES
+  .slice()
+  .sort((a, b) => b.length - a.length)
+  .map(name => escapeRegex(name).replace(/\s+/g, '\\s+'))
+  .join('|');
+const BOOK_REGEX_BODY = `(?:${BOOK_REGEX_SRC})`;
+const BOOK_REGEX_WITH_BOUNDARY = `\\b${BOOK_REGEX_BODY}\\b`;
+
+const REF_EDGE_PATTERN = '(?:[,;|/&+\\-\\u2013\\u2014]+|\\band\\b|&)';
+
+const cleanPassageText = (input?: string) => {
+  if (!input) return '';
+  let text = String(input);
+  // Remove bracketed footnote remnants or stray markers just in case
+  text = text.replace(/\s*\[\d+\]\s*/g, ' ');
+  // Normalize whitespace: trim, collapse 3+ newlines to 2, normalize CRLF
+  text = text.replace(/\r\n?/g, '\n');
+  return text.replace(/\n{3,}/g, '\n\n').trim();
+};
+
+const cleanPassageHtml = (input?: string) => {
+  if (!input) return '';
+  let html = String(input);
+  // Basic cleanup: remove outer wrappers if present
+  html = html.replace(/<p class=".*?">/g, '<p>').replace(/<h\d[^>]*>.*?<\/h\d>/g, '');
+  return html.trim();
+};
+
+const trimReferenceConnectors = (segment: string) => {
+  if (!segment) return '';
+  let value = segment.trim();
+  value = value.replace(new RegExp(`^${REF_EDGE_PATTERN}+\\s*`, 'i'), '').trim();
+  value = value.replace(new RegExp(`\\s*${REF_EDGE_PATTERN}+$`, 'i'), '').trim();
+  return value;
+};
+
+const splitReferenceIntoDistinctBooks = (reference: string): string[] => {
+  const raw = String(reference || '');
+  const regex = new RegExp(BOOK_REGEX_WITH_BOUNDARY, 'gi');
+  const matches: Array<{ index: number; name: string }> = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(raw)) !== null) {
+    matches.push({ index: match.index, name: normalizeReferenceSpacing(match[0]) });
   }
+  if (matches.length < 2) return [];
+  const segments: Array<{ ref: string; book: string }> = [];
+  for (let i = 0; i < matches.length; i += 1) {
+    const start = matches[i].index;
+    const end = i + 1 < matches.length ? matches[i + 1].index : raw.length;
+    let chunk = raw.slice(start, end).trim();
+    chunk = trimReferenceConnectors(chunk);
+    if (!chunk) continue;
+    segments.push({ ref: normalizeReferenceSpacing(chunk), book: matches[i].name.toLowerCase() });
+  }
+  const uniqueBooks = new Set(segments.map(s => s.book));
+  if (segments.length >= 2 && uniqueBooks.size >= 2) {
+    return segments.map(s => s.ref);
+  }
+  return [];
+};
 
-  const url = 'https://api.esv.org/v3/passage/text/?' +
-    'q=' + encodeURIComponent(reference) +
-    '&include-passage-references=false' + // don't echo the reference header
+const escapeHtml = (input?: string) => {
+  const str = String(input ?? '');
+  return str.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case '\'': return '&#39;';
+      default: return c;
+    }
+  });
+};
+
+type PassageChunk = { reference: string; text: string; html: string };
+
+const fetchPassageChunk = (
+  reference: string,
+  token: string,
+  includeHtml: boolean,
+  includeInlineReference: boolean
+): PassageChunk => {
+  const normalizedRef = normalizeReferenceSpacing(reference);
+  const textUrl = 'https://api.esv.org/v3/passage/text/?' +
+    'q=' + encodeURIComponent(normalizedRef) +
+    '&include-passage-references=false' +
     '&include-footnotes=false' +
     '&include-headings=false' +
     '&include-short-copyright=false' +
@@ -832,29 +925,80 @@ export function esvPassage(input: { reference: string, html?: boolean }) {
     '&indent-using=spaces' +
     '&indent-paragraphs=0';
 
-  const res = UrlFetchApp.fetch(url, { headers: { Authorization: 'Token ' + token } });
+  const res = UrlFetchApp.fetch(textUrl, { headers: { Authorization: 'Token ' + token } });
   const data = JSON.parse(res.getContentText());
-  let text = (data && data.passages && data.passages[0]) ? String(data.passages[0]) : '';
-  // Remove bracketed footnote remnants or stray markers just in case
-  text = text.replace(/\s*\[\d+\]\s*/g, ' ');
-  // Normalize whitespace: trim, collapse 3+ newlines to 2, normalize CRLF
-  text = text.replace(/\r\n?/g, '\n');
-  text = text.replace(/\n{3,}/g, '\n\n').trim();
+  const rawPassages = Array.isArray(data?.passages) ? data.passages : [];
+  const textParts = rawPassages.map(p => cleanPassageText(String(p ?? ''))).filter(Boolean);
+  let text = textParts.join('\n\n').trim();
+  if (includeInlineReference && normalizedRef && textParts.length > 1 && text) {
+    text = `${normalizedRef}\n\n${text}`;
+  }
+
   let html = '';
-  try {
-    const hurl = 'https://api.esv.org/v3/passage/html/?' +
-      'q=' + encodeURIComponent(reference) +
-      '&include-passage-references=false' +
-      '&include-footnotes=false' +
-      '&include-headings=false' +
-      '&include-short-copyright=false' +
-      '&include-verse-numbers=true' +
-      '&inline-styles=false';
-    const hres = UrlFetchApp.fetch(hurl, { headers: { Authorization: 'Token ' + token } });
-    const hdata = JSON.parse(hres.getContentText());
-    html = (hdata && hdata.passages && hdata.passages[0]) ? String(hdata.passages[0]) : '';
-    // Basic cleanup: remove outer wrappers if present
-    html = html.replace(/<p class=".*?">/g, '<p>').replace(/<h\d[^>]*>.*?<\/h\d>/g, '');
-  } catch (_) { /* ignore html errors */ }
+  if (includeHtml) {
+    try {
+      const htmlUrl = 'https://api.esv.org/v3/passage/html/?' +
+        'q=' + encodeURIComponent(normalizedRef) +
+        '&include-passage-references=false' +
+        '&include-footnotes=false' +
+        '&include-headings=false' +
+        '&include-short-copyright=false' +
+        '&include-verse-numbers=true' +
+        '&inline-styles=false';
+      const hres = UrlFetchApp.fetch(htmlUrl, { headers: { Authorization: 'Token ' + token } });
+      const hdata = JSON.parse(hres.getContentText());
+      const htmlPassages = Array.isArray(hdata?.passages) ? hdata.passages : [];
+      html = htmlPassages.map(p => cleanPassageHtml(String(p ?? ''))).filter(Boolean).join('<hr />').trim();
+    } catch (_) { /* ignore html errors */ }
+  }
+
+  return { reference: normalizedRef, text, html };
+};
+
+const formatChunkText = (reference: string, text: string) => {
+  const cleanText = String(text || '').trim();
+  if (!cleanText) return '';
+  const ref = String(reference || '').trim();
+  return ref ? `${ref}\n${cleanText}` : cleanText;
+};
+
+const formatChunkHtml = (reference: string, html: string, fallbackText: string) => {
+  const body = String(html || '').trim() || (fallbackText ? `<p>${escapeHtml(fallbackText)}</p>` : '');
+  if (!body) return '';
+  const ref = String(reference || '').trim();
+  const refBlock = ref ? `<p class="scripture-ref-block"><strong>${escapeHtml(ref)}</strong></p>` : '';
+  return `<div class="scripture-chunk">${refBlock}${body}</div>`;
+};
+
+export function esvPassage(input: { reference: string, html?: boolean }) {
+  const rawReference = String(input?.reference || '').trim();
+  const reference = normalizeReferenceSpacing(rawReference);
+  if (!reference) return { reference, text: '' };
+
+  const props = PropertiesService.getScriptProperties();
+  const token = String(props.getProperty('ESV_API_TOKEN') || '');
+  if (!token) {
+    return { reference, text: '', html: '', error: 'ESV_API_TOKEN not set in Script Properties' };
+  }
+
+  const includeHtml = input?.html !== false;
+  const splitRefs = splitReferenceIntoDistinctBooks(rawReference);
+  const multiRefs = splitRefs.length ? splitRefs : [];
+  const refsToFetch = multiRefs.length ? multiRefs : [reference];
+  const includeInlineReference = !multiRefs.length;
+
+  const chunks = refsToFetch.map(ref => fetchPassageChunk(ref, token, includeHtml, includeInlineReference));
+
+  if (!multiRefs.length) {
+    const first = chunks[0] || { reference, text: '', html: '' };
+    return { reference, text: first.text, html: first.html };
+  }
+
+  const textBlocks = chunks.map(chunk => formatChunkText(chunk.reference, chunk.text)).filter(Boolean);
+  const text = textBlocks.join('\n\n').trim();
+  let html = '';
+  if (includeHtml) {
+    html = chunks.map(chunk => formatChunkHtml(chunk.reference, chunk.html, chunk.text)).filter(Boolean).join('');
+  }
   return { reference, text, html };
 }

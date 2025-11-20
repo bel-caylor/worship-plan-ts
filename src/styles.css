@@ -83,7 +83,7 @@
     }
 
     .btn--outline {
-        @apply text-blue-800 font-bold hover:bg-blue-100 mr-1;
+        @apply text-blue-800 border border-blue-900 font-bold hover:bg-blue-100 mr-1;
     }
 
     .btn--muted {

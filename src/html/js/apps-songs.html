@@ -22,72 +22,86 @@
     }
   };
 
-  const loadStarredFromStorage = () => {
+  const starDebugLog = (...args) => {
     try {
-      const raw = localStorage.getItem('wp.starredSongs') || '[]';
-      const list = JSON.parse(raw);
-      if (Array.isArray(list)) {
-        const normalized = list.map(v => String(v || '').toLowerCase()).filter(Boolean);
-        const uniqueOrder = [];
-        const set = new Set();
-        for (const key of normalized) {
-          if (key && !set.has(key)) {
-            set.add(key);
-            uniqueOrder.push(key);
-          }
-        }
-        return { set, order: uniqueOrder };
-      }
+      const scope = typeof window !== 'undefined' ? window : globalThis;
+      if (!scope || !scope.__STAR_DEBUG__) return;
+      console.log('[star-debug]', ...args);
     } catch (_) {}
-    return { set: new Set(), order: [] };
+  };
+  const starDebugTrace = (...args) => {
+    try {
+      const scope = typeof window !== 'undefined' ? window : globalThis;
+      if (!scope || !scope.__STAR_DEBUG__) return;
+      console.trace('[star-debug]', ...args);
+    } catch (_) {}
   };
 
   const createStarStore = () => {
-    let state = loadStarredFromStorage();
+    let orderState = [];
     const listeners = new Set();
-    const notify = (sourceId = null) => {
-      listeners.forEach(fn => {
-        try { fn(state, sourceId); } catch (_) { }
+    const makeSnapshot = () => {
+      const list = orderState.slice();
+      return {
+        set: new Set(list),
+        order: list
+      };
+    };
+    const sanitizeOrder = (input) => {
+      const seen = new Set();
+      const output = [];
+      (Array.isArray(input) ? input : []).forEach((key) => {
+        const normalized = typeof key === 'string' ? key.trim().toLowerCase() : '';
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        output.push(normalized);
+      });
+      return output;
+    };
+    const notify = () => {
+      listeners.forEach((fn) => {
+        try { fn(makeSnapshot()); } catch (_) {}
       });
     };
-    const save = () => {
-      try {
-        localStorage.setItem('wp.starredSongs', JSON.stringify(state.order));
-      } catch (_) {}
-    };
-    const subscribe = (fn) => {
-      if (typeof fn !== 'function') return () => {};
-      listeners.add(fn);
-      try { fn(state, null); } catch (_) {}
-      return () => listeners.delete(fn);
-    };
-    window.addEventListener('storage', (evt) => {
-      if (evt && evt.key === 'wp.starredSongs') {
-        state = loadStarredFromStorage();
+    return {
+      get: makeSnapshot,
+      subscribe(fn) {
+        if (typeof fn !== 'function') return () => {};
+        listeners.add(fn);
+        try { fn(makeSnapshot()); } catch (_) {}
+        return () => listeners.delete(fn);
+      },
+      update(updater) {
+        if (typeof updater !== 'function') return;
+        const draft = makeSnapshot();
+        const next = updater(draft) || draft;
+        orderState = sanitizeOrder(next.order);
+        starDebugLog('store:update', orderState);
         notify();
       }
-    });
-    return {
-      get() {
-        return { set: new Set(state.set), order: state.order.slice() };
-      },
-      update(updater, sourceId) {
-        if (typeof updater !== 'function') return;
-        const draft = { set: new Set(state.set), order: state.order.slice() };
-        const next = updater(draft) || draft;
-        state = { set: next.set instanceof Set ? next.set : new Set(), order: Array.isArray(next.order) ? next.order : [] };
-        save();
-        notify(sourceId);
-      },
-      subscribe
     };
   };
-
-  const SONG_STAR_STORE = createStarStore();
-  let SONGS_APP_INSTANCE_COUNTER = 0;
-
+  const ensureStarStore = () => {
+    try {
+      const scope = typeof window !== 'undefined' ? window : globalThis;
+      if (!scope.__SONG_STAR_STORE__) {
+        scope.__SONG_STAR_STORE__ = createStarStore();
+      }
+      return scope.__SONG_STAR_STORE__;
+    } catch (_) {
+      return createStarStore();
+    }
+  };
+  const SONG_STAR_STORE = ensureStarStore();
+  try {
+    if (typeof window !== 'undefined' && !window.__SONG_STAR_STORE_RESET__) {
+      window.__SONG_STAR_STORE_RESET__ = true;
+      SONG_STAR_STORE.update(() => ({
+        order: []
+      }));
+    }
+  } catch (_) {}
   function songsApp(mode = 'default') {
-    const instanceId = ++SONGS_APP_INSTANCE_COUNTER;
     const IS_GUEST = !!(window.__GUEST__);
     const normalizedMode = String(mode || '').toLowerCase();
     const isModal = normalizedMode === 'modal';
@@ -136,24 +150,6 @@
       Archive: isFlagOn(row?.Archive ?? row?.archive ?? row?.ARCHIVE ?? row?.Archived ?? '')
     });
 
-    const initialStarState = SONG_STAR_STORE.get();
-    const arraysEqual = (a, b) => {
-      if (!Array.isArray(a) || !Array.isArray(b)) return false;
-      if (a.length !== b.length) return false;
-      for (let i = 0; i < a.length; i++) {
-        if (a[i] !== b[i]) return false;
-      }
-      return true;
-    };
-    const setsEqual = (a, b) => {
-      if (!(a instanceof Set) || !(b instanceof Set)) return false;
-      if (a.size !== b.size) return false;
-      for (const v of a) {
-        if (!b.has(v)) return false;
-      }
-      return true;
-    };
-
     return {
       isGuest: IS_GUEST,
       isModalContext: isModal,
@@ -165,6 +161,7 @@
       filtered: [],
       selected: null,
       tableHeaders: ['Song','Last_Used'],
+      starSnapshot: SONG_STAR_STORE.get(),
 
       seasons: [],
       selectedSeason: '',
@@ -191,9 +188,6 @@
       mediaMessage: '',
       _aiTitleSet: null,
       _aiReasonMap: null,
-      starredTitles: initialStarState.set,
-      starredOrder: initialStarState.order,
-
       _defaultsTs: 0,
       showSongEditor: false,
       songEditorMode: 'create',
@@ -203,7 +197,6 @@
       editorOriginalName: '',
       _layoutBootstrapped: false,
       _pendingSelectTitle: '',
-      _instanceId: instanceId,
       _cleanupFns: [],
 
       async init() {
@@ -244,15 +237,12 @@
             window.dispatchEvent(new CustomEvent('embedded-songs-ready', { detail: { instance: this } }));
           } catch (_) { /* ignore */ }
         }
-        const unsubscribeStars = SONG_STAR_STORE.subscribe((state) => {
-          const sameOrder = arraysEqual(this.starredOrder, state.order);
-          const sameSet = this.starredTitles && state.set && setsEqual(this.starredTitles, state.set);
-          if (sameOrder && sameSet) return;
-          this.starredTitles = new Set(state.set);
-          this.starredOrder = state.order.slice();
+        const unsubscribeStars = SONG_STAR_STORE.subscribe((snapshot) => {
+          this.starSnapshot = snapshot;
           this.render(false);
         });
         this._cleanupFns.push(() => unsubscribeStars && unsubscribeStars());
+        this.registerTeardown();
       },
 
       buildFilters() {
@@ -356,6 +346,67 @@
         return val === 'y' || val === 'yes' || val === 'true' || val === '1';
       },
 
+      starOrder() {
+        try {
+          const snap = this.starSnapshot || SONG_STAR_STORE.get();
+          const list = Array.isArray(snap?.order) ? snap.order : [];
+          return list.slice();
+        } catch (_) {
+          return [];
+        }
+      },
+
+      starSet() {
+        try {
+          const snap = this.starSnapshot || SONG_STAR_STORE.get();
+          if (snap?.set instanceof Set) return new Set(snap.set);
+        } catch (_) {
+        }
+        return new Set();
+      },
+
+      hasStars() {
+        return this.starOrder().length > 0;
+      },
+
+      starredRows() {
+        const order = this.starOrder();
+        if (!order.length) return [];
+        const rows = Array.isArray(this.rows) ? this.rows : [];
+        const lookup = new Map();
+        rows.forEach((row) => {
+          const key = this.normalizeTitle(row?.Song);
+          if (key && !lookup.has(key)) lookup.set(key, row);
+        });
+        const seen = new Set();
+        const out = [];
+        for (const key of order) {
+          if (!key || seen.has(key)) continue;
+          const row = lookup.get(key);
+          if (row) {
+            out.push(row);
+            seen.add(key);
+          }
+        }
+        return out;
+      },
+
+      starSet() {
+        return new Set(this.starOrder());
+      },
+
+      registerTeardown() {
+        const root = this.$el;
+        if (!root || root.__songsCleanupAttached) return;
+        root.__songsCleanupAttached = true;
+        root.addEventListener('alpine:destroy', () => {
+          this._cleanupFns.forEach(fn => {
+            try { fn(); } catch (_) {}
+          });
+          this._cleanupFns = [];
+        });
+      },
+
       render(resetSelection = false) {
         const wantLeader = (this.selectedLeader || '').trim();
         const wantUsage = (this.selectedUsage || '').trim();
@@ -422,28 +473,16 @@
           });
         }
 
-        const starOrder = Array.isArray(this.starredOrder) ? this.starredOrder : [];
-        const orderMap = new Map();
-        starOrder.forEach((key, idx) => {
-          if (key && !orderMap.has(key)) orderMap.set(key, idx);
-        });
-        const starredBucket = [];
         const aiOnly = [];
         const remainder = [];
         for (const row of out) {
-          const key = this.normalizeTitle(row?.Song || row?.song);
-          if (key && orderMap.has(key)) {
-            starredBucket.push({ row, rank: orderMap.get(key) });
-          } else if (this.isAiSuggestion(row)) {
+          if (this.isAiSuggestion(row)) {
             aiOnly.push(row);
           } else {
             remainder.push(row);
           }
         }
-        if (starredBucket.length) {
-          starredBucket.sort((a, b) => a.rank - b.rank);
-        }
-        out = starredBucket.map(entry => entry.row).concat(aiOnly, remainder);
+        out = aiOnly.concat(remainder);
 
         this.filtered = out;
         let target = null;
@@ -462,37 +501,47 @@
       isStarred(row) {
         if (!row) return false;
         const key = this.normalizeTitle(row.Song || row.song);
-        return !!(key && this.starredTitles && this.starredTitles.has(key));
+        const set = this.starSet();
+        return !!(key && set.has(key));
       },
 
-      toggleStar(row) {
+      toggleStar(row, evt = null) {
+        const trusted = !!(evt && evt.isTrusted !== false);
+        const fromStarControl = (() => {
+          if (!evt) return false;
+          const inspect = (node) => (node && typeof node.closest === 'function'
+            ? node.closest('[data-star-toggle]')
+            : null);
+          return !!(inspect(evt.target) || inspect(evt.currentTarget));
+        })();
+        if (!trusted || !fromStarControl) {
+          starDebugLog('toggleStar: ignored event', {
+            song: row?.Song || row?.song || '',
+            trusted,
+            fromStarControl
+          });
+          return;
+        }
+        starDebugLog('toggle', row?.Song || row?.song || '');
         if (!row) return;
         const key = this.normalizeTitle(row.Song || row.song);
         if (!key) return;
-        SONG_STAR_STORE.update((draft) => {
-          if (!(draft.set instanceof Set)) draft.set = new Set();
-          if (!Array.isArray(draft.order)) draft.order = [];
-          if (draft.set.has(key)) {
-            draft.set.delete(key);
-            draft.order = draft.order.filter(k => k !== key);
-          } else {
-            draft.set.add(key);
-            const filtered = draft.order.filter(k => k !== key);
-            draft.order = [key, ...filtered];
-          }
-          return draft;
-        }, this._instanceId);
+        starDebugTrace('toggleStar', key, row && row.Song);
+        SONG_STAR_STORE.update((snapshot) => {
+          const existing = Array.isArray(snapshot?.order) ? snapshot.order : [];
+          const without = existing.filter(k => k !== key);
+          const already = snapshot?.set instanceof Set ? snapshot.set.has(key) : existing.includes(key);
+          const nextOrder = already ? without : [key, ...without];
+          return { order: nextOrder };
+        });
       },
 
       clearStarred() {
-        if (!this.starredTitles || !this.starredTitles.size) return;
-        this.starredTitles = new Set();
-        this.starredOrder = [];
-        this.render(false);
+        if (!this.hasStars()) return;
+        starDebugLog('clearStarred');
         SONG_STAR_STORE.update(() => ({
-          set: new Set(),
           order: []
-        }), this._instanceId);
+        }));
       },
 
       setAiSongTitles(titles) {
@@ -845,7 +894,7 @@
           mediaFiles: mediaList,
           mediaLoading: this.mediaLoading,
           mediaMessage: this.mediaMessage,
-          onToggleStar: () => this.toggleStar(selected)
+          onToggleStar: (evt) => this.toggleStar(selected, evt)
         };
       },
 
