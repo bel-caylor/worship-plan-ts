@@ -1130,6 +1130,7 @@
       },
 
       syncDefaults(force = false) {
+        if (this.isModalContext) return;
         try {
           if (!window.Alpine || typeof window.Alpine.store !== 'function') return;
           const store = window.Alpine.store('suggestDefaults');

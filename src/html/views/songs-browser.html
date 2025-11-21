@@ -246,104 +246,111 @@
 
         <!-- RIGHT PANE: Preview -->
         <div class="flex-1 h-full overflow-auto border rounded p-4">
-            <div x-data="songPreview(songBrowserPreviewContext())" x-init="update(songBrowserPreviewContext())"
-                x-effect="update(songBrowserPreviewContext())">
-                <template x-if="preview?.hasSong">
-                    <div class="h-full flex flex-col gap-4">
-                        <div class="flex items-start justify-between gap-4">
-                            <div class="space-y-2 text-sm text-gray-600">
-                                <div x-show="preview.aiReason"
-                                    class="text-xs uppercase tracking-wide font-semibold text-amber-700">
-                                    AI suggestion
-                                </div>
-                                <div x-show="preview.aiReason" class="text-sm text-gray-700" x-text="preview.aiReason">
-                                </div>
-                                <h3 class="text-3xl font-semibold text-blue-900"
-                                    x-text="preview.songName || '(Untitled)'"></h3>
-                                <div x-show="preview.reason">
-                                    <span class="font-medium text-gray-700">Reason:</span>
-                                    <span x-text="preview.reason"></span>
-                                </div>
-                                <div class="flex flex-wrap gap-x-8 gap-y-1">
-                                    <div x-show="preview.leader">Leader: <span class="font-semibold"
-                                            x-text="preview.leader"></span></div>
-                                    <div x-show="preview.season">Season: <span class="font-semibold"
-                                            x-text="preview.season"></span></div>
-                                </div>
-                                <div class="flex flex-wrap gap-x-8 gap-y-1">
-                                    <div x-show="preview.themes">Themes: <span class="font-semibold"
-                                            x-text="preview.themes"></span></div>
-                                    <div x-show="preview.scriptures">Scriptures: <span class="font-semibold"
-                                            x-text="preview.scriptures"></span></div>
-                                </div>
-                                <div x-show="preview.keywords">
-                                    Keywords: <span class="font-semibold" x-text="preview.keywords"></span>
-                                </div>
-                            </div>
-                            <div class="text-sm text-right text-gray-600 space-y-1 flex flex-col items-end">
-                                <button type="button" class="btn btn--outline btn--xs" data-star-toggle x-show="preview.onToggleStar"
-                                    @click="preview.onToggleStar?.($event)">
-                                    <span x-text="preview.starred ? '★ Starred' : '☆ Star'"></span>
-                                </button>
-                                <button type="button" class="btn btn--outline btn--xs" x-show="preview.showUse"
-                                    @click="preview.onUse?.()">
-                                    Use This Song
-                                </button>
-                                <button type="button" class="btn btn--link btn--sm text-blue-700"
-                                    x-show="preview.onCopy" @click="preview.onCopy?.($event)">
-                                    Copy Lyrics
-                                </button>
-                                <a class="text-sm text-blue-700 hover:underline" x-show="preview.link"
-                                    :href="preview.link" target="_blank" rel="noopener">
-                                    Song Link
-                                </a>
-                                <a class="text-sm text-blue-700 hover:underline" x-show="preview.folderUrl"
-                                    :href="preview.folderUrl" target="_blank" rel="noopener">
-                                    Open Folder
-                                </a>
-                                <div x-show="preview.stats?.uses">Uses: <span class="font-semibold"
-                                        x-text="preview.stats.uses"></span></div>
-                                <div x-show="preview.stats?.usage">Usage: <span class="font-semibold"
-                                        x-text="preview.stats.usage"></span></div>
-                                <div x-show="preview.stats?.years">Years: <span class="font-semibold"
-                                        x-text="preview.stats.years"></span></div>
-                                <div x-show="preview.stats?.lastUsed">Last used: <span class="font-semibold"
-                                        x-text="preview.stats.lastUsed"></span></div>
-                                <div x-show="preview.stats?.firstUsed">First used: <span class="font-semibold"
-                                        x-text="preview.stats.firstUsed"></span></div>
-                            </div>
+            <div x-show="selected">
+                <!-- HEADER -->
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <h2 class="text-2xl font-semibold" x-text="selected?.Song || '(Untitled)'"></h2>
+                        <div class="mt-1 text-xs font-semibold uppercase text-rose-600" x-show="isArchived(selected)">
+                            Archived
                         </div>
-                        <div class="flex-1 flex flex-col">
-                            <div class="text-sm font-medium text-gray-700 mb-1">Lyrics</div>
-                            <pre class="flex-1 bg-gray-50 border rounded p-3 overflow-auto whitespace-pre-wrap"
-                                x-text="preview.lyrics || 'Lyrics preview will appear after selecting a song.'"></pre>
+
+                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Leader">
+                            Leader: <span class="font-medium" x-text="selected?.Leader"></span>
                         </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-700 mb-1">Media</div>
-                            <div class="text-sm text-gray-500" x-show="preview.mediaLoading">Loading files...</div>
-                            <ul x-show="!preview.mediaLoading && preview.mediaFiles && preview.mediaFiles.length"
-                                class="space-y-1">
-                                <template x-for="(file, idx) in preview.mediaFiles" :key="idx">
-                                    <li class="text-sm">
-                                        <a class="text-blue-600 hover:underline inline-flex items-center gap-2"
-                                            :href="file.url" target="_blank" rel="noopener">
-                                            <span x-text="file.icon"></span>
-                                            <span x-text="file.label"></span>
-                                        </a>
-                                    </li>
-                                </template>
-                            </ul>
-                            <div class="text-sm text-gray-500"
-                                x-show="!preview.mediaLoading && (!preview.mediaFiles || !preview.mediaFiles.length)"
-                                x-text="preview.mediaMessage || 'No files in folder.'"></div>
+
+                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Season">
+                            Season: <span class="font-medium" x-text="selected?.Season"></span>
+                        </div>
+
+                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Themes">
+                            Themes: <span class="font-medium" x-text="selected?.Themes"></span>
+                        </div>
+
+                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Scriptures">
+                            Scriptures: <span class="font-medium" x-text="selected?.Scriptures"></span>
+                        </div>
+
+                        <div class="mt-1 text-sm text-gray-600" x-show="selected?.Keywords">
+                            Keywords: <span class="font-medium" x-text="selected?.Keywords"></span>
+                        </div>
+
+                        <a :href="selected?.Link" class="mt-1 text-sm "
+                          x-show="selected?.Link"
+                          @click.prevent="openSongLink(selected?.Link)">
+                            Link: <span class="font-medium text-blue-700" x-text="selected?.Link"></span>
+                        </a>
+                    </div>
+
+                    <div class="text-sm text-right text-gray-600">
+                        <button type="button"
+                            class="mb-2 inline-flex items-center justify-center px-3 py-1.5 border rounded bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100 disabled:opacity-50"
+                            x-show="isModalContext" :disabled="!selected"
+                            @click="$dispatch('use-song', { index: $root.suggestTargetIndex, name: selected?.Song || '' })">
+                            Use This Song
+                        </button>
+                        <div x-show="selected?.Uses">Uses: <span class="font-medium" x-text="selected?.Uses"></span>
+                        </div>
+                        <div x-show="selected?.Usage">Usage: <span class="font-medium" x-text="selected?.Usage"></span>
+                        </div>
+                        <div x-show="selected?.Years_Used">Years Used: <span class="font-medium"
+                                x-text="selected?.Years_Used"></span></div>
+                        <div x-show="selected?.Last_Used">Last used: <span class="font-medium"
+                                x-text="format(selected?.Last_Used)"></span></div>
+                        <div x-show="selected?.First_Used">First used: <span class="font-medium"
+                                x-text="format(selected?.First_Used)"></span></div>
+                        <div x-show="selected?._folderUrl" class="mt-2">
+                            <a class="inline-flex items-center gap-2 px-2 py-1 border rounded hover:bg-gray-50"
+                                :href="selected?._folderUrl || '#'" target="_blank" rel="noopener">
+                                <span class="font-semibold text-sm">Open Folder</span>
+                            </a>
                         </div>
                     </div>
-                </template>
-                <template x-if="!preview?.hasSong">
-                    <div class="text-sm text-gray-500">Select a song to preview.</div>
-                </template>
+                </div>
+
+                <!-- MEDIA -->
+                <div class="flex gap-1 align-middle mt-1">
+                    <div class="text-sm font-medium text-gray-700">Media:</div>
+                    <div x-show="mediaLoading" class="text-sm text-gray-500">Loading files...</div>
+
+                    <ul x-show="!mediaLoading && mediaFiles.length" class="space-y-1 inline-flex flex-wrap gap-1">
+                        <template x-for="(file, i) in mediaFiles" :key="i">
+                            <li class="!mt-0">
+                                <a class="text-blue-600 hover:text-blue-800 hover:underline" :href="file.url"
+                                    target="_blank" rel="noopener">
+                                    <span x-text="fileIcon(file.mimeType)"></span>
+                                    <span x-text="friendlyMediaName(file)"></span>
+                                </a>
+                            </li>
+                        </template>
+                    </ul>
+
+                    <div x-show="!mediaLoading && !mediaFiles.length" class="text-sm text-gray-500"
+                        x-text="mediaMessage || 'No files in folder.'"></div>
+                </div>
+
+                <!-- NOTES -->
+                <div class="mt-3" x-show="selected?.Notes">
+                    <div class="text-sm font-medium text-gray-700 mb-1">Notes</div>
+                    <div class="text-sm whitespace-pre-wrap" x-text="selected?.Notes"></div>
+                </div>
+
+                <!-- LYRICS -->
+                <div class="mt-4">
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-sm font-medium text-gray-700">Lyrics</div>
+                        <button type="button" class="text-sm underline"
+                            @click="copy(selected.Lyrics || selected['Lyrics (PD)'])">Copy</button>
+                    </div>
+                    <pre class="bg-gray-50 border rounded p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap"
+                        x-html="highlightedLyrics()"></pre>
+                </div>
             </div>
+
+            <div x-show="!selected" class="text-gray-500">Select a song to preview.</div>
         </div>
+
+    </div>
 
     </div>
 </div>

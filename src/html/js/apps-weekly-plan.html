@@ -920,20 +920,11 @@
       },
       async suggestForRow(i) {
         if (this.loadingSuggestion) return;
-        this.loadingSuggestion = true;
         this.suggestTargetIndex = i;
-        try {
-          const t = String(this.orderRows[i]?.itemType || '').toLowerCase();
-          const isScripture = t.includes('scripture') || t.includes('call to worship');
-          if (!isScripture) {
-            // Song suggestion via modal (existing behavior)
-            this.suggestOpenIndex = i;
-            this.suggestTargetIndex = i;
-          const slot = this.slotFor(i);
-          const theme = String(this.form.theme || '');
-          const scripture = String(this.scriptureText || this.form.scripture || '');
-          const res = await callRpc('suggestSongs', { theme, scripture, slot, k: 6 });
-          this.suggestions = Array.isArray(res?.items) ? res.items : [];
+        const t = String(this.orderRows[i]?.itemType || '').toLowerCase();
+        const isScripture = t.includes('scripture') || t.includes('call to worship');
+        if (!isScripture) {
+          this.suggestOpenIndex = i;
           this.updateSuggestDefaults(i);
           this.showSuggestModal = true;
           const existing = String(this.orderRows[i]?.detail || '').trim();
@@ -942,7 +933,8 @@
           }
           return;
         }
-
+        this.loadingSuggestion = true;
+        try {
           // Scripture suggestions based on adjacent songs or service context
           const neighbors = this.adjacentSongs(i);
           const names = neighbors.filter(Boolean);
