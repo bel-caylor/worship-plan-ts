@@ -3,18 +3,18 @@
   class="h-full flex flex-col overflow-hidden flex-1 min-h-0">
   <div class="p-3 border-b flex items-center gap-3 bg-blue-800">
     <div class="flex items-center gap-2">
-      <label class="text-sm text-white">Existing Services</label>
+      <label class="text-sm text-white sr-only">Existing Services</label>
+      <button class="btn btn--surface"
+        :disabled="loadingServices || !selectedServiceId"
+        @click="loadSelected()">Load</button>
       <select class="form-control form-control--dense min-w-[320px]" x-model="selectedServiceId">
         <option value="" disabled selected>Select...</option>
         <template x-for="s in existingServices" :key="s.id || (s.date + s.time)">
           <option :value="s.id"
-            x-text="(s.id || ((s.date||'') + (s.time?(' '+s.time):''))) + (s.type?(' - '+s.type):'') + (s.leader?(' ('+s.leader+')'):'')">
+            x-text="serviceLabel(s)">
           </option>
         </template>
       </select>
-      <button class="btn btn--surface"
-        :disabled="loadingServices || !selectedServiceId"
-        @click="loadSelected()">Load</button>
       <template x-if="!selectedServiceId && !isGuest">
         <button class="btn btn--accent"
           @click="submit()" x-text="actionLabel()"></button>
@@ -34,9 +34,9 @@
       </template>
     </div>
     <div class="flex-1"></div>
-    <div class="flex items-center gap-2">
+    <div class="header-flex">
       <span x-cloak x-show="loadingServices"
-        class="inline-flex items-center gap-2 text-sm text-blue-800 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
+        class="inline-header-flex text-sm text-blue-800 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
         <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
@@ -46,7 +46,7 @@
       </span>
       <template x-if="!isGuest">
         <button
-          class="btn btn--surface"
+          class="btn btn--surface hidden md:block"
           :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
       </template>
     </div>
@@ -201,7 +201,7 @@
                 <div>
                   <span class="font-medium text-gray-700">Songs Browser</span>
                 </div>
-                <div class="flex items-center gap-2 text-xs text-gray-600">
+                <div class="header-flex text-xs text-gray-600">
                   <button type="button"
                     class="btn btn--outline btn--xs"
                     @click="fetchSongSuggestions()"
@@ -249,7 +249,7 @@
           <div class="relative flex-1 min-h-0 overflow-auto">
             <div x-cloak x-show="loadingOrder"
               class="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
-              <div class="inline-flex items-center gap-2 text-sm text-indigo-700">
+              <div class="inline-header-flex text-sm text-indigo-700">
                 <svg class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                   stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                   <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
@@ -385,7 +385,7 @@
           </div>
           <div x-show="teamAssignmentsSupported && selectedServiceId" x-cloak class="space-y-3">
             <div x-show="teamAssignmentsLoading" x-cloak
-              class="inline-flex items-center gap-2 text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded">
+              class="inline-header-flex text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 px-3 py-1 rounded">
               <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
@@ -557,10 +557,10 @@
           </div>
           <div class="w-[500px] h-full overflow-auto border rounded p-3">
             <div class="flex items-center justify-between mb-2 gap-3">
-              <div class="flex items-center gap-2 flex-1">
+              <div class="header-flex flex-1">
                 <input type="text" class="form-control form-control--dense w-full" x-model="selectedScriptureRef" @input="refChanged()" placeholder="e.g., John 1:1-5" />
               </div>
-              <div class="flex items-center gap-2">
+              <div class="header-flex">
                 <button class="btn btn--outline btn--xs"
                   @click="toggleScriptureEditing()">
                   <span x-show="!isScriptureEditing">Edit Passage</span>

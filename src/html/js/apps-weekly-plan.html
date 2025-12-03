@@ -1486,6 +1486,134 @@
         } catch (_) { }
       },
 
+      serviceLabel(svc) {
+        if (!svc) return '';
+        const sourceDate = svc.date || this.parseDateFromServiceId(svc.id);
+        const datePart = this.formatDateLabel(sourceDate);
+        const idTime = this.parseTimeFromServiceId(svc.id);
+        let timePart = idTime || this.formatTimeLabel(svc.time);
+        if (!timePart) timePart = this.formatTimeLabel(idTime);
+        const leader = String(svc.leader || '').trim();
+        const leaderPart = leader ? ` (${leader})` : '';
+        const dateTime = [datePart, timePart].filter(Boolean).join(' ').trim();
+        if (!dateTime) {
+          return String(svc.id || leader || 'Service');
+        }
+        return `${dateTime}${leaderPart}`;
+      },
+
+      formatDateLabel(value) {
+        if (!value && value !== 0) return '';
+        const dateObj = this.parseDateValue(value);
+        if (dateObj) {
+          const yy = String(dateObj.getFullYear()).slice(-2);
+          const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
+          const dd = String(dateObj.getDate()).padStart(2, '0');
+          return `${yy}-${mm}-${dd}`;
+        }
+        const raw = String(value || '').trim();
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          return raw.slice(2);
+        }
+        return raw;
+      },
+
+      parseDateValue(value) {
+        if (!value && value !== 0) return null;
+        if (value instanceof Date && !isNaN(value)) return value;
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          if (value > 1000000000) {
+            const asDate = new Date(value);
+            if (!isNaN(asDate)) return asDate;
+          } else if (value > 0 && value < 60000) {
+            const epoch = (value - 25569) * 86400 * 1000;
+            const asDate = new Date(epoch);
+            if (!isNaN(asDate)) return asDate;
+          }
+        }
+        const raw = String(value || '').trim();
+        if (!raw) return null;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          const [y, m, d] = raw.split('-').map(Number);
+          return new Date(y, m - 1, d);
+        }
+        const parsed = Date.parse(raw);
+        if (!Number.isNaN(parsed)) return new Date(parsed);
+        return null;
+      },
+
+      formatTimeLabel(value) {
+        if (!value && value !== 0) return '';
+        if (value instanceof Date && !isNaN(value)) return this.formatTimeFromDate(value);
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          if (value > 1000000000) {
+            const asDate = new Date(value);
+            if (!isNaN(asDate)) return this.formatTimeFromDate(asDate);
+          } else if (value > 0 && value < 1) {
+            const totalMinutes = Math.round(value * 24 * 60);
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            return this.formatHourMinute(h, m);
+          }
+        }
+        const raw = String(value || '').trim();
+        if (!raw) return '';
+        const ampm = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+        if (ampm) {
+          const hourNum = Number(ampm[1]);
+          const mins = ampm[2] ? Number(ampm[2]) : 0;
+          if (Number.isFinite(hourNum)) {
+            const minsPart = mins ? `:${String(mins).padStart(2, '0')}` : '';
+            return `${hourNum}${minsPart}${ampm[3].toLowerCase()}`;
+          }
+        }
+        const parsed = Date.parse(raw);
+        if (!Number.isNaN(parsed)) {
+          return this.formatTimeFromDate(new Date(parsed));
+        }
+        const timeOnly = raw.match(/^(\d{1,2})(?::(\d{2}))(?::(\d{2}))?$/);
+        if (timeOnly) {
+          const hour = Number(timeOnly[1]);
+          const mins = Number(timeOnly[2] || '0');
+          if (Number.isFinite(hour) && hour >= 0 && hour < 24) {
+            return this.formatHourMinute(hour, mins);
+          }
+        }
+        return '';
+      },
+
+      formatTimeFromDate(dateObj) {
+        if (!(dateObj instanceof Date) || isNaN(dateObj)) return '';
+        const hours = dateObj.getHours();
+        const mins = dateObj.getMinutes();
+        return this.formatHourMinute(hours, mins);
+      },
+
+      formatHourMinute(hours24, mins) {
+        if (!Number.isFinite(hours24)) return '';
+        const suffix = hours24 >= 12 ? 'pm' : 'am';
+        const hour12 = ((hours24 % 12) || 12);
+        const minsPart = mins ? `:${String(mins).padStart(2, '0')}` : '';
+        return `${hour12}${minsPart}${suffix}`;
+      },
+
+      parseDateFromServiceId(id) {
+        const raw = String(id || '').trim();
+        if (!raw) return '';
+        const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : '';
+      },
+
+      parseTimeFromServiceId(id) {
+        const raw = String(id || '').trim();
+        if (!raw) return '';
+        const match = raw.match(/_(\d{1,2}(?::\d{2})?(?:am|pm))/i);
+        if (match && match[1]) {
+          return match[1];
+        }
+        return '';
+      },
+
       updateCachedService(id, patch) {
         try {
           const targetId = String(id || '').trim();

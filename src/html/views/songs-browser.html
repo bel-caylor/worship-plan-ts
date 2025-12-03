@@ -29,15 +29,15 @@
                     </button>
                     <div x-show="open" x-cloak @click.outside="open = false"
                         class="absolute z-20 mt-1 w-48 bg-white border rounded shadow">
-                        <label class="flex items-center gap-2 px-3 py-2 text-sm border-b">
+                        <label class="header-flex px-3 py-2 text-sm border-b">
                             <input type="checkbox" x-model="searchLyrics" @change="render()" />
                             Lyrics
                         </label>
-                        <label class="flex items-center gap-2 px-3 py-2 text-sm border-b">
+                        <label class="header-flex px-3 py-2 text-sm border-b">
                             <input type="checkbox" x-model="spanishOnly" @change="render(true)" />
                             Spanish
                         </label>
-                        <label class="flex items-center gap-2 px-3 py-2 text-sm">
+                        <label class="header-flex px-3 py-2 text-sm">
                             <input type="checkbox" x-model="showArchived" @change="render(true)" />
                             Archived
                         </label>
@@ -131,15 +131,15 @@
                     <input type="search" class="form-control" placeholder="Filter (title, theme, scripture...)"
                         x-model.debounce.200ms="q" @search="render(true)" />
                 </label>
-                <label class="text-sm flex items-center gap-2">
+                <label class="text-sm header-flex">
                     <input type="checkbox" x-model="searchLyrics" @change="render()" />
                     <span>Lyrics</span>
                 </label>
-                <label class="text-sm flex items-center gap-2">
+                <label class="text-sm header-flex">
                     <input type="checkbox" x-model="spanishOnly" @change="render(true)" />
                     <span>Spanish</span>
                 </label>
-                <label class="text-sm flex items-center gap-2">
+                <label class="text-sm header-flex">
                     <input type="checkbox" x-model="showArchived" @change="render(true)" />
                     <span>Archived</span>
                 </label>
@@ -300,7 +300,7 @@
                         <div x-show="selected?.First_Used">First used: <span class="font-medium"
                                 x-text="format(selected?.First_Used)"></span></div>
                         <div x-show="selected?._folderUrl" class="mt-2">
-                            <a class="inline-flex items-center gap-2 px-2 py-1 border rounded hover:bg-gray-50"
+                            <a class="inline-header-flex px-2 py-1 border rounded hover:bg-gray-50"
                                 :href="selected?._folderUrl || '#'" target="_blank" rel="noopener">
                                 <span class="font-semibold text-sm">Open Folder</span>
                             </a>
@@ -408,11 +408,11 @@
                 </label>
             </div>
             <div class="flex items-center gap-4">
-                <label class="inline-flex items-center gap-2 text-sm">
+                <label class="inline-header-flex text-sm">
                     <input type="checkbox" x-model="songForm.Sp">
                     Spanish
                 </label>
-                <label class="inline-flex items-center gap-2 text-sm">
+                <label class="inline-header-flex text-sm">
                     <input type="checkbox" x-model="songForm.Archive">
                     Archived
                 </label>

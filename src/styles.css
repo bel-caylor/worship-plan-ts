@@ -5,11 +5,11 @@
 @layer base {
     :root {
         --btn-radius: 0.5rem;
-        --btn-height: 2.4rem;
+        --btn-height: 2.0rem;
         --btn-height-sm: 2.05rem;
         --btn-height-xs: 1.75rem;
         --btn-padding-x: 0.85rem;
-        --btn-padding-y: 0.4rem;
+        --btn-padding-y: 0.3rem;
         --btn-padding-x-sm: 0.65rem;
         --btn-padding-y-sm: 0.32rem;
         --btn-padding-x-xs: 0.5rem;
@@ -141,6 +141,10 @@
 
     .app-tabs {
         @apply flex items-center gap-2 text-sm font-medium;
+    }
+
+    .header-flex {
+        @apply flex flex-col md:flex-row items-center gap-2;
     }
 
     .app-tab {

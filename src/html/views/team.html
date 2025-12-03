@@ -21,7 +21,7 @@
       </button>
     </div>
     <div class="flex-1"></div>
-    <div class="flex items-center gap-2 absolute bottom-1 right-4">
+    <div class="header-flex absolute bottom-1 right-4">
       <span class="text-sm text-red-600" x-text="error" x-show="error"></span>
       <button type="button" class="btn btn--muted btn--sm"
         :disabled="loading"
@@ -70,7 +70,7 @@
           <div class="space-y-4">
             <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
               <span class="font-medium text-gray-700">Role assignments</span>
-              <div class="flex items-center gap-2">
+              <div class="header-flex">
                 <button type="button" class="btn btn--text btn--text-primary btn--xs"
                   @click="toggleShowAllRoles()">
                   <span x-show="!weeklyTeamShowAllRoles">Show extra role types</span>
@@ -144,7 +144,7 @@
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="header-flex">
             <button type="button" class="btn btn--primary"
               :disabled="weeklyTeamSaving || !weeklyTeamDirty"
               @click="saveWeeklyTeam()">
@@ -306,7 +306,7 @@
           <span class="font-medium text-gray-700">Teams</span>
           <div class="grid gap-2 sm:grid-cols-2">
             <template x-for="team in teamList()" :key="team">
-              <label class="inline-flex items-center gap-2 text-sm">
+              <label class="inline-header-flex text-sm">
                 <input type="checkbox" :checked="isTeamSelected(team)" @change="toggleTeam(team, $event.target.checked)" />
                 <span x-text="team"></span>
               </label>
@@ -328,7 +328,7 @@
                 </div>
                 <div class="mt-2 grid gap-2 sm:grid-cols-2">
                   <template x-for="role in roles" :key="role">
-                    <label class="inline-flex items-center gap-2 text-sm">
+                    <label class="inline-header-flex text-sm">
                       <input type="checkbox"
                         :checked="roleSelections[role] || false"
                         @change="setRole(role, $event.target.checked)" />
@@ -350,14 +350,14 @@
                 </template>
               </select>
             </label>
-            <label class="flex items-center gap-2 text-sm mt-1 sm:mt-6">
+            <label class="header-flex text-sm mt-1 sm:mt-6">
               <input type="checkbox" x-model="spanishChecked" />
               <span>Spanish speaker</span>
             </label>
           </div>
         </div>
 
-        <div class="mt-4 flex items-center gap-2">
+        <div class="mt-4 header-flex">
           <button type="button" class="btn btn--primary"
             :disabled="saving || !dirty"
             @click="save()">Save Changes</button>
@@ -472,7 +472,7 @@
       </div>
       <div class="max-h-[60vh] overflow-auto space-y-2">
         <template x-for="(roleName, idx) in roleDefaultsDraft" :key="idx">
-          <div class="flex items-center gap-2">
+          <div class="header-flex">
             <span class="text-xs text-gray-500 w-6 text-right" x-text="idx + 1"></span>
             <input type="text" class="flex-1 form-control form-control--dense" data-role-default-input
               :placeholder="'Role ' + (idx + 1)"

@@ -2,7 +2,9 @@ import {
   SERVICE_TEAM_ASSIGNMENTS_SHEET,
   SERVICE_TEAM_ASSIGNMENTS_COL,
   MEMBER_AVAILABILITY_SHEET,
-  MEMBER_AVAILABILITY_COL
+  MEMBER_AVAILABILITY_COL,
+  WEEKLY_TEAM_ROLE_DEFAULTS_SHEET,
+  WEEKLY_TEAM_ROLE_DEFAULTS_COL
 } from '../constants';
 import { listServices, ListServicesOptions, ServiceItem } from './services';
 
@@ -35,8 +37,16 @@ type SaveAssignmentInput = {
 
 const norm = (value: unknown): string => String(value ?? '').trim();
 const normLower = (value: unknown): string => norm(value).toLowerCase();
+const slimKey = (value: unknown): string => normLower(value).replace(/[^a-z0-9]+/g, '');
 const assignmentKey = (serviceId: unknown, teamType: unknown, roleName: unknown) =>
   `${normLower(serviceId)}::${normLower(teamType)}::${normLower(roleName)}`;
+
+type RoleOrderEntry = {
+  teamKey: string;
+  teamSimple: string;
+  roleExact: Record<string, number>;
+  roleSimple: Record<string, number>;
+};
 
 function headerIndex(headers: string[], label: string) {
   const idx = headers.findIndex(h => h.trim().toLowerCase() === label.trim().toLowerCase());
@@ -46,6 +56,117 @@ function headerIndex(headers: string[], label: string) {
 
 function headerIndexOptional(headers: string[], label: string) {
   return headers.findIndex(h => h.trim().toLowerCase() === label.trim().toLowerCase());
+}
+
+function readRoleOrderLookup() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(WEEKLY_TEAM_ROLE_DEFAULTS_SHEET);
+  if (!sh) return { byKey: new Map<string, RoleOrderEntry>(), entries: [] };
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return { byKey: new Map<string, RoleOrderEntry>(), entries: [] };
+  const headers = sh
+    .getRange(1, 1, 1, lastCol)
+    .getValues()[0]
+    .map(v => String(v ?? '').trim());
+  const idxTeam = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.team);
+  const idxRole = headerIndex(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.roleName);
+  const idxOrder = headerIndexOptional(headers, WEEKLY_TEAM_ROLE_DEFAULTS_COL.order);
+  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const map = new Map<string, RoleOrderEntry>();
+  body.forEach((row, i) => {
+    const team = norm(row[idxTeam]);
+    const roleName = norm(row[idxRole]);
+    if (!team || !roleName) return;
+    const rawOrder = idxOrder >= 0 ? Number(row[idxOrder]) : NaN;
+    const order = Number.isFinite(rawOrder) ? rawOrder : i;
+    const teamKey = normLower(team);
+    if (!teamKey) return;
+    let entry = map.get(teamKey);
+    if (!entry) {
+      entry = {
+        teamKey,
+        teamSimple: slimKey(team),
+        roleExact: {},
+        roleSimple: {}
+      };
+      map.set(teamKey, entry);
+    }
+    const roleKey = normLower(roleName);
+    if (roleKey && !(roleKey in entry.roleExact)) {
+      entry.roleExact[roleKey] = order;
+    }
+    const roleSimple = slimKey(roleName);
+    if (roleSimple && !(roleSimple in entry.roleSimple)) {
+      entry.roleSimple[roleSimple] = order;
+    }
+  });
+  return {
+    byKey: map,
+    entries: Array.from(map.values())
+  };
+}
+
+function candidateTeamKeys(teamType: string, weeklyTeamName: string) {
+  const keys: string[] = [];
+  const typeKey = normLower(teamType);
+  const weeklyKey = normLower(weeklyTeamName);
+  const push = (val: string) => {
+    const clean = normLower(val);
+    if (clean) keys.push(clean);
+  };
+  if (typeKey) push(typeKey);
+  if (weeklyKey) push(weeklyKey);
+  if (typeKey && weeklyKey) {
+    push(`${typeKey}::${weeklyKey}`);
+    push(`${typeKey}-${weeklyKey}`);
+    push(`${typeKey} ${weeklyKey}`);
+  }
+  return keys.filter(Boolean);
+}
+
+function resolveRoleOrderEntry(
+  lookup: { byKey: Map<string, RoleOrderEntry>; entries: RoleOrderEntry[] },
+  teamType: string,
+  weeklyTeamName: string
+) {
+  if (!lookup || !lookup.entries.length) return null;
+  const candidates = candidateTeamKeys(teamType, weeklyTeamName);
+  for (const key of candidates) {
+    const entry = lookup.byKey.get(key);
+    if (entry) return entry;
+  }
+  const simpleCandidates = candidates.map(slimKey).filter(Boolean);
+  if (simpleCandidates.length) {
+    for (const entry of lookup.entries) {
+      if (simpleCandidates.includes(entry.teamSimple)) {
+        return entry;
+      }
+    }
+    for (const entry of lookup.entries) {
+      const match = simpleCandidates.find(c => entry.teamSimple.includes(c) || c.includes(entry.teamSimple));
+      if (match) return entry;
+    }
+  }
+  return null;
+}
+
+function roleOrderValue(entry: RoleOrderEntry | null, role: { roleName: string; roleType: string }) {
+  if (!entry) return Number.POSITIVE_INFINITY;
+  const candidates = [role?.roleName, role?.roleType];
+  for (const value of candidates) {
+    const key = normLower(value);
+    if (key && entry.roleExact[key] !== undefined) {
+      return entry.roleExact[key];
+    }
+  }
+  for (const value of candidates) {
+    const slim = slimKey(value);
+    if (slim && entry.roleSimple[slim] !== undefined) {
+      return entry.roleSimple[slim];
+    }
+  }
+  return Number.POSITIVE_INFINITY;
 }
 
 function ensureAssignmentSheet(): GoogleAppsScript.Spreadsheet.Sheet {
@@ -257,6 +378,7 @@ export function getServiceTeamAssignments(input: { serviceId?: string }) {
   const serviceId = norm(input?.serviceId);
   if (!serviceId) throw new Error('Service ID is required.');
   const rows = readAssignmentRows().filter(row => row.serviceId === serviceId);
+  const roleOrderLookup = readRoleOrderLookup();
   const groups = new Map<string, ServiceTeamAssignmentGroup>();
   rows.forEach(row => {
     const key = normLower(row.teamType) || 'team';
@@ -279,10 +401,18 @@ export function getServiceTeamAssignments(input: { serviceId?: string }) {
     });
   });
   const teams = Array.from(groups.values())
-    .map(group => ({
-      ...group,
-      roles: group.roles.sort((a, b) => a.roleName.localeCompare(b.roleName))
-    }))
+    .map(group => {
+      const entry = resolveRoleOrderEntry(roleOrderLookup, group.teamType, group.weeklyTeamName);
+      return {
+        ...group,
+        roles: group.roles.sort((a, b) => {
+          const orderA = roleOrderValue(entry, a);
+          const orderB = roleOrderValue(entry, b);
+          if (orderA !== orderB) return orderA - orderB;
+          return a.roleName.localeCompare(b.roleName);
+        })
+      };
+    })
     .sort((a, b) => groupLabel(a).localeCompare(groupLabel(b)));
   return { serviceId, teams };
 }
