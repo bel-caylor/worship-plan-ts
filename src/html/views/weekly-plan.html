@@ -7,7 +7,7 @@
       <button class="btn btn--surface"
         :disabled="loadingServices || !selectedServiceId"
         @click="loadSelected()">Load</button>
-      <select class="form-control form-control--dense min-w-[320px]" x-model="selectedServiceId">
+      <select class="form-control form-control--dense" x-model="selectedServiceId">
         <option value="" disabled selected>Select...</option>
         <template x-for="s in existingServices" :key="s.id || (s.date + s.time)">
           <option :value="s.id"
@@ -99,40 +99,42 @@
       <h3 class="text-lg font-semibold mb-3 sr-only">Service Details</h3>
       <div class="flex gap-2 flex-wrap">
         <div class="pr-6">
-          <h1 class="font-bold text-2xl" x-html="formattedDateTimeHtml()"></h1>
+          <h1 class="font-bold text-lg md:text-2xl" x-html="formattedDateTimeHtml()"></h1>
         </div>
-        <label class="text-sm flex-1">Service Type
-          <select class="mt-1 w-full form-control form-control--dense" x-model="form.type" @change="queueSaveDetails()">
-            <option value="Communion">Communion</option>
-            <option value="Offering">Offering</option>
-          </select>
-        </label>
-        <label class="text-sm flex-1">Leader
-          <div class="mt-1">
-            <select x-ref="leaderSel" class="form-control form-control--dense w-full" x-model="leaderSelect"
-              @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect; queueSaveDetails()">
-              <template x-for="n in leaderChoices" :key="'lead-'+n">
-                <option :value="n" x-text="n"></option>
-              </template>
-              <option value="__custom">Custom</option>
+        <div class="flex flex-wrap gap-2">
+          <label class="text-sm flex-1">Service Type
+            <select class="mt-1 w-full form-control form-control--dense" x-model="form.type" @change="queueSaveDetails()">
+              <option value="Communion">Communion</option>
+              <option value="Offering">Offering</option>
             </select>
-          </div>
-          <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
-              placeholder="Type leader name" x-model="form.leader" @input="queueSaveDetails()" /></template>
-        </label>
-        <label class="text-sm min-w-32 flex-1">Preacher
-          <div class="mt-1">
-            <select x-ref="preacherSel" class="form-control form-control--dense w-full" x-model="preacherSelect"
-              @change="form.preacher = preacherSelect==='__custom' ? '' : preacherSelect; queueSaveDetails()">
-              <template x-for="n in preacherChoices" :key="'prech-'+n">
-                <option :value="n" x-text="n"></option>
-              </template>
-              <option value="__custom">Custom...</option>
-            </select>
-          </div>
-          <template x-if="preacherSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
-              placeholder="Type preacher name" x-model="form.preacher" @input="queueSaveDetails()" /></template>
-        </label>
+          </label>
+          <label class="text-sm flex-1">Leader
+            <div class="mt-1">
+              <select x-ref="leaderSel" class="form-control form-control--dense w-full" x-model="leaderSelect"
+                @change="form.leader = leaderSelect==='__custom' ? '' : leaderSelect; queueSaveDetails()">
+                <template x-for="n in leaderChoices" :key="'lead-'+n">
+                  <option :value="n" x-text="n"></option>
+                </template>
+                <option value="__custom">Custom</option>
+              </select>
+            </div>
+            <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
+                placeholder="Type leader name" x-model="form.leader" @input="queueSaveDetails()" /></template>
+          </label>
+          <label class="text-sm lg:min-w-32 flex-1">Preacher
+            <div class="mt-1">
+              <select x-ref="preacherSel" class="form-control form-control--dense w-full" x-model="preacherSelect"
+                @change="form.preacher = preacherSelect==='__custom' ? '' : preacherSelect; queueSaveDetails()">
+                <template x-for="n in preacherChoices" :key="'prech-'+n">
+                  <option :value="n" x-text="n"></option>
+                </template>
+                <option value="__custom">Custom...</option>
+              </select>
+            </div>
+            <template x-if="preacherSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
+                placeholder="Type preacher name" x-model="form.preacher" @input="queueSaveDetails()" /></template>
+          </label>
+        </div>
       </div>
     </div>
 

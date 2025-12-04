@@ -46,6 +46,7 @@ type RoleOrderEntry = {
   teamSimple: string;
   roleExact: Record<string, number>;
   roleSimple: Record<string, number>;
+  orderedRoles: Array<{ name: string; order: number; key: string; simple: string }>;
 };
 
 function headerIndex(headers: string[], label: string) {
@@ -88,7 +89,8 @@ function readRoleOrderLookup() {
         teamKey,
         teamSimple: slimKey(team),
         roleExact: {},
-        roleSimple: {}
+        roleSimple: {},
+        orderedRoles: []
       };
       map.set(teamKey, entry);
     }
@@ -100,6 +102,12 @@ function readRoleOrderLookup() {
     if (roleSimple && !(roleSimple in entry.roleSimple)) {
       entry.roleSimple[roleSimple] = order;
     }
+    entry.orderedRoles.push({
+      name: roleName,
+      order,
+      key: roleKey,
+      simple: roleSimple
+    });
   });
   return {
     byKey: map,
@@ -167,6 +175,17 @@ function roleOrderValue(entry: RoleOrderEntry | null, role: { roleName: string; 
     }
   }
   return Number.POSITIVE_INFINITY;
+}
+
+function orderedRoleNames(entry: RoleOrderEntry | null) {
+  if (!entry) return [];
+  return entry.orderedRoles
+    .slice()
+    .sort((a, b) => {
+      if (a.order !== b.order) return a.order - b.order;
+      return a.name.localeCompare(b.name);
+    })
+    .map(item => item.name);
 }
 
 function ensureAssignmentSheet(): GoogleAppsScript.Spreadsheet.Sheet {
@@ -364,6 +383,7 @@ export function getTeamScheduleSnapshot(input?: { limit?: number } & ListService
 type ServiceTeamAssignmentGroup = {
   teamType: string;
   weeklyTeamName: string;
+  roleOrder: string[];
   roles: Array<{
     roleName: string;
     roleType: string;
@@ -380,17 +400,18 @@ export function getServiceTeamAssignments(input: { serviceId?: string }) {
   const rows = readAssignmentRows().filter(row => row.serviceId === serviceId);
   const roleOrderLookup = readRoleOrderLookup();
   const groups = new Map<string, ServiceTeamAssignmentGroup>();
-  rows.forEach(row => {
-    const key = normLower(row.teamType) || 'team';
-    if (!groups.has(key)) {
-      groups.set(key, {
-        teamType: row.teamType || 'Team',
-        weeklyTeamName: row.weeklyTeamName || '',
-        roles: []
-      });
-    }
-    const group = groups.get(key)!;
-    if (!group.weeklyTeamName && row.weeklyTeamName) group.weeklyTeamName = row.weeklyTeamName;
+rows.forEach(row => {
+  const key = normLower(row.teamType) || 'team';
+  if (!groups.has(key)) {
+    groups.set(key, {
+      teamType: row.teamType || 'Team',
+      weeklyTeamName: row.weeklyTeamName || '',
+      roleOrder: [],
+      roles: []
+    });
+  }
+  const group = groups.get(key)!;
+  if (!group.weeklyTeamName && row.weeklyTeamName) group.weeklyTeamName = row.weeklyTeamName;
     group.roles.push({
       roleName: row.roleName || row.roleType || 'Role',
       roleType: row.roleType || '',
@@ -403,8 +424,10 @@ export function getServiceTeamAssignments(input: { serviceId?: string }) {
   const teams = Array.from(groups.values())
     .map(group => {
       const entry = resolveRoleOrderEntry(roleOrderLookup, group.teamType, group.weeklyTeamName);
+      const roleOrder = orderedRoleNames(entry);
       return {
         ...group,
+        roleOrder,
         roles: group.roles.sort((a, b) => {
           const orderA = roleOrderValue(entry, a);
           const orderB = roleOrderValue(entry, b);

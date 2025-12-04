@@ -204,9 +204,6 @@
         await this.ensureRowsLoaded();
 
         this.buildFilters();
-        if (typeof window !== 'undefined' && window.innerWidth < 768) {
-          this.mobileListOpen = true;
-        }
 
         this.$watch('q', () => this.render(true));
         this.$watch('selectedSeason', () => this.render(true));
