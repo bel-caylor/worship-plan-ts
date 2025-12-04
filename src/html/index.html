@@ -62,6 +62,13 @@
       } catch (_) { }
     })();
   </script>
+  <script>
+    (function ensureAdminBase() {
+      const adminTemplate = `<?!= JSON.stringify(typeof adminBase !== 'undefined' ? adminBase : '') ?>`;
+      const adminUrl = parseTemplateString(adminTemplate, '');
+      window.__ADMIN_BASE__ = adminUrl || window.__BASE__ || `${location.origin}${location.pathname}`;
+    })();
+  </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>

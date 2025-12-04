@@ -38,10 +38,12 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   tpl.viewerProfile = viewerProfile;
   try {
     // Provide the deployed Web App base URL to client for fetch fallbacks
-    // Note: returns null when not deployed as a Web App
-    tpl.baseUrl = (ScriptApp.getService && ScriptApp.getService().getUrl && ScriptApp.getService().getUrl()) || '';
+    const scriptUrl = (ScriptApp.getService && ScriptApp.getService().getUrl && ScriptApp.getService().getUrl()) || '';
+    tpl.baseUrl = scriptUrl;
+    tpl.adminBase = scriptUrl;
   } catch (_) {
     tpl.baseUrl = '';
+    tpl.adminBase = '';
   }
   return tpl.evaluate().setTitle('Worship Planner');
 }

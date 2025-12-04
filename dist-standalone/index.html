@@ -64,6 +64,13 @@
     })();
   </script>
   <script>
+    (function ensureAdminBase() {
+      const adminTemplate = `<?!= JSON.stringify(typeof adminBase !== 'undefined' ? adminBase : '') ?>`;
+      const adminUrl = parseTemplateString(adminTemplate, '');
+      window.__ADMIN_BASE__ = adminUrl || window.__BASE__ || `${location.origin}${location.pathname}`;
+    })();
+  </script>
+  <script>
   const AUTH_STORAGE_KEY = '__wpAuthToken';
 
   function getStoredAuthToken() {
@@ -102,8 +109,8 @@
   window.addEventListener('message', handleAuthMessage, false);
 
   function openAdminLogin() {
-    const base = window.__BASE__ || `${location.origin}${location.pathname}`;
-    const loginUrl = `${base}${base.includes('?') ? '&' : '?'}view=login`;
+    const base = window.__ADMIN_BASE__ || window.__BASE__ || `${location.origin}${location.pathname}`;
+    const loginUrl = `${base.replace(/\/exec\/?$/, '')}/exec?view=login`;
     window.open(loginUrl, 'worship-admin-login', 'width=520,height=640');
   }
 
