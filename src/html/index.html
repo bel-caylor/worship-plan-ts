@@ -65,6 +65,7 @@
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('context').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-songs').getContent(); ?>
+  <?!= HtmlService.createHtmlOutputFromFile('apps-service-viewer').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-team').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-weekly-plan').getContent(); ?>
   <?!= HtmlService.createHtmlOutputFromFile('apps-availability').getContent(); ?>
@@ -81,6 +82,10 @@
 
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
   <main class="h-[calc(100vh-58px)] overflow-hidden flex flex-col flex-1 min-h-0">
+    <div x-show="route==='services'" class="h-full flex-1 min-h-0 flex flex-col">
+      <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
+    </div>
+
     <template x-if="route==='songs'">
       <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
     </template>
@@ -105,30 +110,32 @@
         ready: false,
         capabilities: { canViewTeam: false }
       };
-      const routesForAuth = (authState) => {
-        const set = new Set(['songs', 'availability']);
-        if (authState && authState.capabilities && authState.capabilities.canViewPlan) {
-          set.add('plan');
-        }
-        if (authState && authState.capabilities && authState.capabilities.canViewTeam) {
-          set.add('team');
-        }
-        return set;
-      };
-      return {
-        route: 'plan',
-        auth: initialAuth,
-        allowedRoutes: routesForAuth(initialAuth),
-        init() {
-          const normalize = (value) => String(value || '').trim().toLowerCase();
-          const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
-          const fallbackRoute = () => {
-            if (this.allowedRoutes.has('plan')) return 'plan';
-            if (this.allowedRoutes.has('songs')) return 'songs';
-            if (this.allowedRoutes.has('availability')) return 'availability';
-            const first = this.allowedRoutes.values().next();
-            return first && first.value ? first.value : 'songs';
-          };
+        const routesForAuth = (authState) => {
+          const set = new Set(['services', 'songs', 'availability']);
+          if (authState && authState.capabilities && authState.capabilities.canViewPlan) {
+            set.add('plan');
+          }
+          if (authState && authState.capabilities && authState.capabilities.canViewTeam) {
+            set.add('team');
+          }
+          return set;
+        };
+        return {
+          route: 'services',
+          auth: initialAuth,
+          allowedRoutes: routesForAuth(initialAuth),
+          init() {
+            const normalize = (value) => String(value || '').trim().toLowerCase();
+            const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
+            const fallbackRoute = () => {
+              if (this.allowedRoutes.has('plan')) return 'plan';
+              if (this.allowedRoutes.has('services')) return 'services';
+              if (this.allowedRoutes.has('songs')) return 'songs';
+              if (this.allowedRoutes.has('team')) return 'team';
+              if (this.allowedRoutes.has('availability')) return 'availability';
+              const first = this.allowedRoutes.values().next();
+              return first && first.value ? first.value : 'songs';
+            };
           const setRoute = (value) => {
             const fallback = fallbackRoute();
             const next = this.allowedRoutes.has(value) ? value : fallback;
@@ -173,8 +180,8 @@
             ensureHash();
           }
 
-          window.addEventListener('hashchange', () => {
-            const next = parseHashRoute() || 'plan';
+            window.addEventListener('hashchange', () => {
+              const next = parseHashRoute() || 'services';
             const resolved = setRoute(next);
             if (resolved !== next) {
               location.hash = `#/${resolved}`;

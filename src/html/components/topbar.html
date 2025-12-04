@@ -5,11 +5,17 @@
     <!-- Current view label (always visible) -->
     <div class="text-sm text-gray-700 flex-1 min-w-0 text-center md:hidden">
       <span class="truncate text-lg font-bold text-blue-700"
-            x-text="route==='plan' ? 'Weekly Plan' : (route==='songs' ? 'Song List' : (route==='team' ? 'Team' : 'Availability'))"></span>
+            x-text="route==='services' ? 'Services' : (route==='plan' ? 'Weekly Plan' : (route==='songs' ? 'Song List' : (route==='team' ? 'Team' : 'Availability')))"></span>
     </div>
 
     <!-- Desktop tabs -->
     <nav class="app-tabs app-tabs--underline hidden md:flex">
+      <a href="#/services"
+         class="app-tab"
+         :class="route==='services' ? 'is-active' : ''">
+        Services
+      </a>
+
       <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
         <a href="#/plan"
            class="app-tab"
@@ -48,23 +54,25 @@
         </svg>
       </button>
       <!-- Dropdown absolute box -->
-      <div class="absolute right-0 mt-2 w-48 bg-white border rounded-md shadow-lg" role="menu"
-           x-show="menuOpen" x-transition.origin.top.right @click.outside="menuOpen=false" @keydown.escape.window="menuOpen=false">
-        <nav class="py-1">
-          <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
-            <a href="#/plan" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-               :class="route==='plan' ? 'font-semibold' : ''" @click="menuOpen=false">Weekly Plan</a>
-          </template>
-          <a href="#/songs" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-             :class="route==='songs' ? 'font-semibold' : ''" @click="menuOpen=false">Song List</a>
-          <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
-            <a href="#/team" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-               :class="route==='team' ? 'font-semibold' : ''" @click="menuOpen=false">Team</a>
-          </template>
-          <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-             :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
-        </nav>
+        <div class="absolute right-0 mt-2 w-48 bg-white border rounded-md shadow-lg" role="menu"
+             x-show="menuOpen" x-transition.origin.top.right @click.outside="menuOpen=false" @keydown.escape.window="menuOpen=false">
+          <nav class="py-1">
+            <a href="#/services" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+               :class="route==='services' ? 'font-semibold' : ''" @click="menuOpen=false">Services</a>
+            <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
+              <a href="#/plan" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='plan' ? 'font-semibold' : ''" @click="menuOpen=false">Weekly Plan</a>
+            </template>
+            <a href="#/songs" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+               :class="route==='songs' ? 'font-semibold' : ''" @click="menuOpen=false">Song List</a>
+            <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
+              <a href="#/team" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='team' ? 'font-semibold' : ''" @click="menuOpen=false">Team</a>
+            </template>
+            <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+               :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
+          </nav>
+        </div>
       </div>
-    </div>
   </div>
 </div>

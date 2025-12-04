@@ -1,0 +1,476 @@
+<script>
+  function serviceViewerApp() {
+    const seededServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
+    const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
+
+    const normalizeTitle = (value) =>
+      String(value || '')
+        .toLowerCase()
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+
+    const buildSongLookup = (rows) => {
+      const list = Array.isArray(rows) ? rows : [];
+      const map = new Map();
+      list.forEach(row => {
+        const title = normalizeTitle(row?.Song || row?.song || row?.Title);
+        if (title) {
+          if (!map.has(title)) map.set(title, row);
+        }
+      });
+      return map;
+    };
+
+    const nameShort = (value) => {
+      const raw = String(value || '').trim();
+      if (!raw) return 'Unassigned';
+      const parts = raw.split(/\s+/).filter(Boolean);
+      if (!parts.length) return 'Unassigned';
+      const first = parts.shift();
+      const lastInitial = parts.length ? `${parts[0][0].toUpperCase()}.` : '';
+      return `${first} ${lastInitial}`.trim();
+    };
+
+    const parseDateValue = (value) => {
+      if (!value && value !== 0) return null;
+      if (value instanceof Date && !isNaN(value)) return value;
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        if (value > 1000000000) {
+          const asDate = new Date(value);
+          if (!isNaN(asDate)) return asDate;
+        } else if (value > 0 && value < 60000) {
+          const epoch = (value - 25569) * 86400 * 1000;
+          const asDate = new Date(epoch);
+          if (!isNaN(asDate)) return asDate;
+        }
+      }
+      const raw = String(value || '').trim();
+      if (!raw) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [y, m, d] = raw.split('-').map(Number);
+        return new Date(y, m - 1, d);
+      }
+      const parsed = Date.parse(raw);
+      if (!Number.isNaN(parsed)) return new Date(parsed);
+      return null;
+    };
+
+    const formatDateLabel = (value) => {
+      const date = parseDateValue(value);
+      if (!date) return '';
+      const yy = String(date.getFullYear()).slice(-2);
+      const mm = String(date.getMonth() + 1).padStart(2, '0');
+      const dd = String(date.getDate()).padStart(2, '0');
+      return `${yy}-${mm}-${dd}`;
+    };
+
+    const parseTimeFromServiceId = (id) => {
+      const raw = String(id || '').trim();
+      if (!raw) return '';
+      const match = raw.match(/_(\d{1,2}(?::\d{2})?(?:am|pm))/i);
+      return match && match[1] ? match[1] : '';
+    };
+
+    const parseDateFromServiceId = (id) => {
+      const raw = String(id || '').trim();
+      if (!raw) return '';
+      const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      return match ? match[1] : '';
+    };
+
+    const formatTimeLabel = (value) => {
+      if (!value && value !== 0) return '';
+      if (value instanceof Date && !isNaN(value)) {
+        const hours = value.getHours();
+        const mins = value.getMinutes();
+        const suffix = hours >= 12 ? 'pm' : 'am';
+        const hour12 = ((hours % 12) || 12);
+        const minsPart = mins ? `:${String(mins).padStart(2, '0')}` : '';
+        return `${hour12}${minsPart}${suffix}`;
+      }
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        if (value > 1000000000) return formatTimeLabel(new Date(value));
+        if (value > 0 && value < 1) {
+          const totalMinutes = Math.round(value * 24 * 60);
+          const h = Math.floor(totalMinutes / 60);
+          const m = totalMinutes % 60;
+          const suffix = h >= 12 ? 'pm' : 'am';
+          const hour12 = ((h % 12) || 12);
+          const minsPart = m ? `:${String(m).padStart(2, '0')}` : '';
+          return `${hour12}${minsPart}${suffix}`;
+        }
+      }
+      const raw = String(value || '').trim();
+      if (!raw) return '';
+      const ampm = raw.match(/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i);
+      if (ampm) {
+        const hourNum = Number(ampm[1]);
+        const mins = ampm[2] ? Number(ampm[2]) : 0;
+        if (Number.isFinite(hourNum)) {
+          const minsPart = mins ? `:${String(mins).padStart(2, '0')}` : '';
+          return `${hourNum}${minsPart}${ampm[3].toLowerCase()}`;
+        }
+      }
+      const parsed = Date.parse(raw);
+      if (!Number.isNaN(parsed)) return formatTimeLabel(new Date(parsed));
+      return raw;
+    };
+
+    const optionLabel = (svc) => {
+      if (!svc) return '';
+      const sourceDate = svc.date || parseDateFromServiceId(svc.id);
+      const datePart = formatDateLabel(sourceDate);
+      const timeFromId = parseTimeFromServiceId(svc.id);
+      const timePart = formatTimeLabel(svc.time || timeFromId);
+      const leader = String(svc.leader || '').trim();
+      const type = String(svc.type || '').trim();
+      const pieces = [datePart, timePart].filter(Boolean);
+      const base = pieces.length ? pieces.join(' ') : (svc.id || '');
+      const leaderPart = leader ? ` (${leader})` : '';
+      const typePart = type ? ` • ${type}` : '';
+      return `${base}${leaderPart}${typePart}`.trim();
+    };
+
+
+
+
+    const formatSongDate = (input) => {
+      if (!input && input !== 0) return '';
+      if (input instanceof Date && !isNaN(input)) return input.toLocaleDateString();
+      const raw = String(input || '').trim();
+      if (!raw) return '';
+      if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+        const parsed = new Date(raw);
+        if (!isNaN(parsed)) return parsed.toLocaleDateString();
+      }
+      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+        const [y, m, d] = raw.split('-').map(Number);
+        const parsed = new Date(y, m - 1, d);
+        if (!isNaN(parsed)) return parsed.toLocaleDateString();
+      }
+      const parsed = Date.parse(raw);
+      if (!Number.isNaN(parsed)) return new Date(parsed).toLocaleDateString();
+      return raw;
+    };
+
+    const songMediaKey = (detail) => normalizeTitle(detail);
+    const stripSongTitleFromName = (label, title) => {
+      const cleanLabel = String(label || '').trim();
+      if (!cleanLabel) return '';
+      const song = String(title || '').trim();
+      if (!song) return cleanLabel;
+      const escaped = song.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return cleanLabel.replace(new RegExp(escaped, 'ig'), '').replace(/[\s._-]+/g, ' ').trim();
+    };
+
+    const removeExtension = (name) => String(name || '').replace(/\.[^.]+$/, '').trim();
+    const friendlyMediaName = (file, songTitle) => {
+      const raw = String(file?.name || '').trim();
+      if (!raw) return 'File';
+      const withoutExt = removeExtension(raw);
+      const stripped = stripSongTitleFromName(withoutExt, songTitle);
+      return stripped || withoutExt || raw;
+    };
+
+    const fileIcon = (mimeType) => {
+      const type = String(mimeType || '').toLowerCase();
+      if (!type) return '\uD83D\uDCC4';
+      if (type.startsWith('audio/')) return '\uD83C\uDFB5';
+      if (type.startsWith('video/')) return '\uD83C\uDFA5';
+      if (type.includes('pdf')) return '\uD83D\uDCC4';
+      if (type.includes('presentation')) return '\uD83D\uDCCB';
+      if (type.includes('spreadsheet') || type.includes('excel')) return '\uD83D\uDCC8';
+      if (type.includes('word') || type.includes('document')) return '\uD83D\uDCC3';
+      return '\uD83D\uDCC4';
+    };
+return {
+      services: seededServices,
+      songs: seededSongs,
+      songLookup: buildSongLookup(seededSongs),
+      songsVersion: seededSongs.length ? 1 : 0,
+      songsLoading: false,
+      songMedia: {},
+      selectedServiceId: '',
+      loadingServices: true,
+      loadingDetails: false,
+      orderItems: [],
+      orderError: '',
+      teamAssignments: [],
+      teamError: '',
+      expanded: {},
+      activeTab: 'order',
+
+      init() {
+        this.restoreSelection();
+        this.refreshServices();
+        this.ensureSongsLoaded();
+      },
+
+      restoreSelection() {
+        try {
+          const saved = localStorage.getItem('viewer.selectedServiceId') || '';
+          this.selectedServiceId = saved;
+        } catch (_) { /* ignore */ }
+      },
+
+      persistSelection() {
+        try {
+          if (this.selectedServiceId) {
+            localStorage.setItem('viewer.selectedServiceId', this.selectedServiceId);
+          } else {
+            localStorage.removeItem('viewer.selectedServiceId');
+          }
+        } catch (_) { /* ignore */ }
+      },
+
+      formatServiceLabel(svc) {
+        return optionLabel(svc);
+      },
+
+      upcomingServiceId() {
+        const list = Array.isArray(this.services) ? this.services : [];
+        const now = new Date();
+        const future = list
+          .map(svc => {
+            const dateValue = parseDateValue(svc?.date || parseDateFromServiceId(svc?.id));
+            return { svc, date: dateValue };
+          })
+          .filter(entry => entry.date instanceof Date && !isNaN(entry.date))
+          .sort((a, b) => a.date - b.date);
+        const next = future.find(entry => entry.date >= now) || future[0];
+        return next ? next.svc?.id : (list[0]?.id || '');
+      },
+
+      getSelectedService() {
+        return (this.services || []).find(svc => svc?.id === this.selectedServiceId) || null;
+      },
+
+      formatTimeDisplay(svc) {
+        if (!svc) return '';
+        const parsed = parseTimeFromServiceId(svc.id);
+        return formatTimeLabel(svc.time || parsed);
+      },
+
+      formatSongDate(value) {
+        return formatSongDate(value);
+      },
+
+      fileIcon(type) {
+        return fileIcon(type);
+      },
+
+      friendlyMediaName(file, songTitle) {
+        return friendlyMediaName(file, songTitle);
+      },
+
+      setSongs(rows) {
+        const list = Array.isArray(rows) ? rows : [];
+        this.songs = list;
+        this.songLookup = buildSongLookup(list);
+        this.songsVersion += 1;
+        try {
+          if (typeof window !== 'undefined') window.__ROWS__ = list;
+        } catch (_) { /* ignore */ }
+      },
+
+      async ensureSongsLoaded(force = false) {
+        const hasSongs = Array.isArray(this.songs) && this.songs.length > 0;
+        if (!force && hasSongs) return;
+        if (this.songsLoading) return;
+        this.songsLoading = true;
+        try {
+          const res = await callRpc('getSongsForView', null);
+          if (Array.isArray(res) && res.length) {
+            this.setSongs(res);
+          }
+        } catch (err) {
+          console.error('Failed to load songs list', err);
+        } finally {
+          this.songsLoading = false;
+        }
+      },
+
+      async fetchScripture(reference, state) {
+        if (!reference || !state) return;
+        state.loading = true;
+        try {
+          const res = await callRpc('esvPassage', { reference });
+          state.passage = res?.text || res?.passage || res?.html || '';
+        } catch (err) {
+          console.error('Failed to fetch scripture', err);
+          state.passage = '';
+        } finally {
+          state.loading = false;
+        }
+      },
+
+      async refreshServices() {
+        this.loadingServices = true;
+        try {
+          const res = await callRpc('listServices', null);
+          if (Array.isArray(res?.items) && res.items.length) {
+            this.services = res.items;
+          }
+        } catch (_) {
+          // keep injected list
+        } finally {
+          this.loadingServices = false;
+          if (!this.selectedServiceId && Array.isArray(this.services) && this.services.length) {
+            const nextId = this.upcomingServiceId();
+            if (nextId) {
+              this.selectedServiceId = nextId;
+              this.persistSelection();
+            }
+          }
+          if (this.selectedServiceId) {
+            this.loadServiceDetails(this.selectedServiceId);
+          }
+        }
+      },
+
+      async onServiceChange() {
+        if (!this.selectedServiceId) return;
+        this.persistSelection();
+        await this.loadServiceDetails(this.selectedServiceId);
+      },
+
+      async loadServiceDetails(serviceId) {
+        const target = String(serviceId || '').trim();
+        if (!target) return;
+        this.loadingDetails = true;
+        this.orderItems = [];
+        this.teamAssignments = [];
+        this.orderError = '';
+        this.teamError = '';
+        try {
+          const [orderRes, teamRes] = await Promise.all([
+            callRpc('getOrder', target),
+            callRpc('getServiceTeamAssignments', { serviceId: target })
+          ]);
+          this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+          this.teamAssignments = Array.isArray(teamRes?.teams) ? teamRes.teams : [];
+        } catch (err) {
+          const msg = err && err.message ? err.message : 'Unable to load service details.';
+          this.orderError = msg;
+          this.teamError = msg;
+        } finally {
+          this.loadingDetails = false;
+        }
+      },
+
+      toggleRow(idx, item) {
+        const next = { ...this.expanded };
+        const willExpand = !next[idx];
+        next[idx] = willExpand;
+        this.expanded = next;
+        if (willExpand && this.isSongItem(item)) {
+          this.ensureSongsLoaded();
+          this.ensureSongMedia(item?.detail || '');
+        }
+      },
+
+      isExpanded(idx) {
+        return Boolean(this.expanded?.[idx]);
+      },
+
+      isSongItem(item) {
+        const label = String(item?.itemType || '').toLowerCase();
+        if (!label) return false;
+        return label.includes('song') || label.includes('worship');
+      },
+
+      isScriptureItem(item) {
+        const label = String(item?.itemType || '').toLowerCase();
+        const detail = String(item?.detail || '').toLowerCase();
+        const scriptureRef = /(?:[1-3]\s)?[a-z\.]+\s+[\w\s\.]*\d+:\d+/i;
+        const looksLikeRef = scriptureRef.test(detail) || /\d+:\d+/.test(detail);
+        return label.includes('scripture') || looksLikeRef;
+      },
+
+      songInfo(detail) {
+        if ((!Array.isArray(this.songs) || !this.songs.length) && !this.songsLoading) {
+          this.ensureSongsLoaded();
+        }
+        const normalized = normalizeTitle(detail);
+        const row = normalized ? this.songLookup.get(normalized) : null;
+        return {
+          title: detail || row?.Song || '(Untitled)',
+          leader: row?.Leader || '',
+          season: row?.Season || '',
+          themes: row?.Themes || '',
+          scriptures: row?.Scriptures || '',
+          keywords: row?.Keywords || '',
+          link: row?.Link || '',
+          folderUrl: row?._folderUrl || row?._folderURL || row?._folder || '',
+          usage: row?.Usage || '',
+          uses: row?.Uses || '',
+          yearsUsed: row?.Years_Used || '',
+          firstUsed: row?.First_Used || '',
+          lastUsed: row?.Last_Used || '',
+          notes: row?.Notes || '',
+          lyrics: row?.Lyrics || row?.['Lyrics (PD)'] || ''
+        };
+      },
+
+      songMediaState(detail) {
+        const key = songMediaKey(detail);
+        if (!key) return { loading: false, files: [], message: 'Song title missing.' };
+        return this.songMedia[key] || { loading: false, files: [], message: '' };
+      },
+
+      async ensureSongMedia(detail) {
+        const key = songMediaKey(detail);
+        if (!key) return;
+        const current = this.songMedia[key];
+        if (current && (current.loading || current.files?.length || current.message)) return;
+        const info = this.songInfo(detail);
+        const folderUrl = info?.folderUrl;
+        if (!folderUrl) {
+          this.songMedia = { ...this.songMedia, [key]: { loading: false, files: [], message: 'No folder link available.' } };
+          return;
+        }
+        this.songMedia = { ...this.songMedia, [key]: { loading: true, files: [], message: '' } };
+        try {
+          const files = await callRpc('getFilesForFolderUrl', folderUrl);
+          this.songMedia = {
+            ...this.songMedia,
+            [key]: {
+              loading: false,
+              files: Array.isArray(files) ? files : [],
+              message: Array.isArray(files) && files.length ? '' : 'No files in folder.'
+            }
+          };
+        } catch (err) {
+          const message = err && err.message ? err.message : 'Failed to load files.';
+          this.songMedia = { ...this.songMedia, [key]: { loading: false, files: [], message } };
+        }
+      },
+
+      songHasDetails(info) {
+        if (!info) return false;
+        return Boolean(
+          info.leader ||
+          info.season ||
+          info.themes ||
+          info.scriptures ||
+          info.keywords ||
+          info.link ||
+          info.folderUrl ||
+          info.usage ||
+          info.uses ||
+          info.yearsUsed ||
+          info.firstUsed ||
+          info.lastUsed ||
+          info.notes ||
+          info.lyrics
+        );
+      },
+
+      shortName(value) {
+        return nameShort(value);
+      }
+    };
+  }
+</script>

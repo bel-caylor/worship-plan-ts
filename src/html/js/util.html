@@ -56,6 +56,71 @@
     }
   })();
 
+  const isLikelyLocalhost = (() => {
+    try {
+      const host = String(window.location.hostname || '').toLowerCase();
+      if (!host) return false;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0') return true;
+      if (host.endsWith('.local')) return true;
+      if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+        if (host.startsWith('10.')) return true;
+        if (host.startsWith('192.168.')) return true;
+        if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  })();
+
+  // Local dev helper: simulate an editor profile on localhost so tabs stay accessible.
+  const devAuthOverride = (() => {
+    if (forcedGuestFlag) return null;
+    if (!isLikelyLocalhost) return null;
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const authParam = String(params.get('auth') || params.get('dev') || '').toLowerCase();
+      if (authParam === 'off' || authParam === 'guest') return null;
+    } catch (_) { /* ignore */ }
+    try {
+      const lsFlag = window.localStorage && window.localStorage.getItem && window.localStorage.getItem('wp.devAuthOverride');
+      if (String(lsFlag || '').toLowerCase() === 'off') return null;
+    } catch (_) { /* ignore */ }
+    return {
+      email: 'local.dev@worshipplanner.test',
+      permissions: 'Administrator',
+      first: 'Local',
+      last: 'Dev',
+      isAdmin: true,
+      isLoggedIn: true,
+      capabilities: {
+        canViewPlan: true,
+        canEditPlan: true,
+        canEditSongs: true,
+        canViewTeam: true,
+        canManageTeams: true,
+        canAdminAvailability: true
+      },
+      devOverride: true
+    };
+  })();
+
+  let devOverrideNoticeShown = false;
+  const applyDevAuthOverride = (profile) => {
+    if (!devAuthOverride) return profile;
+    const email = String(profile && profile.email || '').trim();
+    const caps = profile && profile.capabilities;
+    const hasCapabilities = !!(caps && (caps.canViewPlan || caps.canEditPlan || caps.canEditSongs || caps.canViewTeam || caps.canManageTeams || caps.canAdminAvailability));
+    if (email || hasCapabilities) return profile;
+    if (!devOverrideNoticeShown) {
+      devOverrideNoticeShown = true;
+      try {
+        console.info('[auth] Local dev auth override enabled. Append "?mode=guest" or set localStorage["wp.devAuthOverride"]="off" to view as guest.');
+      } catch (_) { /* ignore */ }
+    }
+    return Object.assign({}, devAuthOverride);
+  };
+
   const DEFAULT_CAPABILITIES = {
     canEditPlan: false,
     canEditSongs: false,
@@ -97,7 +162,8 @@
   }
 
   function setAuthState(profile, { ready = false } = {}) {
-    const normalized = normalizeAuthState(profile, ready);
+    const effectiveProfile = applyDevAuthOverride(profile);
+    const normalized = normalizeAuthState(effectiveProfile, ready || Boolean(effectiveProfile && effectiveProfile.devOverride));
     window.__AUTH__ = normalized;
     window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || forcedGuestFlag || !normalized.capabilities.canEditPlan);
     dispatchAuthChanged(normalized);
@@ -110,12 +176,15 @@
       return setAuthState(profile, { ready: true });
     } catch (err) {
       console.warn('Auth check failed', err);
-      return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: false });
+      const fallbackReady = Boolean(devAuthOverride);
+      return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: fallbackReady });
     }
   }
 
   window.__FORCE_GUEST__ = forcedGuestFlag;
-  window.__AUTH__ = normalizeAuthState(typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null, Boolean(window.__VIEWER__));
+  const initialProfile = applyDevAuthOverride(typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null);
+  const initialReady = Boolean(window.__VIEWER__) || Boolean(initialProfile && initialProfile.devOverride);
+  window.__AUTH__ = normalizeAuthState(initialProfile, initialReady);
   window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || !window.__AUTH__.capabilities.canEditPlan);
   dispatchAuthChanged(window.__AUTH__);
   refreshAuthContext();

@@ -1,0 +1,192 @@
+<div x-data="serviceViewerApp()" x-init="init()" class="h-full flex flex-col bg-gray-50">
+  <div class="border-b bg-blue-800 px-4 py-3 flex items-center gap-3">
+    <label class="text-sm text-white sr-only">Service</label>
+    <select class="form-control form-control--dense min-w-[240px]"
+      x-model="selectedServiceId"
+      @change="onServiceChange()"
+      :disabled="loadingServices">
+      <option value="">Select a service...</option>
+      <template x-for="svc in services" :key="svc.id">
+        <option :value="svc.id" x-text="formatServiceLabel(svc)"></option>
+      </template>
+    </select>
+    <div class="flex-1"></div>
+    <span class="inline-header-flex text-sm text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1 rounded"
+      x-show="loadingServices">
+      <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
+        <path d="M21 12a9 9 0 0 1-9 9"></path>
+      </svg>
+      <span>Syncing services...</span>
+    </span>
+  </div>
+
+  <div class="flex-1 min-h-0 overflow-auto p-4">
+    <div class="p-4">
+      <div class="mb-4" x-show="selectedServiceId">
+        <div class="text-2xl font-semibold text-gray-900" x-text="formatServiceLabel(getSelectedService())"></div>
+      </div>
+
+      <div class="relative">
+        <div class="border-b px-2 app-tabs app-tabs--segment">
+          <button type="button"
+            class="app-tab"
+            :class="activeTab==='order' ? 'is-active' : ''"
+            @click="activeTab='order'">
+            Order of Worship
+          </button>
+          <button type="button"
+            class="app-tab"
+            :class="activeTab==='team' ? 'is-active' : ''"
+            @click="activeTab='team'">
+            Team
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4 bg-white border rounded-md">
+        <div x-show="activeTab==='order'" x-cloak>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold">Order of Worship</h2>
+            <span class="text-sm text-gray-500" x-show="loadingDetails">Loading...</span>
+          </div>
+          <div class="text-sm text-gray-500" x-show="!selectedServiceId">
+            Select a service to view its order.
+          </div>
+          <div class="text-sm text-rose-600 mb-2" x-show="orderError" x-text="orderError"></div>
+          <div class="space-y-3" x-show="selectedServiceId && orderItems.length">
+            <template x-for="(item, idx) in orderItems" :key="idx">
+              <div class="border rounded-lg">
+                <div class="px-4 py-3 flex flex-wrap">
+                  <div class="text-sm text-gray-700 flex flex-wrap items-center gap-1">
+                    <button type="button"
+                      class="text-blue-700 border border-blue-200 bg-white rounded-full w-6 h-6 inline-flex items-center justify-center shadow-sm transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                      @click="toggleRow(idx, item)"
+                      aria-label="Toggle details"
+                      x-show="isSongItem(item) || isScriptureItem(item)">
+                      <svg class="w-3 h-3 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        :class="isExpanded(idx) ? 'rotate-180' : ''">
+                        <path d="M6 9l6 6 6-6"></path>
+                      </svg>
+                    </button>
+                    <span class="uppercase font-semibold" x-text="item.itemType || 'Item'"></span>
+                    <span class="text-gray-400" x-show="item.detail">&nbsp;-&nbsp;</span>
+                    <span class="font-semibold text-gray-900" x-show="item.detail" x-text="item.detail"></span>
+                    <span class="text-gray-400" x-show="item.leader">&nbsp;-&nbsp;</span>
+                    <span x-show="item.leader" x-text="item.leader"></span>
+                    <span class="text-gray-400" x-show="item.notes">&nbsp;-&nbsp;</span>
+                    <span class="text-blue-700 font-semibold" x-show="item.notes" x-text="item.notes"></span>
+                  </div>
+                </div>
+                <div x-show="isExpanded(idx)" x-transition class="border-t px-4 py-3 bg-gray-50 text-sm">
+                  <template x-if="isSongItem(item)">
+                    <div class="space-y-4"
+                      x-data="{
+                        get info() {
+                          const _ = songsVersion;
+                          return songInfo(item.detail);
+                        },
+                        get media() {
+                          return songMediaState(item.detail);
+                        },
+                        get hasDetails() { return songHasDetails(this.info); }
+                      }">
+                      <div class="flex items-center justify-between mb-1">
+                        <h3 class="text-xl font-semibold text-gray-900" x-show="!isScriptureItem(item)" x-text="info.title || item.detail || item.itemType"></h3>
+                        <a class="btn btn--outline btn--xs" x-show="info.folderUrl"
+                          :href="info.folderUrl"
+                          target="_blank"
+                          rel="noopener">
+                          Open folder
+                        </a>
+                      </div>
+                      <div class="flex items-start gap-2 text-sm" x-show="!isScriptureItem(item)">
+                        <div class="font-medium text-gray-700">Media:</div>
+                        <div class="text-gray-500" x-show="media.loading">Loading files...</div>
+                        <ul x-show="!media.loading && media.files && media.files.length" class="space-y-1 inline-flex flex-wrap gap-2">
+                          <template x-for="(file, i) in media.files" :key="file.id || i">
+                            <li class="!mt-0">
+                              <a class="text-blue-600 hover:text-blue-800 hover:underline inline-flex items-center gap-1"
+                                :href="file.url" target="_blank" rel="noopener">
+                                <span x-text="fileIcon(file.mimeType)"></span>
+                                <span x-text="friendlyMediaName(file, info.title)"></span>
+                              </a>
+                            </li>
+                          </template>
+                        </ul>
+                        <div class="text-gray-500" x-show="!media.loading && media.message" x-text="media.message"></div>
+                      </div>
+                      <div x-show="info.lyrics">
+                        <div class="text-xs uppercase text-gray-500">Lyrics</div>
+                        <div class="bg-white border rounded p-3 max-h-72 overflow-auto font-mono text-sm whitespace-pre-line"
+                          x-text="info.lyrics"></div>
+                      </div>
+                      <div class="text-sm text-gray-500" x-show="!hasDetails && !$root.songsLoading && !isScriptureItem(item)">
+                        No additional song information available.
+                      </div>
+                      <div class="text-sm text-gray-500" x-show="!hasDetails && $root.songsLoading">
+                        Loading song information...
+                      </div>
+                    </div>
+                  </template>
+                  <template x-if="isScriptureItem(item)">
+                    <div class="space-y-2"
+                      x-data="{ ref: item.detail, passage: item.scriptureText, loading: false }"
+                      x-init="fetchScripture(ref, $data)">
+                      <div class="font-semibold text-gray-800" x-text="ref || 'Scripture'"></div>
+                      <div class="text-sm text-gray-500" x-show="loading">Fetching scripture...</div>
+                      <div class="text-gray-700 whitespace-pre-line" x-show="!loading" x-text="passage || 'Scripture text coming soon.'"></div>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="text-sm text-gray-500" x-show="selectedServiceId && !orderItems.length && !loadingDetails">
+            No order items saved for this service yet.
+          </div>
+        </div>
+
+        <div x-show="activeTab==='team'" x-cloak>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-lg font-semibold">Serving Teams</h2>
+            <span class="text-sm text-gray-500" x-show="loadingDetails">Loading...</span>
+          </div>
+          <div class="text-sm text-gray-500" x-show="!selectedServiceId">
+            Select a service to see assigned teams.
+          </div>
+          <div class="text-sm text-rose-600 mb-2" x-show="teamError" x-text="teamError"></div>
+          <div class="grid gap-4 md:grid-cols-2" x-show="selectedServiceId && teamAssignments.length">
+            <template x-for="team in teamAssignments" :key="team.teamType + (team.weeklyTeamName || '')">
+              <div class="border rounded-lg max-w-[240px]">
+                <div class="px-4 py-3 border-b bg-gray-50">
+                  <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
+                  <div class="text-xs text-gray-500" x-show="team.weeklyTeamName" x-text="'Weekly team: ' + team.weeklyTeamName"></div>
+                </div>
+                <div class="divide-y">
+                  <template x-for="(role, ridx) in team.roles" :key="ridx">
+                    <div class="px-4 py-3 flex items-center justify-between">
+                      <div>
+                        <div class="text-sm font-medium text-gray-900" x-text="role.roleName || role.roleType || 'Role'"></div>
+                        <div class="text-xs text-gray-500" x-show="role.notes" x-text="role.notes"></div>
+                      </div>
+                      <div class="text-sm text-gray-700">
+                        <div x-text="shortName(role.memberName)"></div>
+                      </div>
+                    </div>
+                  </template>
+                  <div class="px-4 py-3 text-sm text-gray-500" x-show="!team.roles || !team.roles.length">
+                    No assignments yet.
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="text-sm text-gray-500" x-show="selectedServiceId && !teamAssignments.length && !loadingDetails">
+            No team assignments recorded for this service yet.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
