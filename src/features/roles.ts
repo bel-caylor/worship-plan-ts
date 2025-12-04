@@ -1,5 +1,6 @@
 import { ROLES_COL, ROLES_SHEET } from '../constants';
 import { getSheetByName } from '../util/sheets';
+import { requestTokenEmail } from '../auth';
 
 type RolesListItem = {
   email: string;
@@ -138,12 +139,15 @@ export function memberExistsInRoles(input: { email: string }) {
 }
 
 export function getViewerProfile(): ViewerProfile {
-  let viewerEmail = '';
-  try {
-    const sessionEmail = Session.getActiveUser?.().getEmail?.();
-    viewerEmail = normalizeEmail(sessionEmail);
-  } catch (_) {
-    viewerEmail = '';
+  const tokenEmail = normalizeEmail(requestTokenEmail());
+  let viewerEmail = tokenEmail;
+  if (!viewerEmail) {
+    try {
+      const sessionEmail = Session.getActiveUser?.().getEmail?.();
+      viewerEmail = normalizeEmail(sessionEmail);
+    } catch (_) {
+      viewerEmail = '';
+    }
   }
 
   const emptyProfile: ViewerProfile = {

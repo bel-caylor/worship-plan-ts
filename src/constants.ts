@@ -98,3 +98,5 @@ export const SERVICE_TEAM_ASSIGNMENTS_COL = {
   status: 'Status',
   notes: 'Notes'
 } as const;
+
+export const AUTH_TOKEN_SECRET_KEY = 'AUTH_TOKEN_SECRET';

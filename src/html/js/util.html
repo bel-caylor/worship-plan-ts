@@ -1,4 +1,49 @@
 <script>
+  const AUTH_STORAGE_KEY = '__wpAuthToken';
+
+  function getStoredAuthToken() {
+    if (typeof window === 'undefined') return '';
+    try {
+      const stored = window.sessionStorage?.getItem(AUTH_STORAGE_KEY) || '';
+      return stored || window.__AUTH_TOKEN__ || '';
+    } catch (_) {
+      return window.__AUTH_TOKEN__ || '';
+    }
+  }
+
+  function setStoredAuthToken(token) {
+    window.__AUTH_TOKEN__ = token || '';
+    if (typeof window === 'undefined') return;
+    try {
+      if (token) {
+        window.sessionStorage?.setItem(AUTH_STORAGE_KEY, token);
+      } else {
+        window.sessionStorage?.removeItem(AUTH_STORAGE_KEY);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  function handleAuthMessage(evt) {
+    try {
+      if (!evt || !evt.origin || !evt.origin.includes('script.google.com')) return;
+      const data = evt.data;
+      if (data && data.type === 'auth-token' && typeof data.token === 'string') {
+        setStoredAuthToken(data.token);
+        refreshAuthContext();
+      }
+    } catch (_) { }
+  }
+
+  window.addEventListener('message', handleAuthMessage, false);
+
+  function openAdminLogin() {
+    const base = window.__BASE__ || `${location.origin}${location.pathname}`;
+    const loginUrl = `${base}${base.includes('?') ? '&' : '?'}view=login`;
+    window.open(loginUrl, 'worship-admin-login', 'width=520,height=640');
+  }
+
+  window.openAdminLogin = openAdminLogin;
+
   function callRpc(method, payload) {
     return new Promise((resolve, reject) => {
       const runner = (window.google && google.script && google.script.run) || null;
@@ -22,6 +67,10 @@
           ? window.__RPC_HEADERS__
           : {}
       );
+      const authToken = getStoredAuthToken();
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
 
       fetch(`${base}/exec`, {
         method: 'POST',

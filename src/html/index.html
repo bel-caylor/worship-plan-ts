@@ -120,11 +120,16 @@
           }
           return set;
         };
-        return {
-          route: 'services',
-          auth: initialAuth,
-          allowedRoutes: routesForAuth(initialAuth),
-          init() {
+      return {
+        route: 'services',
+        auth: initialAuth,
+        allowedRoutes: routesForAuth(initialAuth),
+        openAdminLogin() {
+          if (typeof window.openAdminLogin === 'function') {
+            window.openAdminLogin();
+          }
+        },
+        init() {
             const normalize = (value) => String(value || '').trim().toLowerCase();
             const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
             const fallbackRoute = () => {

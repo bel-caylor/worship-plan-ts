@@ -424,7 +424,7 @@
           <div class="text-xs text-gray-600" x-show="isGuest">
             Sign in to edit team assignments.
           </div>
-          <div class="flex-1 min-h-0 overflow-auto space-y-3">
+          <div class="flex-1 min-h-0 overflow-auto space-y-3 max-w-[280px]">
             <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
               <div class="border rounded">
               <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
@@ -438,13 +438,13 @@
                 </div>
                 <div class="divide-y">
                   <template x-for="(role, idx) in team.roles" :key="team.teamType + '-' + idx + '-' + (role.roleName || '')">
-                    <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-3">
-                      <div class="min-w-[140px]">
+                    <div class="pl-3 flex items-center justify-between gap-3">
+                      <div class="min-w-[100px]">
                         <div class="text-sm font-medium text-gray-800" x-text="role.roleName || role.roleType || 'Role'"></div>
                         <div class="text-xs text-gray-500" x-show="role.roleType && role.roleType !== role.roleName"
                           x-text="role.roleType"></div>
                       </div>
-                      <div class="flex flex-col gap-1 min-w-[220px] w-full sm:w-[280px]">
+                      <div class="flex flex-col gap-1 w-full min-w-[80px]">
                         <select class="form-control form-control--dense text-sm"
                           :class="(!role.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
                           :value="role.memberEmail || ''"
@@ -455,7 +455,6 @@
                             <option :value="member.email" x-text="member.display"></option>
                           </template>
                         </select>
-                        <div class="text-xs text-gray-500" x-show="role.memberEmail" x-text="role.memberEmail"></div>
                         <div class="text-xs text-amber-600" x-show="!teamMemberLookupLoaded">Loading roster...</div>
                         <div class="text-xs text-amber-600" x-show="role.status && role.status.toLowerCase() !== 'assigned'"
                           x-text="role.status"></div>

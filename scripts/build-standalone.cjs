@@ -16,6 +16,7 @@ const INCLUDE_FILES = [
   'apps-team',
   'apps-weekly-plan',
   'apps-availability',
+  'login',
   'service-viewer',
   'topbar',
   'songs',

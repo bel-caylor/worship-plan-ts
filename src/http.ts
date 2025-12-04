@@ -3,6 +3,7 @@ import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { getViewerProfile } from './features/roles';
 import { rpc } from './rpc';
+import { requestTokenEmail } from './auth';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
@@ -22,6 +23,11 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
     return ContentService
       .createTextOutput(JSON.stringify({ files }))
       .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (viewMode === 'login') {
+    const tplLogin = HtmlService.createTemplateFromFile('login');
+    return tplLogin.evaluate().setTitle('Admin Login');
   }
 
   // HTML app
@@ -87,6 +93,9 @@ export function doPost(e?: GoogleAppsScript.Events.DoPost) {
   }
 
   const origin = resolveOrigin(e);
+  const headerAuth = (e as any)?.headers?.Authorization;
+  const bearer = typeof headerAuth === 'string' ? headerAuth.replace(/^Bearer\s+/i, '').trim() : '';
+  global.__REQUEST_AUTH_TOKEN__ = bearer || '';
 
   Logger.log(`doPost origin=%s method=%s`, origin || '???', parsed?.method || '');
 
@@ -98,6 +107,8 @@ export function doPost(e?: GoogleAppsScript.Events.DoPost) {
   } catch (err) {
     const message = err && (err as Error).message ? (err as Error).message : 'RPC failed';
     return makeJsonResponse({ ok: false, error: message }, origin);
+  } finally {
+    global.__REQUEST_AUTH_TOKEN__ = '';
   }
 }
 

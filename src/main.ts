@@ -4,6 +4,7 @@ import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from '
 import { buildLeadersFromPlanner } from './features/leaders';
 import { getFilesForFolderUrl } from './util/drive';
 import { rpc } from './rpc';
+import { issueAuthToken } from './auth';
 
 // Top-level wrappers so Apps Script Run menu can see them
 export function onOpen() {
@@ -25,6 +26,7 @@ global.doPost = doPost;
 global.doOptions = doOptions;
 global.rpc = rpc;
 global.getFilesForFolderUrl = getFilesForFolderUrl;
+global.issueAuthToken = issueAuthToken;
 
 global.linkSongMedia = linkSongMedia;
 global.buildLeadersFromPlanner = buildLeadersFromPlanner;
