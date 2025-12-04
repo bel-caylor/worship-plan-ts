@@ -102,6 +102,7 @@
     }
   } catch (_) {}
   function songsApp(mode = 'default') {
+    const START_AUTH = (typeof window !== 'undefined' && window.__AUTH__) || null;
     const IS_GUEST = !!(window.__GUEST__);
     const normalizedMode = String(mode || '').toLowerCase();
     const isModal = normalizedMode === 'modal';
@@ -151,6 +152,7 @@
     });
 
     return {
+      auth: START_AUTH,
       isGuest: IS_GUEST,
       isModalContext: isModal,
       isEmbedded,
@@ -199,7 +201,21 @@
       _pendingSelectTitle: '',
       _cleanupFns: [],
 
+      bindAuthEvents() {
+        const apply = (authState) => {
+          this.auth = authState || null;
+          const forcedGuest = Boolean((typeof window !== 'undefined' && window.__FORCE_GUEST__));
+          const canEdit = Boolean(authState && authState.capabilities && authState.capabilities.canEditSongs);
+          this.isGuest = forcedGuest || !canEdit;
+        };
+        apply((typeof window !== 'undefined' && window.__AUTH__) || null);
+        try {
+          document.addEventListener('app-auth-changed', (evt) => apply(evt.detail || null));
+        } catch (_) { /* ignore */ }
+      },
+
       async init() {
+        this.bindAuthEvents();
         await this.bootstrapLayout();
         await this.ensureRowsLoaded();
 

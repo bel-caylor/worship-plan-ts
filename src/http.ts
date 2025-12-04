@@ -1,12 +1,19 @@
 import { getSongsWithLinksForView } from './features/songs';
 import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
+import { getViewerProfile } from './features/roles';
 import { rpc } from './rpc';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
   const viewMode = String(e?.parameter?.mode || e?.parameter?.view || '').toLowerCase();
-  const guestMode = viewMode === 'guest';
+  const viewerProfile = (() => {
+    try { return getViewerProfile(); }
+    catch (_) { return null; }
+  })();
+  const enforcedGuest = viewMode === 'guest';
+  const defaultGuest = !(viewerProfile?.capabilities?.canEditPlan);
+  const guestMode = enforcedGuest || defaultGuest;
 
   // JSON API: list files for a folder
   if (action === 'files') {
@@ -22,6 +29,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   tpl.rowsData = getSongsWithLinksForView();
   try { tpl.servicesData = listServices(); } catch (_) { tpl.servicesData = { items: [] }; }
   tpl.guestMode = guestMode;
+  tpl.viewerProfile = viewerProfile;
   try {
     // Provide the deployed Web App base URL to client for fetch fallbacks
     // Note: returns null when not deployed as a Web App

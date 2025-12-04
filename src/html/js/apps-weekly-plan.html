@@ -1,8 +1,9 @@
 <script>
   function weeklyPlanApp() {
-    const IS_GUEST = !!(window.__GUEST__);
+    const START_AUTH = (typeof window !== 'undefined' && window.__AUTH__) || null;
     return {
-      isGuest: IS_GUEST,
+      auth: START_AUTH,
+      isGuest: !!(window.__GUEST__),
       showDetails: false,
       showOrder: false,
       activeContentTab: 'scripture',
@@ -29,6 +30,15 @@
       teamRoleDefaultsLoaded: false,
       teamRoleDefaultsLoading: false,
       teamRoleDefaults: { entries: [], byKey: {}, bySimple: {} },
+      teamMemberLookupLoaded: false,
+      teamMemberLookupLoading: false,
+      teamMemberLookup: {},
+      teamAssignmentsDirty: false,
+      teamAssignmentsSaving: false,
+      teamAssignmentsSaveError: '',
+      teamAssignmentsSaveMessage: '',
+      teamAssignmentChanges: {},
+      teamAssignmentBaseline: {},
       // service detail autosave
       savingDetails: false,
       saveDetailsTimer: null,
@@ -72,7 +82,21 @@
       batchCreateLoading: false,
       batchCreateError: '',
 
+      bindAuthEvents() {
+        const apply = (authState) => {
+          this.auth = authState || null;
+          const forcedGuest = Boolean((typeof window !== 'undefined' && window.__FORCE_GUEST__));
+          const canEdit = Boolean(authState && authState.capabilities && authState.capabilities.canEditPlan);
+          this.isGuest = forcedGuest || !canEdit;
+        };
+        apply((typeof window !== 'undefined' && window.__AUTH__) || null);
+        try {
+          document.addEventListener('app-auth-changed', (evt) => apply(evt.detail || null));
+        } catch (_) { /* ignore */ }
+      },
+
       init() {
+        this.bindAuthEvents();
         const ctx = (window.APP_CTX || {});
         const defs = ctx.defaults || {};
         this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
@@ -482,6 +506,12 @@
         this.teamAssignments = [];
         this.teamAssignmentsError = '';
         this.teamAssignmentsLoading = false;
+        this.teamAssignmentsSaving = false;
+        this.teamAssignmentsSaveError = '';
+        this.teamAssignmentsSaveMessage = '';
+        this.teamAssignmentsDirty = false;
+        this.teamAssignmentChanges = {};
+        this.teamAssignmentBaseline = {};
       },
 
       resetRecommendations() {
@@ -612,12 +642,15 @@
           return;
         }
         await this.ensureTeamRoleDefaultsLoaded();
+        await this.ensureTeamMemberLookup();
         this.teamAssignmentsLoading = true;
         this.teamAssignmentsError = '';
+        this.teamAssignmentsSaveError = '';
+        this.teamAssignmentsSaveMessage = '';
         try {
           const res = await callRpc('getServiceTeamAssignments', { serviceId: targetId });
           const list = Array.isArray(res?.teams) ? res.teams : [];
-          this.teamAssignments = list.map(team => {
+          const normalized = list.map(team => {
             let roleOrder = this.normalizeRoleOrderList(team?.roleOrder);
             if (!roleOrder.length) {
               const fallback = this.lookupTeamRoleOrder(team?.teamType, team?.weeklyTeamName);
@@ -631,7 +664,8 @@
               status: String(role?.status || ''),
               notes: String(role?.notes || '')
             })) : [];
-            const roles = this.sortRolesByDefaults(mappedRoles, roleOrder);
+            const withPlaceholders = this.ensureRolePlaceholders(mappedRoles, roleOrder, team?.teamType, team?.weeklyTeamName);
+            const roles = this.sortRolesByDefaults(withPlaceholders, roleOrder);
             return {
               teamType: String(team?.teamType || 'Team'),
               weeklyTeamName: String(team?.weeklyTeamName || ''),
@@ -639,6 +673,10 @@
               roles
             };
           });
+          this.teamAssignments = normalized;
+          this.teamAssignmentBaseline = this.buildTeamAssignmentBaseline(normalized);
+          this.teamAssignmentChanges = {};
+          this.teamAssignmentsDirty = false;
         } catch (err) {
           const message = (err && err.message) ? err.message : 'Failed to load team assignments.';
           if (/Unknown RPC method/i.test(message)) {
@@ -756,6 +794,33 @@
         return null;
       },
 
+      ensureRolePlaceholders(roles, roleOrder, teamType, weeklyTeamName) {
+        const list = Array.isArray(roles) ? roles.map(role => ({ ...role })) : [];
+        const seen = new Set(
+          list
+            .map(role => this.roleOrderKey(role?.roleName || role?.roleType))
+            .filter(Boolean)
+        );
+        let orderList = Array.isArray(roleOrder) && roleOrder.length ? roleOrder : this.lookupTeamRoleOrder(teamType, weeklyTeamName);
+        orderList = this.normalizeRoleOrderList(orderList);
+        orderList.forEach(name => {
+          const key = this.roleOrderKey(name);
+          if (key && !seen.has(key)) {
+            list.push({
+              roleName: name,
+              roleType: name,
+              memberName: '',
+              memberEmail: '',
+              status: '',
+              notes: '',
+              placeholder: true
+            });
+            seen.add(key);
+          }
+        });
+        return list;
+      },
+
       sortRolesByDefaults(roles, defaults) {
         if (!Array.isArray(roles) || !roles.length) return roles;
         if (!Array.isArray(defaults) || !defaults.length) return roles;
@@ -781,6 +846,201 @@
             if (labelB) return 1;
             return 0;
           });
+      },
+
+      buildTeamAssignmentBaseline(teams) {
+        const map = {};
+        (Array.isArray(teams) ? teams : []).forEach(team => {
+          const teamType = team?.teamType || '';
+          const weeklyTeamName = team?.weeklyTeamName || '';
+          (Array.isArray(team?.roles) ? team.roles : []).forEach(role => {
+            const key = this.teamAssignmentKey(teamType, role?.roleName || role?.roleType, weeklyTeamName);
+            map[key] = String(role?.memberEmail || '').trim().toLowerCase();
+          });
+        });
+        return map;
+      },
+
+      teamAssignmentKey(teamType, roleName, weeklyTeamName = '') {
+        const typeKey = this.roleOrderKey(teamType) || 'team';
+        const weeklyKey = this.roleOrderKey(weeklyTeamName) || '';
+        const roleKey = this.roleOrderKey(roleName) || 'role';
+        return [typeKey, weeklyKey, roleKey].filter(Boolean).join('::');
+      },
+
+      setTeamRoleMember(team, role, newEmailRaw) {
+        if (this.isGuest || !this.selectedServiceId) return;
+        const email = String(newEmailRaw || '').trim();
+        const key = this.teamAssignmentKey(team?.teamType, role?.roleName || role?.roleType, team?.weeklyTeamName);
+        const baseline = this.teamAssignmentBaseline?.[key] || '';
+        const normalizedEmail = email.toLowerCase();
+        const memberName = email ? this.memberNameByEmail(email) : '';
+        role.memberEmail = email;
+        role.memberName = memberName || role.memberName || '';
+        if (!email && !baseline) {
+          delete this.teamAssignmentChanges[key];
+        } else if (normalizedEmail && normalizedEmail === baseline) {
+          delete this.teamAssignmentChanges[key];
+        } else if (!email && baseline) {
+          this.teamAssignmentChanges[key] = {
+            serviceId: this.selectedServiceId,
+            serviceType: this.form?.type || '',
+            teamType: team?.teamType || 'Team',
+            weeklyTeamName: team?.weeklyTeamName || '',
+            roleName: role?.roleName || role?.roleType || 'Role',
+            roleType: role?.roleType || role?.roleName || 'Role',
+            memberEmail: '',
+            memberName: ''
+          };
+        } else {
+          this.teamAssignmentChanges[key] = {
+            serviceId: this.selectedServiceId,
+            serviceType: this.form?.type || '',
+            teamType: team?.teamType || 'Team',
+            weeklyTeamName: team?.weeklyTeamName || '',
+            roleName: role?.roleName || role?.roleType || 'Role',
+            roleType: role?.roleType || role?.roleName || 'Role',
+            memberEmail: email,
+            memberName
+          };
+        }
+        this.teamAssignmentsDirty = Object.keys(this.teamAssignmentChanges).length > 0;
+        this.teamAssignmentsSaveMessage = '';
+      },
+
+      async saveTeamAssignments() {
+        if (this.isGuest || !this.selectedServiceId) return;
+        const changes = Object.values(this.teamAssignmentChanges || {});
+        if (!changes.length) return;
+        this.teamAssignmentsSaving = true;
+        this.teamAssignmentsSaveError = '';
+        try {
+          const payload = changes.map(entry => ({
+            ...entry,
+            serviceId: this.selectedServiceId,
+            serviceType: this.form?.type || '',
+            memberName: entry.memberName || this.memberNameByEmail(entry.memberEmail) || ''
+          }));
+          await callRpc('saveServiceTeamAssignments', { assignments: payload });
+          this.teamAssignmentsSaveMessage = 'Team assignments saved.';
+          this.teamAssignmentChanges = {};
+          this.teamAssignmentsDirty = false;
+          this.teamAssignmentBaseline = this.buildTeamAssignmentBaseline(this.teamAssignments);
+        } catch (err) {
+          console.error(err);
+          this.teamAssignmentsSaveError = (err && err.message) ? err.message : 'Failed to save team assignments.';
+        } finally {
+          this.teamAssignmentsSaving = false;
+        }
+      },
+
+      async ensureTeamMemberLookup() {
+        if (this.teamMemberLookupLoaded || this.teamMemberLookupLoading) return;
+        this.teamMemberLookupLoading = true;
+        try {
+          const res = await callRpc('listRoles', null);
+          const rows = Array.isArray(res?.items) ? res.items : [];
+          this.teamMemberLookup = this.buildMemberLookup(rows);
+        } catch (err) {
+          console.warn('Unable to load team roster', err);
+          this.teamMemberLookup = {};
+        } finally {
+          this.teamMemberLookupLoaded = true;
+          this.teamMemberLookupLoading = false;
+        }
+      },
+
+      buildMemberLookup(rows) {
+        const map = {};
+        (Array.isArray(rows) ? rows : []).forEach(row => {
+          const email = String(row?.email || '').trim();
+          if (!email) return;
+          const first = String(row?.first || '').trim();
+          const last = String(row?.last || '').trim();
+          const baseLabel = [first, last].filter(Boolean).join(' ') || email;
+          const roles = this.parseRoleList(row?.role);
+          map[email.toLowerCase()] = {
+            email,
+            first,
+            last,
+            label: `${baseLabel} (${email})`.trim(),
+            shortLabel: first || baseLabel.split(' ')[0] || email,
+            roles,
+            rolesNormalized: roles.map(r => this.normalizeTeamLabel(r)),
+            roleCanonicalKeys: roles.map(r => this.canonicalRoleKey(r)).filter(Boolean)
+          };
+        });
+        return map;
+      },
+
+      parseRoleList(value) {
+        return String(value || '')
+          .split(/[,;|]/)
+          .map(v => v.trim())
+          .filter(Boolean);
+      },
+
+      canonicalRoleKey(value) {
+        let base = String(value || '').trim().toLowerCase();
+        if (!base) return '';
+        base = base.replace(/\s*(\d+)$/, '').trim();
+        base = base.replace(/\s+(sp|special)$/i, '').trim();
+        return base.replace(/[^a-z0-9]+/g, '');
+      },
+
+      memberOptions() {
+        return Object.values(this.teamMemberLookup || {}).sort((a, b) => a.label.localeCompare(b.label));
+      },
+
+      memberOptionsForRoleType(roleType, role = null) {
+        const normalizedType = this.normalizeTeamLabel(roleType) || this.normalizeTeamLabel(role?.roleName);
+        const options = this.memberOptions();
+        let filtered = normalizedType
+          ? options.filter(opt => Array.isArray(opt.rolesNormalized) && opt.rolesNormalized.includes(normalizedType))
+          : options;
+        const canonicalType = this.canonicalRoleKey(roleType) || this.canonicalRoleKey(role?.roleName);
+        if (canonicalType) {
+          const canonicalFiltered = options.filter(opt =>
+            Array.isArray(opt.roleCanonicalKeys) && opt.roleCanonicalKeys.includes(canonicalType)
+          );
+          if (canonicalFiltered.length) filtered = canonicalFiltered;
+        }
+        if (!filtered.length) {
+          filtered = options;
+        }
+        const assignedEmailRaw = role ? String(role.memberEmail || '').trim() : '';
+        if (assignedEmailRaw) {
+          const assignedEmail = assignedEmailRaw.toLowerCase();
+          const exists = filtered.some(opt => String(opt.email || '').trim().toLowerCase() === assignedEmail);
+          if (!exists) {
+            const label = role?.memberName || this.memberLabel(assignedEmailRaw) || assignedEmailRaw;
+            filtered = [
+              { email: assignedEmailRaw, label: `${label} (not in roster)` },
+              ...filtered
+            ];
+          }
+        }
+        return filtered.map(opt => ({
+          ...opt,
+          display: opt.shortLabel || opt.label || opt.email
+        }));
+      },
+
+      memberLabel(email, fallback = '') {
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return fallback || '';
+        return this.teamMemberLookup?.[key]?.label || fallback || email || '';
+      },
+
+      memberNameByEmail(email) {
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return '';
+        const info = this.teamMemberLookup?.[key];
+        if (!info) return '';
+        const first = String(info.first || '').trim();
+        const last = String(info.last || '').trim();
+        const name = [first, last].filter(Boolean).join(' ');
+        return name || info.shortLabel || info.label || email || '';
       },
 
       chapterCountFor(bookName) {

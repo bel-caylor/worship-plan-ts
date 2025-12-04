@@ -16,6 +16,9 @@
   <script id="services-json" type="application/json">
     <?!= JSON.stringify((servicesData && servicesData.items) ? servicesData.items : []).replace(/<\//g, '<\\/') ?>
   </script>
+  <script id="viewer-json" type="application/json">
+    <?!= JSON.stringify(typeof viewerProfile !== 'undefined' ? viewerProfile : null).replace(/<\//g, '<\\/') ?>
+  </script>
   <script>
     const parseJsonFallback = (text, fallback) => {
       if (!text || /<\?!=/.test(text)) return fallback;
@@ -24,10 +27,13 @@
 
     const rowsEl = document.getElementById('rows-json');
     const servicesEl = document.getElementById('services-json');
+    const viewerEl = document.getElementById('viewer-json');
     const existingRows = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
     const existingServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
+    const existingViewer = typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null;
     window.__ROWS__ = parseJsonFallback(rowsEl && rowsEl.textContent, existingRows);
     window.__SERVICES__ = parseJsonFallback(servicesEl && servicesEl.textContent, existingServices);
+    window.__VIEWER__ = parseJsonFallback(viewerEl && viewerEl.textContent, existingViewer);
 
     const baseTemplate = `<?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?>`;
     const guestTemplate = `<?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>`;
@@ -79,11 +85,11 @@
       <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
     </template>
 
-    <div x-show="route==='plan'" class="h-full flex-1 min-h-0 flex flex-col">
+    <div x-show="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan" class="h-full flex-1 min-h-0 flex flex-col">
       <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
     </div>
 
-    <div x-show="route==='team' && !window.__GUEST__" class="h-full flex-1 min-h-0">
+    <div x-show="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam" class="h-full flex-1 min-h-0">
       <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
     </div>
 
@@ -95,17 +101,56 @@
 
   <script>
     function app() {
+      const initialAuth = (typeof window !== 'undefined' && window.__AUTH__) || {
+        ready: false,
+        capabilities: { canViewTeam: false }
+      };
+      const routesForAuth = (authState) => {
+        const set = new Set(['songs', 'availability']);
+        if (authState && authState.capabilities && authState.capabilities.canViewPlan) {
+          set.add('plan');
+        }
+        if (authState && authState.capabilities && authState.capabilities.canViewTeam) {
+          set.add('team');
+        }
+        return set;
+      };
       return {
         route: 'plan',
+        auth: initialAuth,
+        allowedRoutes: routesForAuth(initialAuth),
         init() {
-          const isGuest = !!(window.__GUEST__);
-          const allowed = new Set(isGuest ? ['plan', 'songs', 'availability'] : ['plan', 'songs', 'team', 'availability']);
           const normalize = (value) => String(value || '').trim().toLowerCase();
           const parseHashRoute = () => normalize(location.hash.replace('#/', ''));
-          const setRoute = (value) => {
-            const next = allowed.has(value) ? value : 'plan';
-            this.route = next;
+          const fallbackRoute = () => {
+            if (this.allowedRoutes.has('plan')) return 'plan';
+            if (this.allowedRoutes.has('songs')) return 'songs';
+            if (this.allowedRoutes.has('availability')) return 'availability';
+            const first = this.allowedRoutes.values().next();
+            return first && first.value ? first.value : 'songs';
           };
+          const setRoute = (value) => {
+            const fallback = fallbackRoute();
+            const next = this.allowedRoutes.has(value) ? value : fallback;
+            this.route = next;
+            return next;
+          };
+          const ensureHash = () => {
+            if (!location.hash || location.hash === '#') {
+              location.hash = `#/${this.route}`;
+            }
+          };
+          const applyAuth = (authState) => {
+            this.auth = authState || initialAuth;
+            this.allowedRoutes = routesForAuth(this.auth);
+            const prevRoute = this.route;
+            const resolved = setRoute(prevRoute);
+            if (resolved !== prevRoute) {
+              location.hash = `#/${resolved}`;
+            }
+          };
+          applyAuth(this.auth);
+
           const params = (() => {
             try { return new URLSearchParams(location.search || ''); }
             catch (_) { return null; }
@@ -116,20 +161,29 @@
 
           const initialHashRoute = parseHashRoute();
           if (initialHashRoute) {
-            setRoute(initialHashRoute);
-          } else if (paramRoute) {
-            setRoute(paramRoute);
-            if (!location.hash || location.hash === '#') {
-              location.hash = `#/${this.route}`;
+            const resolved = setRoute(initialHashRoute);
+            if (resolved !== initialHashRoute) {
+              location.hash = `#/${resolved}`;
             }
+          } else if (paramRoute) {
+            const resolved = setRoute(paramRoute);
+            location.hash = `#/${resolved}`;
           } else {
-            setRoute('plan');
+            setRoute(this.route);
+            ensureHash();
           }
 
           window.addEventListener('hashchange', () => {
             const next = parseHashRoute() || 'plan';
-            setRoute(next);
+            const resolved = setRoute(next);
+            if (resolved !== next) {
+              location.hash = `#/${resolved}`;
+            }
           });
+
+          try {
+            document.addEventListener('app-auth-changed', (evt) => applyAuth(evt.detail || initialAuth));
+          } catch (_) { /* ignore */ }
         }
       }
     }

@@ -395,18 +395,40 @@
               </svg>
               <span>Loading team assignments…</span>
             </div>
-            <div x-show="teamAssignmentsError" x-cloak
-              class="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded"
-              x-text="teamAssignmentsError"></div>
-            <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
-              class="text-sm text-gray-600">
-              No team assignments have been added for this service yet.
+          <div x-show="teamAssignmentsError" x-cloak
+            class="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded"
+            x-text="teamAssignmentsError"></div>
+          <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
+            class="text-sm text-gray-600">
+            No team assignments have been added for this service yet.
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-3" x-show="teamAssignmentsSupported && selectedServiceId && !isGuest">
+            <div class="text-sm text-gray-700" x-show="teamAssignmentsDirty">You have unsaved team updates.</div>
+            <div class="flex-1"></div>
+            <div class="text-xs text-emerald-700" x-show="teamAssignmentsSaveMessage" x-text="teamAssignmentsSaveMessage"></div>
+            <div class="text-xs text-rose-600" x-show="teamAssignmentsSaveError" x-text="teamAssignmentsSaveError"></div>
+            <div class="flex items-center gap-2">
+              <button type="button" class="btn btn--muted btn--xs"
+                :disabled="teamAssignmentsSaving"
+                @click="loadTeamAssignments(selectedServiceId)">
+                Reload
+              </button>
+              <button type="button" class="btn btn--accent btn--xs"
+                :disabled="teamAssignmentsSaving || !teamAssignmentsDirty"
+                @click="saveTeamAssignments()">
+                <span x-show="!teamAssignmentsSaving">Save Team</span>
+                <span x-show="teamAssignmentsSaving">Saving...</span>
+              </button>
             </div>
-            <div class="flex-1 min-h-0 overflow-auto space-y-3">
-              <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
-                <div class="border rounded">
-                <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
-                  <div>
+          </div>
+          <div class="text-xs text-gray-600" x-show="isGuest">
+            Sign in to edit team assignments.
+          </div>
+          <div class="flex-1 min-h-0 overflow-auto space-y-3">
+            <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
+              <div class="border rounded">
+              <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
+                <div>
                     <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
                     <div class="text-xs text-gray-500" x-show="team.weeklyTeamName"
                       x-text="'Weekly team: ' + team.weeklyTeamName"></div>
@@ -416,15 +438,25 @@
                 </div>
                 <div class="divide-y">
                   <template x-for="(role, idx) in team.roles" :key="team.teamType + '-' + idx + '-' + (role.roleName || '')">
-                    <div class="px-3 py-2 flex items-center justify-between gap-3">
-                      <div>
+                    <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-3">
+                      <div class="min-w-[140px]">
                         <div class="text-sm font-medium text-gray-800" x-text="role.roleName || role.roleType || 'Role'"></div>
                         <div class="text-xs text-gray-500" x-show="role.roleType && role.roleType !== role.roleName"
                           x-text="role.roleType"></div>
                       </div>
-                      <div class="text-sm text-right text-gray-900">
-                        <div x-text="role.memberName || 'Unassigned'"></div>
+                      <div class="flex flex-col gap-1 min-w-[220px] w-full sm:w-[280px]">
+                        <select class="form-control form-control--dense text-sm"
+                          :class="(!role.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
+                          :value="role.memberEmail || ''"
+                          :disabled="isGuest || teamAssignmentsSaving || !teamMemberLookupLoaded"
+                          @change="setTeamRoleMember(team, role, $event.target.value)">
+                          <option value="">Open</option>
+                          <template x-for="member in memberOptionsForRoleType(role.roleName || role.roleType, role)" :key="member.email + '-' + team.teamType + '-' + (role.roleName || idx)">
+                            <option :value="member.email" x-text="member.display"></option>
+                          </template>
+                        </select>
                         <div class="text-xs text-gray-500" x-show="role.memberEmail" x-text="role.memberEmail"></div>
+                        <div class="text-xs text-amber-600" x-show="!teamMemberLookupLoaded">Loading roster...</div>
                         <div class="text-xs text-amber-600" x-show="role.status && role.status.toLowerCase() !== 'assigned'"
                           x-text="role.status"></div>
                       </div>

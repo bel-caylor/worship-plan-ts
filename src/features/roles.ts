@@ -12,12 +12,23 @@ type RolesListItem = {
   spanish: string;
 };
 
+type ViewerCapabilities = {
+  canViewPlan: boolean;
+  canEditPlan: boolean;
+  canEditSongs: boolean;
+  canViewTeam: boolean;
+  canManageTeams: boolean;
+  canAdminAvailability: boolean;
+};
+
 type ViewerProfile = {
   email: string;
   permissions: string;
   first: string;
   last: string;
   isAdmin: boolean;
+  isLoggedIn: boolean;
+  capabilities: ViewerCapabilities;
 };
 
 type UpdateRoleInput = {
@@ -40,11 +51,37 @@ type AddRoleInput = {
 
 const TEAM_SPLIT = /[,;|]/;
 const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
+const normalizePermission = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const canonicalizeRoleLabel = (value: unknown) => {
   const role = String(value ?? '').trim();
   if (!role) return '';
   return /^vocals?$/i.test(role) ? 'Vocal' : role;
 };
+
+const emptyCapabilities: ViewerCapabilities = {
+  canViewPlan: false,
+  canEditPlan: false,
+  canEditSongs: false,
+  canViewTeam: false,
+  canManageTeams: false,
+  canAdminAvailability: false
+};
+
+function computeCapabilities(permission: string | undefined | null) {
+  const normalized = normalizePermission(permission);
+  const isAdmin = normalized === 'administrator' || normalized === 'admin';
+  const isEditor = normalized === 'editor';
+  const isSubscriber = normalized === 'subscriber';
+  const capabilities: ViewerCapabilities = {
+    canViewPlan: isAdmin || isEditor || isSubscriber,
+    canEditPlan: isAdmin || isEditor,
+    canEditSongs: isAdmin || isEditor,
+    canViewTeam: isAdmin,
+    canManageTeams: isAdmin,
+    canAdminAvailability: isAdmin || isEditor
+  };
+  return { capabilities, isAdmin };
+}
 
 function acquireRolesLock(maxAttempts = 4, waitMs = 5000) {
   const baseDelay = 200;
@@ -114,7 +151,9 @@ export function getViewerProfile(): ViewerProfile {
     permissions: '',
     first: '',
     last: '',
-    isAdmin: false
+    isAdmin: false,
+    isLoggedIn: !!viewerEmail,
+    capabilities: { ...emptyCapabilities }
   };
 
   if (!viewerEmail) {
@@ -143,13 +182,15 @@ export function getViewerProfile(): ViewerProfile {
     const permissions = idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '';
     const first = idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '';
     const last = idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '';
-    const permLower = permissions.toLowerCase();
+    const { capabilities, isAdmin } = computeCapabilities(permissions);
     return {
       email: viewerEmail,
       permissions,
       first,
       last,
-      isAdmin: permLower === 'administrator' || permLower === 'admin'
+      isAdmin,
+      isLoggedIn: true,
+      capabilities
     };
   }
 

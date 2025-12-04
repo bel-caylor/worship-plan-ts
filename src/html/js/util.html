@@ -46,6 +46,81 @@
     });
   }
 
+  const forcedGuestFlag = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      const mode = String(params.get('mode') || params.get('view') || '').toLowerCase();
+      return mode === 'guest';
+    } catch (_) {
+      return false;
+    }
+  })();
+
+  const DEFAULT_CAPABILITIES = {
+    canEditPlan: false,
+    canEditSongs: false,
+    canViewTeam: false,
+    canManageTeams: false,
+    canAdminAvailability: false
+  };
+  const DEFAULT_AUTH = {
+    email: '',
+    permissions: '',
+    first: '',
+    last: '',
+    isAdmin: false,
+    isLoggedIn: false,
+    capabilities: { ...DEFAULT_CAPABILITIES },
+    ready: false
+  };
+
+  const dispatchAuthChanged = (auth) => {
+    try {
+      document.dispatchEvent(new CustomEvent('app-auth-changed', { detail: auth }));
+    } catch (_) { /* ignore */ }
+  };
+
+  function normalizeAuthState(profile, ready = false) {
+    const raw = profile && typeof profile === 'object' ? profile : {};
+    const capabilities = Object.assign({}, DEFAULT_CAPABILITIES, raw.capabilities || {});
+    const normalized = Object.assign({}, DEFAULT_AUTH, raw, {
+      capabilities,
+      ready: ready || Boolean(raw.ready)
+    });
+    if (typeof normalized.isLoggedIn !== 'boolean') {
+      normalized.isLoggedIn = Boolean(normalized.email);
+    }
+    if (typeof normalized.isAdmin !== 'boolean') {
+      normalized.isAdmin = Boolean(capabilities.canManageTeams);
+    }
+    return normalized;
+  }
+
+  function setAuthState(profile, { ready = false } = {}) {
+    const normalized = normalizeAuthState(profile, ready);
+    window.__AUTH__ = normalized;
+    window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || forcedGuestFlag || !normalized.capabilities.canEditPlan);
+    dispatchAuthChanged(normalized);
+    return normalized;
+  }
+
+  async function refreshAuthContext() {
+    try {
+      const profile = await callRpc('getViewerProfile', null);
+      return setAuthState(profile, { ready: true });
+    } catch (err) {
+      console.warn('Auth check failed', err);
+      return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: false });
+    }
+  }
+
+  window.__FORCE_GUEST__ = forcedGuestFlag;
+  window.__AUTH__ = normalizeAuthState(typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null, Boolean(window.__VIEWER__));
+  window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || !window.__AUTH__.capabilities.canEditPlan);
+  dispatchAuthChanged(window.__AUTH__);
+  refreshAuthContext();
+  window.refreshAuthContext = refreshAuthContext;
+
   // Minimal toast-style notifier for consistent UX (client-only)
   function notify(message, type = 'info', ms = 2200) {
     try {
