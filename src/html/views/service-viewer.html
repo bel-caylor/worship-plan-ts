@@ -91,14 +91,22 @@
                         },
                         get hasDetails() { return songHasDetails(this.info); }
                       }">
-                      <div class="flex items-center justify-between mb-1">
+                      <div class="flex items-center justify-between gap-2 mb-1">
                         <h3 class="text-xl font-semibold text-gray-900" x-show="!isScriptureItem(item)" x-text="info.title || item.detail || item.itemType"></h3>
-                        <a class="btn btn--outline btn--xs" x-show="info.folderUrl"
-                          :href="info.folderUrl"
-                          target="_blank"
-                          rel="noopener">
-                          Open folder
-                        </a>
+                        <div class="flex gap-2">
+                          <a class="btn btn--outline btn--xs" x-show="info.folderUrl"
+                            :href="info.folderUrl"
+                            target="_blank"
+                            rel="noopener">
+                            Open folder
+                          </a>
+                          <a class="btn btn--surface btn--xs text-blue-700" x-show="info.link"
+                            :href="info.link"
+                            target="_blank"
+                            rel="noopener">
+                            Link Audio
+                          </a>
+                        </div>
                       </div>
                       <div class="flex items-start gap-2 text-sm" x-show="!isScriptureItem(item)">
                         <div class="font-medium text-gray-700">Media:</div>
