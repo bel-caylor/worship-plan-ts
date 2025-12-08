@@ -74,7 +74,7 @@
             x-model.number="batchWeeks" x-ref="batchWeeks">
         </label>
       </div>
-      <div class="text-sm text-rose-600 mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
+      <div class="text-error mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
       <div class="flex justify-end gap-2">
         <button type="button" class="btn btn--muted"
           @click="closeCreateServicesModal()"
@@ -163,10 +163,10 @@
       </div>
 
       <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='scripture'" x-cloak>
-        <div class="border rounded w-full bg-white flex-1 min-h-0 flex flex-col">
+        <div class="panel w-full flex-1 min-h-0 flex flex-col">
           <div class="px-3 flex items-center justify-between">
             <span class="font-medium sr-only">Scripture</span>
-            <div class="text-xs text-gray-500" x-show="savingDetails || savedAt">
+            <div class="text-hint" x-show="savingDetails || savedAt">
               <span x-show="savingDetails">Saving…</span>
               <span x-show="!savingDetails && savedAt">Saved</span>
             </div>
@@ -233,12 +233,12 @@
         <div x-show="!showOrder" x-cloak class="border rounded p-4 text-sm text-gray-600">
           Save or load a service to build the order of worship.
         </div>
-        <div class="border rounded bg-white p-3 flex-1 min-h-0 flex flex-col" x-show="showOrder" x-cloak>
+        <div class="panel panel--compact flex-1 min-h-0 flex flex-col" x-show="showOrder" x-cloak>
           <div class="flex items-center justify-between mb-2">
             <div class="flex items-center gap-3">
               <span class="font-medium sr-only">Order of Worship</span>
-              <span class="text-xs text-gray-500" x-show="savingOrder">Saving…</span>
-              <span class="text-xs text-gray-500" x-show="!savingOrder && savedAt">Saved</span>
+              <span class="text-hint" x-show="savingOrder">Saving…</span>
+              <span class="text-hint" x-show="!savingOrder && savedAt">Saved</span>
             </div>
             <div class="flex gap-2">
               <template x-if="!isGuest">
@@ -377,7 +377,7 @@
       </div>
 
       <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='team'" x-cloak>
-        <div class="border rounded p-4 bg-white space-y-4">
+        <div class="panel panel--padded space-y-4">
           <div x-show="!teamAssignmentsSupported" x-cloak
             class="alert alert--warning"
             x-text="teamAssignmentsUnsupportedReason || 'Team assignments are not available in this environment yet.'">
@@ -396,7 +396,7 @@
               <span>Loading team assignments…</span>
             </div>
           <div x-show="teamAssignmentsError" x-cloak
-            class="text-sm text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded"
+            class="text-error bg-rose-50 border border-rose-200 px-3 py-2 rounded"
             x-text="teamAssignmentsError"></div>
           <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
             class="text-sm text-gray-600">
@@ -430,10 +430,10 @@
               <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
                 <div>
                     <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
-                    <div class="text-xs text-gray-500" x-show="team.weeklyTeamName"
+                    <div class="text-hint" x-show="team.weeklyTeamName"
                       x-text="'Weekly team: ' + team.weeklyTeamName"></div>
                   </div>
-                  <div class="text-xs text-gray-500" x-show="team.roles && team.roles.length"
+                  <div class="text-hint" x-show="team.roles && team.roles.length"
                     x-text="team.roles.length + ' roles'"></div>
                 </div>
                 <div class="divide-y">
@@ -441,7 +441,7 @@
                     <div class="pl-3 flex items-center justify-between gap-3">
                       <div class="min-w-[100px]">
                         <div class="text-sm font-medium text-gray-800" x-text="role.roleName || role.roleType || 'Role'"></div>
-                        <div class="text-xs text-gray-500" x-show="role.roleType && role.roleType !== role.roleName"
+                        <div class="text-hint" x-show="role.roleType && role.roleType !== role.roleName"
                           x-text="role.roleType"></div>
                       </div>
                       <div class="flex flex-col gap-1 w-full min-w-[80px]">
@@ -461,7 +461,7 @@
                       </div>
                     </div>
                   </template>
-                  <div class="px-3 py-2 text-sm text-gray-500" x-show="!team.roles || !team.roles.length">
+                  <div class="px-3 py-2 text-muted" x-show="!team.roles || !team.roles.length">
                     No roles assigned in this team yet.
                   </div>
                 </div>
@@ -560,7 +560,7 @@
         </style>
         <div class="flex gap-3 h-full">
           <div class="w-[250px] flex-shrink-0 h-full overflow-auto border rounded">
-            <div class="text-xs text-gray-500 px-2 py-1 border-b">References</div>
+            <div class="text-hint px-2 py-1 border-b">References</div>
             <template x-if="form.scripture">
               <div class="px-2 py-2 border-b border-amber-200 bg-amber-50/70">
                 <div class="mb-1">
@@ -584,7 +584,7 @@
                 </template>
               </div>
             </template>
-            <div class="text-xs text-gray-500 px-2 py-3" x-show="!scriptureSuggestions.length">
+            <div class="text-hint px-2 py-3" x-show="!scriptureSuggestions.length">
               No AI suggestions yet — enter a reference manually or tweak the search inputs.
             </div>
           </div>

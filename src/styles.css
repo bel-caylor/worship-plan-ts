@@ -177,6 +177,22 @@
         @apply border-gray-300 hover:bg-gray-100 hover:text-blue-700;
     }
 
+    .tab-panel {
+        @apply bg-white border-b border-x border-gray-200 rounded-md shadow-sm;
+    }
+
+    .tab-panel__section {
+        @apply py-4 sm:p-6 border-gray-100;
+    }
+
+    .tab-panel__section:first-child {
+        @apply border-t-0;
+    }
+
+    .tab-panel__section--flush {
+        @apply p-0;
+    }
+
     .app-table {
         width: 100%;
         border-collapse: collapse;
@@ -231,6 +247,30 @@
 
     .alert--muted {
         @apply border-gray-200 bg-gray-50 text-gray-700;
+    }
+
+    .text-muted {
+        @apply text-sm text-gray-500;
+    }
+
+    .text-hint {
+        @apply text-xs text-gray-500;
+    }
+
+    .text-error {
+        @apply text-sm text-rose-600;
+    }
+
+    .panel {
+        @apply border rounded bg-white;
+    }
+
+    .panel--padded {
+        @apply p-4;
+    }
+
+    .panel--compact {
+        @apply p-3;
     }
 
     .badge {

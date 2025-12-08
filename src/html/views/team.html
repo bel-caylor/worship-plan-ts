@@ -82,7 +82,7 @@
                 </button>
               </div>
             </div>
-            <div class="text-sm text-gray-500" x-show="!weeklyTeamRolesDraft.length">
+            <div class="text-muted" x-show="!weeklyTeamRolesDraft.length">
               No roles defined yet. Use “Add role” to start building this team.
             </div>
             <div class="border rounded overflow-x-auto" x-show="weeklyTeamRolesDraft.length">
@@ -183,8 +183,8 @@
       </button>
     </div>
     <div class="flex-1 min-h-0 overflow-auto px-4 pb-4 space-y-6">
-      <div class="text-sm text-gray-500" x-show="scheduleLoading">Loading upcoming services...</div>
-      <div class="text-sm text-gray-500" x-show="!scheduleLoading && !scheduleLayouts.length">
+      <div class="text-muted" x-show="scheduleLoading">Loading upcoming services...</div>
+      <div class="text-muted" x-show="!scheduleLoading && !scheduleLayouts.length">
         No upcoming services to schedule.
       </div>
       <template x-for="layout in scheduleLayouts" :key="layout.teamType">
@@ -205,7 +205,7 @@
                   <template x-for="column in layout.columns" :key="column.id">
                     <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
                       <div class="font-semibold" x-text="column.service.label"></div>
-                      <div class="text-xs text-gray-500" x-text="column.service.ordinalLabel"></div>
+                      <div class="text-hint" x-text="column.service.ordinalLabel"></div>
                       <div class="text-xs text-gray-400"
                         x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
                         x-text="column.teamLabel"></div>
@@ -261,8 +261,8 @@
         </select>
       </div>
       <div class="flex-1 min-h-0 overflow-auto">
-        <div class="p-4 text-sm text-gray-500" x-show="loading">Loading team...</div>
-        <div class="p-4 text-sm text-gray-500" x-show="!loading && !filteredRoles().length">No matches.</div>
+        <div class="p-4 text-muted" x-show="loading">Loading team...</div>
+        <div class="p-4 text-muted" x-show="!loading && !filteredRoles().length">No matches.</div>
         <ul>
           <template x-for="person in filteredRoles()" :key="person.email">
             <li class="border-b px-3 py-2 cursor-pointer hover:bg-blue-50 text-sm"
@@ -296,7 +296,7 @@
                 x-text="(editPermissions || selected?.permissions || '').toUpperCase()"></span>
             </div>
           </div>
-          <div class="text-xs text-gray-500" x-show="selected?.spanish">
+          <div class="text-hint" x-show="selected?.spanish">
             Spanish: <span class="font-semibold" x-text="selected?.spanish"></span>
           </div>
         </div>
@@ -394,8 +394,8 @@
       </button>
     </div>
     <div class="flex-1 min-h-0 overflow-auto px-4 pb-4">
-      <div class="text-sm text-gray-500" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
-      <div class="text-sm text-gray-500" x-show="!weeklyTeamsLoading && !weeklyTeamLayouts.length">
+      <div class="text-muted" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
+      <div class="text-muted" x-show="!weeklyTeamsLoading && !weeklyTeamLayouts.length">
         No weekly teams yet. Create a team to get started.
       </div>
       <div class="flex flex-col gap-6">
@@ -427,7 +427,7 @@
                   <template x-for="team in group.teams" :key="team.key">
                     <th class="text-left font-medium px-3 py-2 align-top">
                       <div class="font-semibold" x-text="team.teamName || '(untitled)'"></div>
-                      <div class="text-xs text-gray-500" x-text="team.description"></div>
+                      <div class="text-hint" x-text="team.description"></div>
                    </th>
                  </template>
                 </tr>
@@ -464,7 +464,7 @@
       <div class="flex items-center justify-between">
         <div>
           <h3 class="text-lg font-semibold">Edit Default Roles</h3>
-          <p class="text-sm text-gray-500" x-text="roleDefaultsTeamType || 'Team type'"></p>
+          <p class="text-muted" x-text="roleDefaultsTeamType || 'Team type'"></p>
         </div>
         <button type="button" class="btn btn--text btn--text-muted"
           :disabled="roleDefaultsSaving"
@@ -473,7 +473,7 @@
       <div class="max-h-[60vh] overflow-auto space-y-2">
         <template x-for="(roleName, idx) in roleDefaultsDraft" :key="idx">
           <div class="header-flex">
-            <span class="text-xs text-gray-500 w-6 text-right" x-text="idx + 1"></span>
+            <span class="text-hint w-6 text-right" x-text="idx + 1"></span>
             <input type="text" class="flex-1 form-control form-control--dense" data-role-default-input
               :placeholder="'Role ' + (idx + 1)"
               x-model="roleDefaultsDraft[idx]" />

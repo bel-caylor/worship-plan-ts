@@ -311,7 +311,7 @@
                 <!-- MEDIA -->
                 <div class="flex gap-1 align-middle mt-1">
                     <div class="text-sm font-medium text-gray-700">Media:</div>
-                    <div x-show="mediaLoading" class="text-sm text-gray-500">Loading files...</div>
+                    <div x-show="mediaLoading" class="text-muted">Loading files...</div>
 
                     <ul x-show="!mediaLoading && mediaFiles.length" class="space-y-1 inline-flex flex-wrap gap-1">
                         <template x-for="(file, i) in mediaFiles" :key="i">
@@ -325,7 +325,7 @@
                         </template>
                     </ul>
 
-                    <div x-show="!mediaLoading && !mediaFiles.length" class="text-sm text-gray-500"
+                    <div x-show="!mediaLoading && !mediaFiles.length" class="text-muted"
                         x-text="mediaMessage || 'No files in folder.'"></div>
                 </div>
 
@@ -417,7 +417,7 @@
                     Archived
                 </label>
             </div>
-            <div class="text-sm text-rose-600" x-show="songEditorError" x-text="songEditorError"></div>
+            <div class="text-error" x-show="songEditorError" x-text="songEditorError"></div>
             <div class="flex justify-end gap-2 pt-2">
                 <button type="button" class="btn btn--muted btn--lg" @click="cancelSongEditor()"
                     :disabled="songEditorSaving">Cancel</button>

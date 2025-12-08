@@ -44,7 +44,7 @@
           Availability
         </a>
       </nav>
-      <div class="ml-4">
+      <div class="hidden md:block ml-4">
         <button class="btn btn--outline text-sm text-gray-700" @click.prevent="openAdminLogin()">Login</button>
       </div>
     </div>
@@ -76,7 +76,7 @@
           <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
              :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
           <button type="button" class="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-             @click="openAdminLogin(); menuOpen=false">Admin login</button>
+             @click="openAdminLogin(); menuOpen=false">Admin Login</button>
         </nav>
         </div>
       </div>
