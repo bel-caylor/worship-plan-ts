@@ -39,6 +39,17 @@
       teamAssignmentsSaveMessage: '',
       teamAssignmentChanges: {},
       teamAssignmentBaseline: {},
+      teamAssignmentAutoSaveTimer: null,
+      teamEmailSubject: '',
+      teamEmailBody: '',
+      teamEmailSending: false,
+      teamEmailStatus: '',
+      teamEmailError: '',
+      teamEmailRecipients: [],
+      teamEmailSubjectTouched: false,
+      teamEmailBodyTouched: false,
+      teamEmailGeneratedKey: '',
+      teamEmailLink: '',
       // service detail autosave
       savingDetails: false,
       saveDetailsTimer: null,
@@ -99,6 +110,7 @@
         this.bindAuthEvents();
         const ctx = (window.APP_CTX || {});
         const defs = ctx.defaults || {};
+        this.teamEmailLink = this.teamEmailBaseLink();
         this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
         this.orderItemTypes = Array.isArray(ctx.orderItemTypes) ? ctx.orderItemTypes : ['Welcome', 'Call To Worship', 'Song', 'Sermon', 'Communion', 'Offering', 'Announcements', 'Benediction'];
         this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden', 'Belinda', 'Lois'];
@@ -114,6 +126,7 @@
         this.preacherSelect = this.form.preacher;
         this.ensureSuggestStore();
         this.loadingServices = true;
+        this.updateTeamEmailDraft({ force: true });
         // Restore previously selected service id if present
         try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || ''; } catch (_) { }
 
@@ -363,6 +376,7 @@
         this.showDetails = true;
         this.resetTeamAssignments();
         this.resetRecommendations();
+        this.updateTeamEmailDraft({ force: true });
         this.$nextTick(() => {
           if (this.$refs.dateInput) try { this.$refs.dateInput.focus(); } catch (_) { }
         });
@@ -462,6 +476,7 @@
         this.leaderSelect = this.leaderChoices.includes(this.form.leader) ? this.form.leader : '__custom';
         this.preacherSelect = this.preacherChoices.includes(this.form.preacher) ? this.form.preacher : '__custom';
         if (resetDirty) this.detailsDirty = false;
+        this.updateTeamEmailDraft({ serviceChanged: true });
         this.$nextTick(() => {
           try {
             if (focus && this.$refs.dateInput) this.$refs.dateInput.focus();
@@ -512,6 +527,13 @@
         this.teamAssignmentsDirty = false;
         this.teamAssignmentChanges = {};
         this.teamAssignmentBaseline = {};
+        try {
+          if (this.teamAssignmentAutoSaveTimer) {
+            clearTimeout(this.teamAssignmentAutoSaveTimer);
+            this.teamAssignmentAutoSaveTimer = null;
+          }
+        } catch (_) { }
+        this.updateTeamEmailDraft({ assignmentsChanged: true });
       },
 
       resetRecommendations() {
@@ -675,6 +697,7 @@
           });
           this.teamAssignments = normalized;
           this.teamAssignmentBaseline = this.buildTeamAssignmentBaseline(normalized);
+          this.updateTeamEmailDraft({ assignmentsChanged: true });
           this.teamAssignmentChanges = {};
           this.teamAssignmentsDirty = false;
         } catch (err) {
@@ -906,12 +929,33 @@
         }
         this.teamAssignmentsDirty = Object.keys(this.teamAssignmentChanges).length > 0;
         this.teamAssignmentsSaveMessage = '';
+        this.updateTeamEmailDraft({ assignmentsChanged: true });
+        this.scheduleTeamAssignmentAutoSave();
+      },
+
+      scheduleTeamAssignmentAutoSave() {
+        if (this.isGuest) return;
+        try {
+          if (this.teamAssignmentAutoSaveTimer) {
+            clearTimeout(this.teamAssignmentAutoSaveTimer);
+          }
+        } catch (_) { }
+        this.teamAssignmentAutoSaveTimer = setTimeout(() => {
+          this.teamAssignmentAutoSaveTimer = null;
+          this.saveTeamAssignments();
+        }, 800);
       },
 
       async saveTeamAssignments() {
         if (this.isGuest || !this.selectedServiceId) return;
         const changes = Object.values(this.teamAssignmentChanges || {});
         if (!changes.length) return;
+        try {
+          if (this.teamAssignmentAutoSaveTimer) {
+            clearTimeout(this.teamAssignmentAutoSaveTimer);
+            this.teamAssignmentAutoSaveTimer = null;
+          }
+        } catch (_) { }
         this.teamAssignmentsSaving = true;
         this.teamAssignmentsSaveError = '';
         try {
@@ -926,6 +970,7 @@
           this.teamAssignmentChanges = {};
           this.teamAssignmentsDirty = false;
           this.teamAssignmentBaseline = this.buildTeamAssignmentBaseline(this.teamAssignments);
+          this.updateTeamEmailDraft({ assignmentsChanged: true });
         } catch (err) {
           console.error(err);
           this.teamAssignmentsSaveError = (err && err.message) ? err.message : 'Failed to save team assignments.';
@@ -1272,6 +1317,340 @@
       formattedDateTimePlain() {
         const { date, time } = this.formattedDateTime();
         return [date, time].filter(Boolean).join(' ');
+      },
+
+      teamEmailBaseLink() {
+        const ctxLink = String(window.APP_CTX?.links?.serviceViewer || '').trim();
+        if (ctxLink) return ctxLink;
+        try {
+          const { origin, pathname } = window.location || {};
+          if (origin && pathname) {
+            return `${origin}${pathname}#/services`;
+          }
+        } catch (_) { /* ignore */ }
+        return '#/services';
+      },
+
+      normalizeEmail(value) {
+        return String(value || '').trim().toLowerCase();
+      },
+
+      defaultTeamEmailSubject() {
+        const serviceType = String(this.form?.type || 'Worship').trim() || 'Worship';
+        const iso = String(this.form?.date || '').trim();
+        let datePart = '';
+        if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+          const [, mm, dd] = iso.split('-');
+          datePart = `${mm}-${dd}`;
+        } else if (iso) {
+          datePart = iso;
+        } else {
+          datePart = 'MM-DD';
+        }
+        return `Worship ${datePart} -- Practice at 7pm Thursday`;
+      },
+
+      teamEmailRoleDisplay(role) {
+        const label = String(role?.memberName || '').trim();
+        if (label) return label;
+        const email = String(role?.memberEmail || '').trim();
+        if (email) return this.memberNameByEmail(email) || this.memberLabel(email, email);
+        return 'Open';
+      },
+
+      teamEmailSectionLine(team) {
+        const teamType = String(team?.teamType || 'Team').trim();
+        const weekly = String(team?.weeklyTeamName || '').trim();
+        return weekly ? `${teamType} (${weekly})` : teamType;
+      },
+
+      teamRoleIsAssigned(role) {
+        const name = String(role?.memberName || '').trim();
+        const email = String(role?.memberEmail || '').trim();
+        return Boolean(name || email);
+      },
+
+      buildOrderHighlightsForEmail() {
+        const rows = Array.isArray(this.orderRows) ? this.orderRows : [];
+        return rows
+          .filter(row => {
+            const type = String(row?.itemType || '').toLowerCase();
+            if (!type) return false;
+            return type.includes('song');
+          })
+          .map(row => {
+            const type = String(row?.itemType || '').trim() || 'Item';
+            const detail = String(row?.detail || '').trim();
+            const leader = String(row?.leader || '').trim();
+            const label = detail || type;
+            const leaderText = leader ? ` — ${leader}` : '';
+            return `${type}: ${label}${leaderText}`;
+          });
+      },
+
+      defaultTeamEmailBody() {
+        const lines = [];
+        const serviceType = String(this.form?.type || 'Worship').trim() || 'Worship';
+        const when = this.formattedDateTimePlain() || 'the upcoming service';
+        lines.push('Hi team,', '');
+        lines.push(`Here are the assignments for ${serviceType} Worship on ${when}:`, '');
+        lines.push('**Team Assignments**');
+        const teams = Array.isArray(this.teamAssignments) ? this.teamAssignments : [];
+        if (!teams.length) {
+          lines.push('- No team assignments recorded yet.');
+        } else {
+          teams.forEach(team => {
+            const assignedRoles = Array.isArray(team.roles)
+              ? team.roles.filter(role => this.teamRoleIsAssigned(role))
+              : [];
+            if (assignedRoles.length) {
+              assignedRoles.forEach(role => {
+                const roleName = role?.roleName || role?.roleType || 'Role';
+                lines.push(`- ${roleName}: ${this.teamEmailRoleDisplay(role)}`);
+              });
+            } else {
+              lines.push('- No roles assigned yet.');
+            }
+          });
+        }
+        const link = this.teamEmailLink || this.teamEmailBaseLink();
+        lines.push(`Check out the [Worship app](${link}) to listen to audio and see chord sheets.`);
+        if (this.form?.notes) {
+          lines.push('', 'Notes:', String(this.form.notes || '').trim());
+        }
+        const highlights = this.buildOrderHighlightsForEmail();
+        if (highlights.length) {
+          lines.push('', '**Order Highlights**');
+          highlights.forEach(entry => lines.push(`- ${entry}`));
+        }
+        const leaderName = String(this.form?.leader || '').trim();
+        if (leaderName) {
+          lines.push('', `Thanks! ${leaderName}`);
+        } else {
+          lines.push('', 'Thanks!');
+        }
+        return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+      },
+
+      escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      },
+
+      escapeHtmlAttr(value) {
+        return this.escapeHtml(value);
+      },
+
+      formatEmailInline(value) {
+        const text = String(value || '');
+        const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+        const boldPattern = /\*\*(.+?)\*\*/g;
+        const links = [];
+        const bolds = [];
+        let working = text.replace(linkPattern, (_, label, url) => {
+          const idx = links.push({ label, url }) - 1;
+          return `__LINK_${idx}__`;
+        });
+        working = working.replace(boldPattern, (_, label) => {
+          const idx = bolds.push(label) - 1;
+          return `__BOLD_${idx}__`;
+        });
+        working = this.escapeHtml(working);
+        working = working.replace(/__BOLD_(\d+)__/g, (_, idx) => {
+          const raw = bolds[idx] || '';
+          return `<strong>${this.escapeHtml(raw)}</strong>`;
+        });
+        working = working.replace(/__LINK_(\d+)__/g, (_, idx) => {
+          const data = links[idx] || {};
+          const label = this.escapeHtml(data.label || data.url || '');
+          const href = String(data.url || '').trim();
+          const safeHref = href ? this.escapeHtmlAttr(href) : '#';
+          return `<a href="${safeHref}" target="_blank" rel="noopener">${label}</a>`;
+        });
+        return working;
+      },
+
+      formatTeamEmailHtml(text) {
+        const lines = String(text || '').split(/\r?\n/);
+        const htmlParts = [];
+        let listBuffer = [];
+        const flushList = () => {
+          if (!listBuffer.length) return;
+          htmlParts.push(`<ul>${listBuffer.join('')}</ul>`);
+          listBuffer = [];
+        };
+        lines.forEach(line => {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            flushList();
+            return;
+          }
+          if (/^- /.test(trimmed)) {
+            const content = trimmed.replace(/^- /, '');
+            listBuffer.push(`<li>${this.formatEmailInline(content)}</li>`);
+          } else {
+            flushList();
+            htmlParts.push(`<p>${this.formatEmailInline(line)}</p>`);
+          }
+        });
+        flushList();
+        return htmlParts.join('\n');
+      },
+
+      resizeTeamEmailBody() {
+        this.$nextTick(() => {
+          const el = this.$refs.teamEmailBody;
+          if (!el) return;
+          el.style.height = 'auto';
+          el.style.height = `${el.scrollHeight}px`;
+        });
+      },
+
+      computeTeamEmailRecipients() {
+        const buckets = {};
+        (Array.isArray(this.teamAssignments) ? this.teamAssignments : []).forEach(team => {
+          (Array.isArray(team.roles) ? team.roles : []).forEach(role => {
+            const raw = String(role?.memberEmail || '').trim();
+            const email = this.normalizeEmail(raw);
+            if (!email) return;
+            if (!buckets[email]) {
+              const label = role?.memberName || this.memberNameByEmail(raw) || this.memberLabel(raw, raw);
+              buckets[email] = {
+                email: raw || email,
+                normalized: email,
+                name: label || '',
+                roles: []
+              };
+            }
+            const roleName = role?.roleName || role?.roleType || 'Role';
+            buckets[email].roles.push(roleName);
+          });
+        });
+        return Object.values(buckets).sort((a, b) => {
+          const labelA = a.name || a.email || a.normalized;
+          const labelB = b.name || b.email || b.normalized;
+          return labelA.localeCompare(labelB);
+        });
+      },
+
+      teamEmailRecipientLabel(rec) {
+        const name = String(rec?.name || '').trim();
+        const email = String(rec?.email || rec?.normalized || '').trim();
+        if (name && email) return `${name} <${email}>`;
+        return name || email || 'Member';
+      },
+
+      updateTeamEmailDraft(opts = {}) {
+        const { force = false, assignmentsChanged = false, serviceChanged = false } = opts || {};
+        if (force || assignmentsChanged || serviceChanged) {
+          this.teamEmailStatus = '';
+        }
+        const recipients = this.computeTeamEmailRecipients();
+        const assignmentsList = Array.isArray(this.teamAssignments) ? this.teamAssignments : [];
+        const nextKey = JSON.stringify({
+          count: recipients.length,
+          service: this.selectedServiceId,
+          date: this.form?.date,
+          type: this.form?.type,
+          notes: this.form?.notes || '',
+          assignmentsLen: assignmentsList.reduce((sum, team) => sum + ((team?.roles && team.roles.length) ? team.roles.length : 0), 0)
+        });
+        this.teamEmailRecipients = recipients;
+        if (force || serviceChanged || !this.teamEmailSubjectTouched) {
+          this.teamEmailSubject = this.defaultTeamEmailSubject();
+          if (force) this.teamEmailSubjectTouched = false;
+        }
+        const shouldResetBody =
+          force ||
+          !this.teamEmailBodyTouched ||
+          !String(this.teamEmailBody || '').trim() ||
+          this.teamEmailGeneratedKey !== nextKey;
+        if (shouldResetBody) {
+          this.teamEmailBody = this.defaultTeamEmailBody();
+          if (force) this.teamEmailBodyTouched = false;
+        }
+        this.teamEmailGeneratedKey = nextKey;
+        this.resizeTeamEmailBody();
+      },
+
+      resetTeamEmailDraft() {
+        this.teamEmailSubjectTouched = false;
+        this.teamEmailBodyTouched = false;
+        this.teamEmailStatus = '';
+        this.teamEmailError = '';
+        this.updateTeamEmailDraft({ force: true });
+      },
+
+      onTeamEmailSubjectInput() {
+        this.teamEmailSubjectTouched = true;
+        this.teamEmailStatus = '';
+        this.teamEmailError = '';
+      },
+
+      onTeamEmailBodyInput() {
+        this.teamEmailBodyTouched = true;
+        this.teamEmailStatus = '';
+        this.teamEmailError = '';
+        this.resizeTeamEmailBody();
+      },
+
+      teamEmailRecipientAddresses() {
+        return this.teamEmailRecipients
+          .map(rec => String(rec.email || rec.normalized || '').trim())
+          .filter(Boolean);
+      },
+
+      canSendTeamEmail() {
+        if (this.isGuest) return false;
+        if (!this.selectedServiceId) return false;
+        if (this.teamAssignmentsDirty) return false;
+        if (!this.teamEmailRecipients.length) return false;
+        if (this.teamEmailSending) return false;
+        return true;
+      },
+
+      async sendTeamEmail() {
+        if (!this.canSendTeamEmail()) return;
+        const subject = String(this.teamEmailSubject || '').trim();
+        const body = String(this.teamEmailBody || '').trim();
+        if (!subject) {
+          this.teamEmailError = 'Subject is required.';
+          return;
+        }
+        if (!body) {
+          this.teamEmailError = 'Email text is required.';
+          return;
+        }
+        const recipients = this.teamEmailRecipientAddresses();
+        if (!recipients.length) {
+          this.teamEmailError = 'Assign at least one member with an email address.';
+          return;
+        }
+        this.teamEmailSending = true;
+        this.teamEmailStatus = '';
+        this.teamEmailError = '';
+        const htmlBody = this.formatTeamEmailHtml(body) || this.escapeHtml(body).replace(/\n/g, '<br>');
+        try {
+          const res = await callRpc('sendServiceTeamEmail', {
+            serviceId: this.selectedServiceId,
+            subject,
+            body,
+            recipients,
+            htmlBody
+          });
+          const count = res?.sent ?? recipients.length;
+          this.teamEmailStatus = `Email sent to ${count} team member${count === 1 ? '' : 's'}.`;
+          notify('Team email sent.', 'success');
+        } catch (err) {
+          console.error(err);
+          this.teamEmailError = (err && err.message) ? err.message : 'Unable to send team email.';
+        } finally {
+          this.teamEmailSending = false;
+        }
       },
 
 
@@ -2052,6 +2431,7 @@
         } catch (_) { }
         if (!this.selectedServiceId) return;
         this.detailsDirty = true;
+        this.updateTeamEmailDraft({});
         if (immediate) {
           this.persistDetails();
           return;

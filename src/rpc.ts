@@ -8,7 +8,7 @@ import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewe
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
 import { getTeamScheduleSnapshot, getServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
-import { sendAvailabilityEmail } from './features/messaging';
+import { sendAvailabilityEmail, sendServiceTeamEmail } from './features/messaging';
 import { summarizePassageWithSongs } from './features/scripture';
 
 export function rpc(input: { method: string; payload: unknown }) {
@@ -77,6 +77,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return saveMemberAvailability(payload as any);
       case 'sendAvailabilityEmail':
         return sendAvailabilityEmail(payload as any);
+      case 'sendServiceTeamEmail':
+        return sendServiceTeamEmail(payload as any);
       default:
         throw new Error(`Unknown RPC method: ${method}`);
     }

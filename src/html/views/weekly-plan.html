@@ -1,28 +1,24 @@
 <div x-data="weeklyPlanApp()" x-init="init()"
   @use-song.window="applySuggestion(suggestTargetIndex, { name: $event.detail.name }); showSuggestModal=false"
   class="h-full flex flex-col overflow-hidden flex-1 min-h-0">
+  <!-- Service toolbar -->
   <div class="p-3 border-b flex items-center gap-3 bg-blue-800">
     <div class="flex items-center gap-2">
       <label class="text-sm text-white sr-only">Existing Services</label>
-      <button class="btn btn--surface"
-        :disabled="loadingServices || !selectedServiceId"
+      <button class="btn btn--surface" :disabled="loadingServices || !selectedServiceId"
         @click="loadSelected()">Load</button>
       <select class="form-control form-control--dense" x-model="selectedServiceId">
         <option value="" disabled selected>Select...</option>
         <template x-for="s in existingServices" :key="s.id || (s.date + s.time)">
-          <option :value="s.id"
-            x-text="serviceLabel(s)">
+          <option :value="s.id" x-text="serviceLabel(s)">
           </option>
         </template>
       </select>
       <template x-if="!selectedServiceId && !isGuest">
-        <button class="btn btn--accent"
-          @click="submit()" x-text="actionLabel()"></button>
+        <button class="btn btn--accent" @click="submit()" x-text="actionLabel()"></button>
       </template>
       <template x-if="!isGuest">
-        <button
-          class="ml-1 btn btn--surface btn--danger btn--square"
-          :disabled="loadingServices || !selectedServiceId"
+        <button class="ml-1 btn btn--surface btn--danger btn--square" :disabled="loadingServices || !selectedServiceId"
           title="Delete service"
           @click="selectedServiceId && confirm('Delete this service and all its items?') && deleteSelectedService()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -45,17 +41,15 @@
         <span>Syncing services...</span>
       </span>
       <template x-if="!isGuest">
-        <button
-          class="btn btn--surface hidden md:block"
-          :disabled="loadingServices" @click="openCreateServicesModal()">Add New Services</button>
+        <button class="btn btn--surface hidden md:block" :disabled="loadingServices"
+          @click="openCreateServicesModal()">Add New Services</button>
       </template>
     </div>
   </div>
 
-  <div x-cloak x-show="showCreateServicesModal && !isGuest"
-    class="modal-overlay z-30"
-    @keydown.escape.window="closeCreateServicesModal()"
-    @click.self="closeCreateServicesModal()">
+  <!-- Batch create services modal -->
+  <div x-cloak x-show="showCreateServicesModal && !isGuest" class="modal-overlay z-30"
+    @keydown.escape.window="closeCreateServicesModal()" @click.self="closeCreateServicesModal()">
     <div class="modal-panel p-5">
       <h2 class="text-lg font-semibold mb-3">Batch Create Services</h2>
       <p class="text-sm text-gray-600 mb-4">
@@ -65,8 +59,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <label class="text-sm text-gray-700">
           Start Sunday
-          <input type="date" class="mt-1 w-full form-control form-control--dense"
-            x-model="batchStartDate">
+          <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="batchStartDate">
         </label>
         <label class="text-sm text-gray-700">
           Weeks to create
@@ -76,13 +69,9 @@
       </div>
       <div class="text-error mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn btn--muted"
-          @click="closeCreateServicesModal()"
+        <button type="button" class="btn btn--muted" @click="closeCreateServicesModal()"
           :disabled="batchCreateLoading">Cancel</button>
-        <button type="button"
-          class="btn btn--accent"
-          :disabled="batchCreateLoading"
-          @click="submitBatchCreate()">
+        <button type="button" class="btn btn--accent" :disabled="batchCreateLoading" @click="submitBatchCreate()">
           <span x-show="!batchCreateLoading">Create Services</span>
           <span x-show="batchCreateLoading">Creating...</span>
         </button>
@@ -90,10 +79,12 @@
     </div>
   </div>
 
+  <!-- Service loading notice -->
   <div class="mx-4 mt-3 mb-0" x-show="loadingServices" x-cloak>
     <div class="alert alert--info">Fetching existing services... please wait.</div>
   </div>
 
+  <!-- Service details + tabs container -->
   <div class="bg-gray-100 flex flex-col flex-1 min-h-0 overflow-hidden" x-show="showDetails" x-cloak>
     <div class="p-4">
       <h3 class="text-lg font-semibold mb-3 sr-only">Service Details</h3>
@@ -103,7 +94,8 @@
         </div>
         <div class="flex flex-wrap gap-2">
           <label class="text-sm flex-1">Service Type
-            <select class="mt-1 w-full form-control form-control--dense" x-model="form.type" @change="queueSaveDetails()">
+            <select class="mt-1 w-full form-control form-control--dense" x-model="form.type"
+              @change="queueSaveDetails()">
               <option value="Communion">Communion</option>
               <option value="Offering">Offering</option>
             </select>
@@ -118,8 +110,9 @@
                 <option value="__custom">Custom</option>
               </select>
             </div>
-            <template x-if="leaderSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
-                placeholder="Type leader name" x-model="form.leader" @input="queueSaveDetails()" /></template>
+            <template x-if="leaderSelect==='__custom'"><input type="text"
+                class="mt-2 w-full form-control form-control--dense" placeholder="Type leader name"
+                x-model="form.leader" @input="queueSaveDetails()" /></template>
           </label>
           <label class="text-sm lg:min-w-32 flex-1">Preacher
             <div class="mt-1">
@@ -131,8 +124,9 @@
                 <option value="__custom">Custom...</option>
               </select>
             </div>
-            <template x-if="preacherSelect==='__custom'"><input type="text" class="mt-2 w-full form-control form-control--dense"
-                placeholder="Type preacher name" x-model="form.preacher" @input="queueSaveDetails()" /></template>
+            <template x-if="preacherSelect==='__custom'"><input type="text"
+                class="mt-2 w-full form-control form-control--dense" placeholder="Type preacher name"
+                x-model="form.preacher" @input="queueSaveDetails()" /></template>
           </label>
         </div>
       </div>
@@ -141,27 +135,22 @@
     <div class="mt-6 px-1 pb-1 flex flex-col flex-1 min-h-0 relative">
       <div class="relative">
         <div class="border-b px-2 app-tabs app-tabs--segment z-50 absolute -bottom-[1px]">
-          <button type="button"
-            class="app-tab"
-            :class="activeContentTab==='scripture' ? 'is-active' : ''"
+          <button type="button" class="app-tab" :class="activeContentTab==='scripture' ? 'is-active' : ''"
             @click="activeContentTab='scripture'">
             Scripture
           </button>
-          <button type="button"
-            class="app-tab"
-            :class="activeContentTab==='order' ? 'is-active' : ''"
+          <button type="button" class="app-tab" :class="activeContentTab==='order' ? 'is-active' : ''"
             @click="activeContentTab='order'">
             Order of Worship
           </button>
-          <button type="button"
-            class="app-tab"
-            :class="activeContentTab==='team' ? 'is-active' : ''"
+          <button type="button" class="app-tab" :class="activeContentTab==='team' ? 'is-active' : ''"
             @click="activeContentTab='team'">
             Team
           </button>
         </div>
       </div>
 
+      <!-- Scripture tab -->
       <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='scripture'" x-cloak>
         <div class="panel w-full flex-1 min-h-0 flex flex-col">
           <div class="px-3 flex items-center justify-between">
@@ -173,13 +162,12 @@
           </div>
           <div class="p-3 space-y-3 overflow-auto flex-1">
             <div class="flex flex-wrap items-center gap-2">
-              <button class="btn btn--outline btn--sm"
-                @click="fetchScripture()">Fetch Text</button>
-              <input class="flex-1 form-control form-control--dense min-w-[220px]" type="text" placeholder="e.g., John 3:5-6, 8-10"
-                x-model="form.scripture" @input="queueSaveDetails()" />
+              <button class="btn btn--outline btn--sm" @click="fetchScripture()">Fetch Text</button>
+              <input class="flex-1 form-control form-control--dense min-w-[220px]" type="text"
+                placeholder="e.g., John 3:5-6, 8-10" x-model="form.scripture" @input="queueSaveDetails()" />
             </div>
-            <textarea class="w-full form-control form-control--dense" rows="6" x-model="scriptureText" @input="queueSaveDetails()"
-              placeholder="Scripture text (editable)"></textarea>
+            <textarea class="w-full form-control form-control--dense" rows="6" x-model="scriptureText"
+              @input="queueSaveDetails()" placeholder="Scripture text (editable)"></textarea>
             <div class="flex flex-wrap gap-3">
               <label class="text-sm block flex-1 min-w-[160px]">
                 <span class="font-medium text-gray-700">Theme</span>
@@ -204,22 +192,19 @@
                   <span class="font-medium text-gray-700">Songs Browser</span>
                 </div>
                 <div class="header-flex text-xs text-gray-600">
-                  <button type="button"
-                    class="btn btn--outline btn--xs"
-                    @click="fetchSongSuggestions()"
+                  <button type="button" class="btn btn--outline btn--xs" @click="fetchSongSuggestions()"
                     :disabled="recommendedSongsLoading || !scriptureText.trim() || !form.scripture.trim()">
                     <span x-show="!recommendedSongsLoading">Fetch AI Suggestions</span>
                     <span x-show="recommendedSongsLoading">Fetching...</span>
                   </button>
                   <span x-show="recommendedSongs.length">
-                    <strong x-text="recommendedSongs.length"></strong> saved suggestion<span x-text="recommendedSongs.length === 1 ? '' : 's'"></span>
+                    <strong x-text="recommendedSongs.length"></strong> saved suggestion<span
+                      x-text="recommendedSongs.length === 1 ? '' : 's'"></span>
                   </span>
                 </div>
               </div>
               <div class="mt-2 h-[620px] flex flex-col">
-                <div class="flex-1 flex flex-col"
-                  x-data="songsApp('embedded')"
-                  x-init="init()"
+                <div class="flex-1 flex flex-col" x-data="songsApp('embedded')" x-init="init()"
                   x-ref="embeddedSongsApp">
                   <div x-ref="browserHost" class="flex-1 min-h-0 flex flex-col w-full"></div>
                 </div>
@@ -229,6 +214,7 @@
         </div>
       </div>
 
+      <!-- Order of Worship tab -->
       <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='order'" x-cloak>
         <div x-show="!showOrder" x-cloak class="border rounded p-4 text-sm text-gray-600">
           Save or load a service to build the order of worship.
@@ -242,9 +228,7 @@
             </div>
             <div class="flex gap-2">
               <template x-if="!isGuest">
-                <button
-                  class="btn btn--outline btn--xs"
-                  @click="addOrderRow()">+ Add Row</button>
+                <button class="btn btn--outline btn--xs" @click="addOrderRow()">+ Add Row</button>
               </template>
             </div>
           </div>
@@ -278,8 +262,8 @@
                   <tr>
                     <td class="border" x-text="i+1"></td>
                     <td class="border">
-                      <select class="form-control form-control--dense w-full" x-model="row.itemType" @change="queueSaveOrder(true)"
-                        :disabled="isGuest">
+                      <select class="form-control form-control--dense w-full" x-model="row.itemType"
+                        @change="queueSaveOrder(true)" :disabled="isGuest">
                         <option :value="row.itemType" x-text="row.itemType"></option>
                         <template x-for="t in orderItemTypes" :key="t">
                           <option :value="t" x-text="t"></option>
@@ -290,82 +274,82 @@
                       <div class="flex items-center gap-1 relative">
                         <template x-if="loadingSuggestion && suggestTargetIndex === i">
                           <div class="absolute inset-y-0 right-36 flex items-center text-xs text-indigo-600">
-                            <svg class="h-3.5 w-3.5 animate-spin mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <svg class="h-3.5 w-3.5 animate-spin mr-1" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                              aria-hidden="true">
                               <circle cx="12" cy="12" r="9" stroke-opacity=".25"></circle>
                               <path d="M21 12a9 9 0 0 1-9 9" stroke-linecap="round"></path>
                             </svg>
                             <span>Thinking...</span>
                           </div>
                         </template>
-                        <input class="form-control form-control--dense w-full" x-model="row.detail" @input="queueSaveOrder()"
-                          @blur="queueSaveOrder(true)" placeholder="e.g., Song title" :disabled="isGuest" />
-                        <button class="btn btn--outline btn--xs"
-                          title="Suggest song" aria-label="Suggest song"
+                        <input class="form-control form-control--dense w-full" x-model="row.detail"
+                          @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="e.g., Song title"
+                          :disabled="isGuest" />
+                        <button class="btn btn--outline btn--xs" title="Suggest song" aria-label="Suggest song"
                           x-show="!isGuest && /song/i.test(String(row.itemType||''))"
-                          :disabled="loadingSuggestion || isGuest"
-                          @click.stop="suggestForRow(i)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                            class="w-4 h-4">
+                          :disabled="loadingSuggestion || isGuest" @click.stop="suggestForRow(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
                             <path
                               d="M12 18V12.75M12 12.75c.518 0 1.021-.066 1.5-.189M12 12.75c-.518 0-1.021-.066-1.5-.189M14.25 20.039A9.02 9.02 0 0 1 12 20.25c-.769 0-1.521-.073-2.25-.211M13.5 22.422A14.706 14.706 0 0 1 12 22.5c-.507 0-1.007-.026-1.5-.078M14.25 18v-.192c0-.983.658-1.823 1.508-2.316A7.46 7.46 0 0 0 19.5 9c0-4.142-3.358-7.5-7.5-7.5S4.5 4.858 4.5 9c0 2.773 1.505 5.194 3.742 6.492.85.493 1.508 1.333 1.508 2.316V18" />
                           </svg>
                         </button>
-                        <button class="btn btn--outline btn--xs"
-                          title="Suggest scripture" aria-label="Suggest scripture"
+                        <button class="btn btn--outline btn--xs" title="Suggest scripture"
+                          aria-label="Suggest scripture"
                           x-show="!isGuest && /call to worship|scripture/i.test(String(row.itemType||''))"
-                          :disabled="loadingSuggestion || isGuest"
-                          @click.stop="suggestForRow(i)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
-                            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-                            class="w-4 h-4">
+                          :disabled="loadingSuggestion || isGuest" @click.stop="suggestForRow(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
                             <path
                               d="M12 6.042C10.408 4.617 8.305 3.75 6 3.75c-1.052 0-2.062.18-3 .512v14.25c.938-.332 1.948-.512 3-.512 2.305 0 4.408.867 6 2.292m0-14.25C13.592 4.617 15.695 3.75 18 3.75c1.052 0 2.062.18 3 .512v14.25c-.938-.332-1.948-.512-3-.512-2.305 0-4.408.867-6 2.292m0-14.25v14.25" />
                           </svg>
                         </button>
                         <button class="btn btn--ghost-primary btn--xs" title="View Scripture Text"
-                          x-show="row.scriptureText"
-                          @click.stop="viewRowScripture(i)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
-                            <path d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/>
+                          x-show="row.scriptureText" @click.stop="viewRowScripture(i)">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                            class="w-4 h-4">
+                            <path
+                              d="M12 5c-5 0-9 4.5-10 7 1 2.5 5 7 10 7s9-4.5 10-7c-1-2.5-5-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z" />
                           </svg>
                         </button>
                         <div x-show="false"></div>
                       </div>
                     </td>
-                    <td class="border"><input class="form-control form-control--dense w-full" x-model="row.leader" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                        placeholder="Leader" :disabled="isGuest" /></td>
-                    <td class="border"><input class="form-control form-control--dense w-full" x-model="row.notes" @input="queueSaveOrder()" @blur="queueSaveOrder(true)"
-                        placeholder="Notes" :disabled="isGuest" /></td>
+                    <td class="border"><input class="form-control form-control--dense w-full" x-model="row.leader"
+                        @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Leader"
+                        :disabled="isGuest" /></td>
+                    <td class="border"><input class="form-control form-control--dense w-full" x-model="row.notes"
+                        @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Notes"
+                        :disabled="isGuest" /></td>
                     <template x-if="!isGuest">
                       <td class="border">
-                      <div class="flex items-center gap-1">
-                        <button type="button" aria-label="Move up"
-                          class="btn btn--icon btn--secondary"
-                          @click="moveOrderRow(i,-1)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                            aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m4.5 15.75 7.5-7.5 7.5 7.5" />
-                          </svg>
-                        </button>
-                        <button type="button" aria-label="Move down"
-                          class="btn btn--icon btn--secondary"
-                          @click="moveOrderRow(i,1)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                            aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                          </svg>
-                        </button>
-                        <button type="button" aria-label="Remove"
-                          class="btn btn--icon btn--danger"
-                          @click="removeOrderRow(i)">
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" class="h-4 w-4"
-                            aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                              d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                          </svg>
-                        </button>
-                      </div>
+                        <div class="flex items-center gap-1">
+                          <button type="button" aria-label="Move up" class="btn btn--icon btn--secondary"
+                            @click="moveOrderRow(i,-1)">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="m4.5 15.75 7.5-7.5 7.5 7.5" />
+                            </svg>
+                          </button>
+                          <button type="button" aria-label="Move down" class="btn btn--icon btn--secondary"
+                            @click="moveOrderRow(i,1)">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                            </svg>
+                          </button>
+                          <button type="button" aria-label="Remove" class="btn btn--icon btn--danger"
+                            @click="removeOrderRow(i)">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                              stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.455 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                            </svg>
+                          </button>
+                        </div>
                       </td>
                     </template>
                   </tr>
@@ -376,10 +360,10 @@
         </div>
       </div>
 
+      <!-- Team tab -->
       <div class="flex-1 min-h-0 flex flex-col" x-show="activeContentTab==='team'" x-cloak>
         <div class="panel panel--padded space-y-4">
-          <div x-show="!teamAssignmentsSupported" x-cloak
-            class="alert alert--warning"
+          <div x-show="!teamAssignmentsSupported" x-cloak class="alert alert--warning"
             x-text="teamAssignmentsUnsupportedReason || 'Team assignments are not available in this environment yet.'">
           </div>
           <div x-show="teamAssignmentsSupported && !selectedServiceId" x-cloak class="text-sm text-gray-600">
@@ -395,78 +379,131 @@
               </svg>
               <span>Loading team assignments…</span>
             </div>
-          <div x-show="teamAssignmentsError" x-cloak
-            class="text-error bg-rose-50 border border-rose-200 px-3 py-2 rounded"
-            x-text="teamAssignmentsError"></div>
-          <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
-            class="text-sm text-gray-600">
-            No team assignments have been added for this service yet.
-          </div>
-          <div class="flex flex-wrap items-center justify-between gap-3" x-show="teamAssignmentsSupported && selectedServiceId && !isGuest">
-            <div class="text-sm text-gray-700" x-show="teamAssignmentsDirty">You have unsaved team updates.</div>
-            <div class="flex-1"></div>
-            <div class="text-xs text-emerald-700" x-show="teamAssignmentsSaveMessage" x-text="teamAssignmentsSaveMessage"></div>
-            <div class="text-xs text-rose-600" x-show="teamAssignmentsSaveError" x-text="teamAssignmentsSaveError"></div>
-            <div class="flex items-center gap-2">
-              <button type="button" class="btn btn--muted btn--xs"
-                :disabled="teamAssignmentsSaving"
-                @click="loadTeamAssignments(selectedServiceId)">
-                Reload
-              </button>
-              <button type="button" class="btn btn--accent btn--xs"
-                :disabled="teamAssignmentsSaving || !teamAssignmentsDirty"
-                @click="saveTeamAssignments()">
-                <span x-show="!teamAssignmentsSaving">Save Team</span>
-                <span x-show="teamAssignmentsSaving">Saving...</span>
-              </button>
+            <div x-show="teamAssignmentsError" x-cloak
+              class="text-error bg-rose-50 border border-rose-200 px-3 py-2 rounded" x-text="teamAssignmentsError">
+            </div>
+            <div x-show="!teamAssignmentsLoading && !teamAssignmentsError && (!teamAssignments.length)" x-cloak
+              class="text-sm text-gray-600">
+              No team assignments have been added for this service yet.
+            </div>
+          <div class="flex flex-wrap items-center justify-between gap-3"
+            x-show="teamAssignmentsSupported && selectedServiceId && !isGuest">
+            <div class="text-sm text-gray-700">Assignments save automatically when you choose a person.</div>
+            <div class="text-xs text-blue-700" x-show="teamAssignmentsSaving">Saving…</div>
+            <div class="text-xs text-emerald-700" x-show="teamAssignmentsSaveMessage"
+              x-text="teamAssignmentsSaveMessage"></div>
+            <div class="text-xs text-rose-600" x-show="teamAssignmentsSaveError" x-text="teamAssignmentsSaveError">
             </div>
           </div>
-          <div class="text-xs text-gray-600" x-show="isGuest">
-            Sign in to edit team assignments.
-          </div>
-          <div class="flex-1 min-h-0 overflow-auto space-y-3 max-w-[280px]">
-            <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
-              <div class="border rounded">
-              <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
-                <div>
-                    <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
-                    <div class="text-hint" x-show="team.weeklyTeamName"
-                      x-text="'Weekly team: ' + team.weeklyTeamName"></div>
-                  </div>
-                  <div class="text-hint" x-show="team.roles && team.roles.length"
-                    x-text="team.roles.length + ' roles'"></div>
-                </div>
-                <div class="divide-y">
-                  <template x-for="(role, idx) in team.roles" :key="team.teamType + '-' + idx + '-' + (role.roleName || '')">
-                    <div class="pl-3 flex items-center justify-between gap-3">
-                      <div class="min-w-[100px]">
-                        <div class="text-sm font-medium text-gray-800" x-text="role.roleName || role.roleType || 'Role'"></div>
-                        <div class="text-hint" x-show="role.roleType && role.roleType !== role.roleName"
-                          x-text="role.roleType"></div>
+            <div class="text-xs text-gray-600" x-show="isGuest">
+              Sign in to edit team assignments.
+            </div>
+            <div class="md:flex gap-3 justify-between">
+              <!-- Team assignment cards -->
+              <div class="flex-1 min-h-0 overflow-auto space-y-3 max-w-[280px]">
+                <p class="text-xs text-gray-500" x-show="teamAssignments.length">
+                  Each card shows a team, the scheduled weekly team name, and the roles you can fill from the roster.
+                </p>
+                <template x-for="team in teamAssignments" :key="team.teamType + '::' + (team.weeklyTeamName || '')">
+                  <div class="border rounded">
+                    <div class="px-3 py-2 bg-gray-50 flex items-center justify-between">
+                      <div>
+                        <div class="font-semibold text-gray-800" x-text="team.teamType || 'Team'"></div>
+                        <div class="text-hint" x-show="team.weeklyTeamName"
+                          x-text="'Weekly team: ' + team.weeklyTeamName"></div>
                       </div>
-                      <div class="flex flex-col gap-1 w-full min-w-[80px]">
-                        <select class="form-control form-control--dense text-sm"
-                          :class="(!role.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
-                          :value="role.memberEmail || ''"
-                          :disabled="isGuest || teamAssignmentsSaving || !teamMemberLookupLoaded"
-                          @change="setTeamRoleMember(team, role, $event.target.value)">
-                          <option value="">Open</option>
-                          <template x-for="member in memberOptionsForRoleType(role.roleName || role.roleType, role)" :key="member.email + '-' + team.teamType + '-' + (role.roleName || idx)">
-                            <option :value="member.email" x-text="member.display"></option>
-                          </template>
-                        </select>
-                        <div class="text-xs text-amber-600" x-show="!teamMemberLookupLoaded">Loading roster...</div>
-                        <div class="text-xs text-amber-600" x-show="role.status && role.status.toLowerCase() !== 'assigned'"
-                          x-text="role.status"></div>
+                      <div class="text-hint" x-show="team.roles && team.roles.length"
+                        x-text="team.roles.length + ' roles'"></div>
+                    </div>
+                    <div class="divide-y">
+                      <template x-for="(role, idx) in team.roles"
+                        :key="team.teamType + '-' + idx + '-' + (role.roleName || '')">
+                        <div class="pl-3 flex items-center justify-between gap-3">
+                          <div class="min-w-[100px]">
+                            <div class="text-sm font-medium text-gray-800"
+                              x-text="role.roleName || role.roleType || 'Role'"></div>
+                            <div class="text-hint" x-show="role.roleType && role.roleType !== role.roleName"
+                              x-text="role.roleType"></div>
+                          </div>
+                          <div class="flex flex-col gap-1 w-full min-w-[80px]">
+                            <select class="form-control form-control--dense text-sm"
+                              :class="(!role.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
+                              :value="role.memberEmail || ''"
+                              :disabled="isGuest || teamAssignmentsSaving || !teamMemberLookupLoaded"
+                              @change="setTeamRoleMember(team, role, $event.target.value)">
+                              <option value="">Open</option>
+                              <template x-for="member in memberOptionsForRoleType(role.roleName || role.roleType, role)"
+                                :key="member.email + '-' + team.teamType + '-' + (role.roleName || idx)">
+                                <option :value="member.email" x-text="member.display"></option>
+                              </template>
+                            </select>
+                            <div class="text-xs text-amber-600" x-show="!teamMemberLookupLoaded">Loading roster...</div>
+                            <div class="text-xs text-amber-600"
+                              x-show="role.status && role.status.toLowerCase() !== 'assigned'" x-text="role.status">
+                            </div>
+                          </div>
+                        </div>
+                      </template>
+                      <div class="px-3 py-2 text-muted" x-show="!team.roles || !team.roles.length">
+                        No roles assigned in this team yet.
                       </div>
                     </div>
-                  </template>
-                  <div class="px-3 py-2 text-muted" x-show="!team.roles || !team.roles.length">
-                    No roles assigned in this team yet.
+                  </div>
+                </template>
+              </div>
+              <!-- Team email composer -->
+              <div class="border rounded bg-white p-3 space-y-3 flex-1 max-h-[70vh] overflow-y-auto"
+                x-show="teamAssignmentsSupported && selectedServiceId && !isGuest">
+                <div class="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <h3 class="text-base font-semibold text-gray-900">Email Team</h3>
+                    <p class="text-xs text-gray-600">Send the current assignments with a link to the public service
+                      page.
+                    </p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="button" class="btn btn--muted btn--xs" :disabled="teamEmailSending"
+                      @click="resetTeamEmailDraft()">
+                      Reset text
+                    </button>
                   </div>
                 </div>
+                <div class="grid gap-3">
+                  <label class="text-sm text-gray-700 block">
+                    <span class="font-medium">Email subject</span>
+                    <input type="text" class="mt-1 w-full form-control form-control--dense" placeholder="Subject"
+                      x-model="teamEmailSubject" @input="onTeamEmailSubjectInput()" />
+                  </label>
+                  <label class="text-sm text-gray-700 block">
+                    <span class="font-medium">Email message</span>
+                    <textarea x-ref="teamEmailBody" class="mt-1 w-full form-control form-control--dense"
+                      style="resize: none;" placeholder="Email content" x-model="teamEmailBody"
+                      @input="onTeamEmailBodyInput()"></textarea>
+                  </label>
                 </div>
-              </template>
+                <div class="text-xs text-gray-600"
+                  x-text="teamEmailRecipients.length ? (`Sending to ${teamEmailRecipients.length} team member${teamEmailRecipients.length===1?'':'s'}.`) : 'Assign roles to add recipients.'">
+                </div>
+                <p class="text-xs text-gray-500">
+                  Subject and message are editable before sending, and you can see exactly who will receive the email.
+                </p>
+            <div class="border rounded px-3 py-2 text-sm text-gray-800 max-h-24 overflow-auto" x-show="teamEmailRecipients.length">
+              <span x-text="teamEmailRecipients.map(rec => rec.name || rec.email || rec.normalized).join(', ')"></span>
+            </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <button type="button" class="btn btn--accent btn--xs" :disabled="!canSendTeamEmail()"
+                    @click="sendTeamEmail()">
+                    <span x-show="!teamEmailSending">Send Team Email</span>
+                    <span x-show="teamEmailSending">Sending...</span>
+                  </button>
+                  <p class="text-xs text-gray-500" x-show="teamAssignmentsDirty">
+                    Save team updates before emailing.
+                  </p>
+                </div>
+                <div class="text-xs text-emerald-700" x-show="teamEmailStatus" x-text="teamEmailStatus"></div>
+                <div class="text-xs text-rose-600" x-show="teamEmailError" x-text="teamEmailError"></div>
+              </div>
+
             </div>
           </div>
         </div>
@@ -478,8 +515,7 @@
 
   <!-- Suggest Songs Modal -->
   <div x-show="showSuggestModal" x-cloak class="modal-overlay z-50"
-    @keydown.window.escape.prevent="showSuggestModal=false"
-    @click.self="showSuggestModal=false">
+    @keydown.window.escape.prevent="showSuggestModal=false" @click.self="showSuggestModal=false">
     <div class="modal-panel max-w-[95vw] h-[90vh] p-0 flex flex-col">
       <div class="px-4 py-2 border-b flex items-center justify-between">
         <div class="font-semibold">Suggest Songs</div>
@@ -494,8 +530,8 @@
   </div>
 
   <!-- Scripture Ideas Modal -->
-  <div x-show="showScriptureModal" x-cloak class="modal-overlay z-50" @keydown.window.escape.prevent="showScriptureModal=false"
-    @click.self="showScriptureModal=false">
+  <div x-show="showScriptureModal" x-cloak class="modal-overlay z-50"
+    @keydown.window.escape.prevent="showScriptureModal=false" @click.self="showScriptureModal=false">
     <div class="modal-panel max-w-[95vw] h-[90vh] p-0 flex flex-col">
       <div class="px-4 py-2 border-b flex items-center justify-between">
         <div class="font-semibold">Scripture Ideas</div>
@@ -514,8 +550,7 @@
               x-model="scriptureSearchKeywords" />
           </label>
           <div class="flex items-end gap-2">
-            <button class="btn btn--outline"
-              :disabled="scriptureSearchPending"
+            <button class="btn btn--outline" :disabled="scriptureSearchPending"
               @click="refreshScriptureIdeas('manual')">
               <span x-show="!scriptureSearchPending">Search Ideas</span>
               <span x-show="scriptureSearchPending">Searching…</span>
@@ -531,29 +566,36 @@
             font-weight: 600;
             margin-right: 0.25rem;
           }
+
           .scripture-html .verse-num sup {
             color: inherit;
             font-size: inherit;
             margin: 0;
           }
+
           .scripture-ref-main {
             background-color: #fef3c7;
             border-left: 4px solid #f59e0b;
           }
+
           .scripture-ref-main.is-selected {
             background-color: #fde68a;
             border-left-color: #d97706;
           }
+
           .scripture-chunk {
             margin-bottom: 1rem;
           }
+
           .scripture-chunk:last-child {
             margin-bottom: 0;
           }
+
           .scripture-ref-block {
             font-weight: 600;
             margin: 0.5rem 0 0.25rem;
           }
+
           .scripture-chunk:first-child .scripture-ref-block {
             margin-top: 0;
           }
@@ -567,8 +609,8 @@
                   <span class="badge badge--warning">Main Scripture</span>
                 </div>
                 <button class="block w-full text-left px-2 py-1 rounded scripture-ref-main"
-                        :class="selectedScriptureRef === form.scripture ? 'is-selected' : ''"
-                        @click="selectedScriptureRef=form.scripture; fetchPassage(form.scripture)">
+                  :class="selectedScriptureRef === form.scripture ? 'is-selected' : ''"
+                  @click="selectedScriptureRef=form.scripture; fetchPassage(form.scripture)">
                   <span x-text="form.scripture"></span>
                 </button>
               </div>
@@ -577,8 +619,8 @@
               <div>
                 <template x-for="s in scriptureSuggestions" :key="s">
                   <button class="block w-full text-left px-2 py-1 hover:bg-blue-50"
-                          :class="selectedScriptureRef===s ? 'bg-blue-50' : ''"
-                          @click="selectedScriptureRef=s; fetchPassage(s)">
+                    :class="selectedScriptureRef===s ? 'bg-blue-50' : ''"
+                    @click="selectedScriptureRef=s; fetchPassage(s)">
                     <span x-text="s"></span>
                   </button>
                 </template>
@@ -591,11 +633,11 @@
           <div class="w-[500px] h-full overflow-auto border rounded p-3">
             <div class="flex items-center justify-between mb-2 gap-3">
               <div class="header-flex flex-1">
-                <input type="text" class="form-control form-control--dense w-full" x-model="selectedScriptureRef" @input="refChanged()" placeholder="e.g., John 1:1-5" />
+                <input type="text" class="form-control form-control--dense w-full" x-model="selectedScriptureRef"
+                  @input="refChanged()" placeholder="e.g., John 1:1-5" />
               </div>
               <div class="header-flex">
-                <button class="btn btn--outline btn--xs"
-                  @click="toggleScriptureEditing()">
+                <button class="btn btn--outline btn--xs" @click="toggleScriptureEditing()">
                   <span x-show="!isScriptureEditing">Edit Passage</span>
                   <span x-show="isScriptureEditing">Hide Editor</span>
                 </button>
@@ -603,11 +645,13 @@
               </div>
             </div>
             <div class="font-medium mb-1" x-text="selectedScriptureRef || 'Select a reference'"></div>
-            <div class="text-sm prose max-w-none scripture-html" x-show="selectedScriptureHtml" x-html="selectedScriptureHtml"></div>
-            <textarea x-ref="scriptureEditor" class="form-control form-control--dense w-full mt-2 text-sm min-h-[160px] resize-y font-sans"
+            <div class="text-sm prose max-w-none scripture-html" x-show="selectedScriptureHtml"
+              x-html="selectedScriptureHtml"></div>
+            <textarea x-ref="scriptureEditor"
+              class="form-control form-control--dense w-full mt-2 text-sm min-h-[160px] resize-y font-sans"
               :class="isScriptureEditing || !selectedScriptureHtml ? '' : 'hidden'"
-              placeholder="Type or paste a scripture reference"
-              x-model="selectedScriptureText" @input="customScriptureEdited()"></textarea>
+              placeholder="Type or paste a scripture reference" x-model="selectedScriptureText"
+              @input="customScriptureEdited()"></textarea>
           </div>
         </div>
       </div>
