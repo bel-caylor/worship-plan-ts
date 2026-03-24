@@ -1,5 +1,8 @@
 <script>
   function scheduleApp() {
+    // Keep these sections out of the public schedule for now.
+    const HIDDEN_TEAM_TYPES = new Set(['kids', 'hospitality']);
+
     return {
       loading: true,
       error: '',
@@ -17,6 +20,10 @@
 
       normalize(value) {
         return String(value || '').trim().toLowerCase();
+      },
+
+      isHiddenTeamType(teamType) {
+        return HIDDEN_TEAM_TYPES.has(this.normalize(teamType));
       },
 
       formatDisplayName(value) {
@@ -111,7 +118,7 @@
           .map(item => {
             const team = String(item?.team || '').trim();
             const teamName = String(item?.teamName || '').trim();
-            if (!team || !teamName) return null;
+            if (!team || !teamName || this.isHiddenTeamType(team)) return null;
             const roles = Array.isArray(item?.roles)
               ? item.roles
                   .map(role => ({
@@ -265,14 +272,14 @@
         (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).forEach(team => {
           const teamType = String(team?.team || '').trim();
           const key = this.normalize(teamType);
-          if (!teamType || seenTeams.has(key)) return;
+          if (!teamType || seenTeams.has(key) || this.isHiddenTeamType(teamType)) return;
           seenTeams.add(key);
           teamTypes.push(teamType);
         });
         Object.values(this.scheduleAssignments || {}).forEach(entry => {
           const teamType = String(entry?.teamType || '').trim();
           const key = this.normalize(teamType);
-          if (!teamType || seenTeams.has(key)) return;
+          if (!teamType || seenTeams.has(key) || this.isHiddenTeamType(teamType)) return;
           seenTeams.add(key);
           teamTypes.push(teamType);
         });

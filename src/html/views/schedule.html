@@ -22,28 +22,28 @@
         <div class="overflow-auto">
           <table class="app-table">
             <thead class="text-gray-700">
-              <tr class="bg-blue-900 text-white sticky top-0 z-10 shadow">
-                <th class="text-left px-3 py-3 min-w-[120px] sticky left-0 z-20 bg-blue-900 align-top">
+              <tr class="bg-blue-900 text-white sticky top-0 z-20 shadow">
+                <th class="text-left px-2 py-3 min-w-[104px] sticky left-0 z-30 bg-blue-900 align-top">
                   <div class="flex flex-col">
                     <h3 class="text-xl font-semibold text-white normal-case" x-text="layout.teamType || '(unspecified team)'"></h3>
                     <span class="text-xs text-blue-200 normal-case" x-text="layout.columns.length + ' services'"></span>
                   </div>
                 </th>
                 <template x-for="column in layout.columns" :key="'blue-' + column.id">
-                  <th class="text-left font-medium px-3 py-3 align-top min-w-[150px] bg-blue-900 text-white">
-                    <div class="font-semibold text-white normal-case" x-text="column.service.label"></div>
-                    <div class="text-xs text-blue-100 normal-case" x-text="column.service.ordinalLabel"></div>
-                    <div class="text-xs text-blue-200 normal-case"
+                  <th class="text-left font-medium px-2 py-3 align-top min-w-[110px] bg-blue-900 text-white">
+                    <div class="font-semibold text-white normal-case text-[11px] leading-tight" x-text="column.service.label"></div>
+                    <div class="text-[11px] text-blue-100 normal-case leading-tight" x-text="column.service.ordinalLabel"></div>
+                    <div class="text-[11px] text-blue-200 normal-case leading-tight"
                       x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
                       x-text="column.teamLabel"></div>
                   </th>
                 </template>
               </tr>
-              <tr class="bg-slate-100">
-                <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
+              <tr class="bg-slate-100 sticky top-[72px] z-20 shadow-sm">
+                <th class="text-left font-medium px-2 py-2 min-w-[104px] sticky left-0 z-30 bg-slate-100">Role</th>
                 <template x-for="column in layout.columns" :key="'gray-' + column.id">
-                  <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
-                    <div class="mt-1 text-xs text-rose-700 normal-case"
+                  <th class="text-left font-medium px-2 py-2 align-top min-w-[110px] bg-slate-100">
+                    <div class="mt-1 text-[11px] text-rose-700 normal-case leading-tight"
                       x-show="unavailableMembersForService(column.id).length"
                       x-text="unavailableSummaryForService(column.id)"></div>
                   </th>
@@ -55,9 +55,9 @@
                 <tr class="border-t">
                   <th class="text-left bg-slate-50 align-middle sticky left-0 z-10" x-text="row.label"></th>
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
-                    <td class="align-top min-w-[150px]"
+                    <td class="align-top min-w-[110px]"
                       :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
-                      <div class="px-3 py-2 text-sm"
+                      <div class="px-2 py-2 text-[13px]"
                         :class="!row.cells[column.id]?.memberEmail ? 'text-gray-500' : 'text-gray-900'">
                         <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
                       </div>
