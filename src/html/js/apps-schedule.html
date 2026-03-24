@@ -147,12 +147,17 @@
         this.loading = true;
         this.error = '';
         try {
-          const [snapshot, weeklyTeamsRes, rolesRes] = await Promise.all([
+          const [snapshot, servicesRes, weeklyTeamsRes, rolesRes] = await Promise.all([
             callRpc('getTeamScheduleSnapshot', { limit: 0 }),
+            callRpc('listServices', { includePast: false, sort: 'asc', limit: 0 }).catch(() => ({ items: [] })),
             callRpc('listWeeklyTeams', null).catch(() => ({ items: [], defaults: {} })),
             callRpc('listRoles', null).catch(() => ({ items: [] }))
           ]);
-          const services = this.normalizeScheduleServices(snapshot?.services);
+          const services = this.normalizeScheduleServices(
+            (Array.isArray(servicesRes?.items) && servicesRes.items.length)
+              ? servicesRes.items
+              : snapshot?.services
+          );
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
           this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
