@@ -34,7 +34,7 @@
                     <div class="font-semibold text-white normal-case text-[11px] leading-tight" x-text="column.service.label"></div>
                     <div class="text-[11px] text-blue-100 normal-case leading-tight" x-text="column.service.ordinalLabel"></div>
                     <div class="text-[11px] text-blue-200 normal-case leading-tight"
-                      x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
+                      x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel && column.teamLabel !== column.service.label"
                       x-text="column.teamLabel"></div>
                   </th>
                 </template>

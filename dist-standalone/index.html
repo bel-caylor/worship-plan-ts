@@ -2146,6 +2146,22 @@ return {
           .replace(/\b([a-z])/g, (match) => match.toUpperCase());
       },
 
+      formatServiceDateLabel(dateValue) {
+        const text = String(dateValue || '').trim();
+        if (!text) return '';
+        const parts = text.split('-').map(part => Number(part));
+        if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) {
+          return this.formatDisplayName(text);
+        }
+        const date = new Date(parts[0], parts[1] - 1, parts[2]);
+        if (Number.isNaN(date.getTime())) return this.formatDisplayName(text);
+        return new Intl.DateTimeFormat('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric'
+        }).format(date);
+      },
+
       formatShortUnavailableName(value) {
         const full = this.formatDisplayName(value);
         if (!full) return '';
@@ -2174,48 +2190,29 @@ return {
         return map;
       },
 
-      memberLookupFirstNames() {
-        const names = [];
-        Object.values(this.memberLookup || {}).forEach(entry => {
-          const first = String(entry?.label || '').trim().split(/\s+/)[0];
-          if (first) names.push(first);
-        });
-        return Array.from(new Set(names)).sort((a, b) => b.length - a.length);
+      assignmentMemberNameByEmail(email) {
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return '';
+        const match = Object.values(this.scheduleAssignments || {}).find(entry =>
+          String(entry?.memberEmail || '').trim().toLowerCase() === key && String(entry?.memberName || '').trim()
+        );
+        return String(match?.memberName || '').trim();
       },
 
       memberNameByEmail(email) {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return '';
-        return this.memberLookup?.[key]?.label || this.formatDisplayName(email) || email || '';
+        return this.assignmentMemberNameByEmail(key) || this.memberLookup?.[key]?.label || this.formatDisplayName(email) || email || '';
       },
 
-      unavailableNameForEmail(email) {
+      displayNameForEmail(email) {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return '';
         const known = this.memberNameByEmail(key);
-        if (known && !/^[^@]+@[^@]+$/.test(known)) return this.formatShortUnavailableName(known);
-
+        if (known) return this.formatDisplayName(known);
         const local = key.split('@')[0] || '';
         if (!local) return '';
-        const cleaned = local
-          .split(/[+._-]/)
-          .filter(Boolean)
-          .join(' ')
-          .trim();
-        const firstNames = this.memberLookupFirstNames();
-        const compact = local.replace(/[^a-z]/g, '');
-        for (const firstName of firstNames) {
-          const normalizedFirst = this.normalize(firstName);
-          if (!normalizedFirst) continue;
-          if (!compact.startsWith(normalizedFirst)) continue;
-          const remainder = compact.slice(normalizedFirst.length);
-          const lastInitial = String(remainder || '').trim().charAt(0);
-          if (lastInitial) {
-            return `${this.formatDisplayName(firstName)} ${lastInitial.toUpperCase()}.`;
-          }
-        }
-        if (cleaned) return this.formatDisplayName(cleaned);
-        return this.formatDisplayName(local);
+        return this.formatDisplayName(local.split(/[+._-]/).filter(Boolean).join(' ')) || this.formatDisplayName(local);
       },
 
       async refresh() {
@@ -2250,13 +2247,14 @@ return {
           .map(item => {
             const id = String(item?.id || '').trim();
             if (!id) return null;
+            const dateLabel = this.formatServiceDateLabel(item?.date);
             return {
               id,
               date: String(item?.date || '').trim(),
               time: String(item?.time || '').trim(),
               type: String(item?.type || '').trim(),
-              label: String(item?.label || '').trim() || String(item?.shortLabel || '').trim() || id,
-              shortLabel: String(item?.shortLabel || '').trim() || String(item?.label || '').trim() || id,
+              label: dateLabel || String(item?.label || '').trim() || String(item?.shortLabel || '').trim() || id,
+              shortLabel: dateLabel || String(item?.shortLabel || '').trim() || String(item?.label || '').trim() || id,
               ordinalLabel: String(item?.ordinalLabel || '').trim(),
               weekday: String(item?.weekday || '').trim()
             };
@@ -2388,7 +2386,7 @@ return {
         const blocked = this.scheduleUnavailableMap?.[key];
         if (!blocked || !blocked.size) return [];
         return Array.from(blocked.values())
-          .map(email => ({ email, name: this.formatShortUnavailableName(this.unavailableNameForEmail(email)) }))
+          .map(email => ({ email, name: this.displayNameForEmail(email) }))
           .sort((a, b) => a.name.localeCompare(b.name));
       },
 
@@ -2403,7 +2401,7 @@ return {
         return {
           memberEmail,
           memberName: memberEmail
-            ? (String(entry?.memberName || '').trim() || this.memberNameByEmail(memberEmail))
+            ? this.formatDisplayName(String(entry?.memberName || '').trim() || this.memberNameByEmail(memberEmail))
             : '',
           roleType: String(entry?.roleType || roleName).trim() || roleName,
           weeklyTeamName: String(entry?.weeklyTeamName || '').trim() || this.scheduleWeeklyTeamNameForService(teamType, serviceId) || ''
@@ -8288,7 +8286,7 @@ return {
                     <div class="font-semibold text-white normal-case text-[11px] leading-tight" x-text="column.service.label"></div>
                     <div class="text-[11px] text-blue-100 normal-case leading-tight" x-text="column.service.ordinalLabel"></div>
                     <div class="text-[11px] text-blue-200 normal-case leading-tight"
-                      x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
+                      x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel && column.teamLabel !== column.service.label"
                       x-text="column.teamLabel"></div>
                   </th>
                 </template>
