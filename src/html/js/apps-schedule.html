@@ -72,6 +72,22 @@
           .replace(/\b([a-z])/g, (match) => match.toUpperCase());
       },
 
+      formatServiceDateLabel(dateValue) {
+        const text = String(dateValue || '').trim();
+        if (!text) return '';
+        const parts = text.split('-').map(part => Number(part));
+        if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) {
+          return this.formatDisplayName(text);
+        }
+        const date = new Date(parts[0], parts[1] - 1, parts[2]);
+        if (Number.isNaN(date.getTime())) return this.formatDisplayName(text);
+        return new Intl.DateTimeFormat('en-US', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric'
+        }).format(date);
+      },
+
       formatShortUnavailableName(value) {
         const full = this.toDisplayNameCase(value);
         if (!full) return '';
@@ -176,6 +192,32 @@
           });
         });
         return services;
+      },
+
+      normalizeWeeklyTeams(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        return list
+          .map(item => {
+            const team = String(item?.team || '').trim();
+            const teamName = String(item?.teamName || '').trim();
+            if (!team || !teamName || this.isHiddenTeamType(team)) return null;
+            const roles = Array.isArray(item?.roles)
+              ? item.roles
+                  .map(role => ({
+                    roleName: String(role?.roleName || role?.role || '').trim(),
+                    roleType: String(role?.roleType || '').trim(),
+                    memberEmail: String(role?.memberEmail || '').trim(),
+                    memberName: String(role?.memberName || '').trim()
+                  }))
+                  .filter(role => role.roleName)
+              : [];
+            return {
+              team,
+              teamName,
+              roles
+            };
+          })
+          .filter(Boolean);
       },
 
       buildScheduleServiceLookup(services) {
