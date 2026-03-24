@@ -46,13 +46,8 @@
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                     <td class="align-top min-w-[110px]"
                       :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
-<<<<<<< HEAD
                       <div class="w-full form-control form-control--dense text-sm"
                         :class="!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50 text-gray-500' : 'text-gray-900'">
-=======
-                      <div class="px-2 py-2 text-[13px]"
-                        :class="!row.cells[column.id]?.memberEmail ? 'text-gray-500' : 'text-gray-900'">
->>>>>>> e82f1b1566af1a75c0165329f548409fd1a1e0b3
                         <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
                       </div>
                     </td>
