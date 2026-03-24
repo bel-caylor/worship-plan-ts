@@ -88,15 +88,22 @@
 <body x-data="app()" x-init="init()" class="h-full bg-gray-50 overflow-hidden flex flex-col">
 
   <!-- Topbar -->
-  <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
+  <div x-show="route!=='schedule-embed'" class="contents">
+    <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
+  </div>
 
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
-  <main class="h-[calc(100vh-58px)] overflow-hidden flex flex-col flex-1 min-h-0">
+  <main class="overflow-hidden flex flex-col flex-1 min-h-0"
+    :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
     <div x-show="route==='services'" class="h-full flex-1 min-h-0 flex flex-col">
       <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
     </div>
 
     <div x-show="route==='schedule'" class="h-full flex-1 min-h-0 flex flex-col">
+      <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
+    </div>
+
+    <div x-show="route==='schedule-embed'" class="h-full flex-1 min-h-0 flex flex-col bg-white">
       <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
     </div>
 
@@ -125,7 +132,7 @@
         capabilities: { canViewTeam: false }
       };
         const routesForAuth = (authState) => {
-          const set = new Set(['services', 'schedule', 'songs', 'availability']);
+          const set = new Set(['services', 'schedule', 'schedule-embed', 'songs', 'availability']);
           if (authState && authState.capabilities && authState.capabilities.canViewPlan) {
             set.add('plan');
           }
@@ -150,6 +157,7 @@
               if (this.allowedRoutes.has('plan')) return 'plan';
               if (this.allowedRoutes.has('services')) return 'services';
               if (this.allowedRoutes.has('schedule')) return 'schedule';
+              if (this.allowedRoutes.has('schedule-embed')) return 'schedule-embed';
               if (this.allowedRoutes.has('songs')) return 'songs';
               if (this.allowedRoutes.has('team')) return 'team';
               if (this.allowedRoutes.has('availability')) return 'availability';
