@@ -2215,11 +2215,43 @@ return {
         return this.formatDisplayName(local.split(/[+._-]/).filter(Boolean).join(' ')) || this.formatDisplayName(local);
       },
 
+      weeklyTeamForService(teamType, service) {
+        const serviceObj = typeof service === 'object'
+          ? service
+          : this.scheduleServiceLookup?.[String(service || '').trim()];
+        if (!serviceObj) return null;
+        const preferredName = this.scheduleWeeklyTeamNameForService(teamType, serviceObj);
+        const teamKey = this.normalize(teamType);
+        const preferredKey = this.normalize(preferredName);
+        const teams = (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : [])
+          .filter(team => this.normalize(team?.team) === teamKey);
+        if (!teams.length) return null;
+        return teams.find(team => this.normalize(team?.teamName) === preferredKey) || teams[0] || null;
+      },
+
+      weeklyTeamRoleAssignment(teamType, serviceId, roleName) {
+        const team = this.weeklyTeamForService(teamType, serviceId);
+        if (!team) return null;
+        const roleKey = this.normalize(roleName);
+        const match = (Array.isArray(team.roles) ? team.roles : []).find(role =>
+          this.normalize(role?.roleName || role?.roleType) === roleKey
+        );
+        if (!match) return null;
+        const memberEmail = String(match?.memberEmail || '').trim();
+        const memberName = String(match?.memberName || '').trim() || this.memberNameByEmail(memberEmail);
+        return {
+          memberEmail,
+          memberName: this.formatDisplayName(memberName),
+          roleType: String(match?.roleType || match?.roleName || roleName).trim() || roleName,
+          weeklyTeamName: String(team.teamName || '').trim()
+        };
+      },
+
       async refresh() {
         this.loading = true;
         this.error = '';
         try {
-          const [snapshot, servicesRes, rolesRes] = await Promise.all([
+          const [snapshot, servicesRes, weeklyTeamsRes, rolesRes] = await Promise.all([
             callRpc('getTeamScheduleSnapshot', { limit: 0 }),
             callRpc('listServices', { includePast: false, sort: 'asc', limit: 0 }).catch(() => ({ items: [] })),
             callRpc('listWeeklyTeams', null).catch(() => ({ items: [] })),
@@ -2230,7 +2262,7 @@ return {
           this.buildScheduleServiceLookup(this.scheduleServices);
           this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
-          this.weeklyTeams = this.normalizeWeeklyTeams(rolesRes?.items || []);
+          this.weeklyTeams = this.normalizeWeeklyTeams(weeklyTeamsRes?.items || []);
           this.memberLookup = this.buildMemberLookup(rolesRes?.items || []);
           this.buildScheduleLayouts();
         } catch (e) {
@@ -2386,7 +2418,7 @@ return {
         const blocked = this.scheduleUnavailableMap?.[key];
         if (!blocked || !blocked.size) return [];
         return Array.from(blocked.values())
-          .map(email => ({ email, name: this.displayNameForEmail(email) }))
+          .map(email => ({ email, name: this.formatShortUnavailableName(this.displayNameForEmail(email)) }))
           .sort((a, b) => a.name.localeCompare(b.name));
       },
 
@@ -2398,6 +2430,10 @@ return {
         const key = this.scheduleCellKey(serviceId, teamType, roleName);
         const entry = this.scheduleAssignments?.[key];
         const memberEmail = String(entry?.memberEmail || '').trim();
+        if (!entry || (!memberEmail && !String(entry?.memberName || '').trim())) {
+          const fallback = this.weeklyTeamRoleAssignment(teamType, serviceId, roleName);
+          if (fallback) return fallback;
+        }
         return {
           memberEmail,
           memberName: memberEmail
