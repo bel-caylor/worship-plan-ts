@@ -450,6 +450,18 @@ type TeamScheduleSnapshot = {
   unavailable: Record<string, string[]>;
 };
 
+export function getUnavailableByServices(input?: { serviceIds?: string[] }) {
+  const serviceIds = Array.isArray(input?.serviceIds)
+    ? input.serviceIds.map(id => norm(id)).filter(Boolean)
+    : [];
+  const unavailableMap = readUnavailableByService(serviceIds);
+  return {
+    unavailable: Object.fromEntries(
+      Object.entries(unavailableMap).map(([serviceId, set]) => [serviceId, Array.from(set.values())])
+    )
+  };
+}
+
 export function getTeamScheduleSnapshot(input?: { limit?: number } & ListServicesOptions): TeamScheduleSnapshot {
   const limitRaw = Number(input?.limit);
   const limit = Number.isFinite(limitRaw)

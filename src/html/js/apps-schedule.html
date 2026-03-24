@@ -100,6 +100,10 @@
         return initial ? `${first} ${initial}.` : first;
       },
 
+      formatShortMemberName(value) {
+        return this.formatShortUnavailableName(value);
+      },
+
       buildMemberLookup(rows) {
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach(row => {
@@ -160,7 +164,11 @@
           );
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
-          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
+          const serviceIds = services.map(service => service.id).filter(Boolean);
+          const unavailableRes = serviceIds.length
+            ? await callRpc('getUnavailableByServices', { serviceIds }).catch(() => ({ unavailable: snapshot?.unavailable || {} }))
+            : { unavailable: snapshot?.unavailable || {} };
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(unavailableRes?.unavailable || snapshot?.unavailable);
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyTeamsRes?.defaults);
@@ -498,7 +506,7 @@
             teamType,
             roleName,
             memberEmail,
-            memberName,
+            memberName: this.formatShortMemberName(memberName),
             weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
             roleType: explicit.roleType || roleName,
             source: 'saved'
@@ -513,7 +521,7 @@
             teamType,
             roleName,
             memberEmail: unavailable ? '' : fallbackEmail,
-            memberName: unavailable ? '' : (fallback.memberName || this.memberNameByEmail(fallbackEmail) || ''),
+            memberName: unavailable ? '' : this.formatShortMemberName(fallback.memberName || this.memberNameByEmail(fallbackEmail) || ''),
             weeklyTeamName: fallback.weeklyTeamName || fallbackTeamName || '',
             roleType: fallback.roleType || roleName,
             source: 'template'

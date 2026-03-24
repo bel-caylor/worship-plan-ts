@@ -2212,6 +2212,10 @@ return {
         return initial ? `${first} ${initial}.` : first;
       },
 
+      formatShortMemberName(value) {
+        return this.formatShortUnavailableName(value);
+      },
+
       buildMemberLookup(rows) {
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach(row => {
@@ -2272,7 +2276,11 @@ return {
           );
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
-          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
+          const serviceIds = services.map(service => service.id).filter(Boolean);
+          const unavailableRes = serviceIds.length
+            ? await callRpc('getUnavailableByServices', { serviceIds }).catch(() => ({ unavailable: snapshot?.unavailable || {} }))
+            : { unavailable: snapshot?.unavailable || {} };
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(unavailableRes?.unavailable || snapshot?.unavailable);
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyTeamsRes?.defaults);
@@ -2610,7 +2618,7 @@ return {
             teamType,
             roleName,
             memberEmail,
-            memberName,
+            memberName: this.formatShortMemberName(memberName),
             weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
             roleType: explicit.roleType || roleName,
             source: 'saved'
@@ -2625,7 +2633,7 @@ return {
             teamType,
             roleName,
             memberEmail: unavailable ? '' : fallbackEmail,
-            memberName: unavailable ? '' : (fallback.memberName || this.memberNameByEmail(fallbackEmail) || ''),
+            memberName: unavailable ? '' : this.formatShortMemberName(fallback.memberName || this.memberNameByEmail(fallbackEmail) || ''),
             weeklyTeamName: fallback.weeklyTeamName || fallbackTeamName || '',
             roleType: fallback.roleType || roleName,
             source: 'template'
@@ -8501,11 +8509,11 @@ return {
     </div>
 
     <template x-for="layout in scheduleLayouts" :key="layout.teamType">
-      <section class="border border-slate-200 rounded bg-white shadow-sm relative">
+      <section class="border border-slate-200 rounded bg-white relative">
         <div class="overflow-auto">
           <table class="app-table">
             <thead class="text-gray-700">
-              <tr class="bg-blue-900 text-white sticky top-0 z-20 shadow">
+              <tr class="bg-blue-900 text-white sticky top-0 z-20">
                 <th class="text-left px-2 py-3 min-w-[104px] sticky left-0 z-30 bg-blue-900 align-top">
                   <div class="flex flex-col">
                     <h3 class="text-xl font-semibold text-white normal-case" x-text="layout.teamType || '(unspecified team)'"></h3>
@@ -8522,7 +8530,7 @@ return {
                   </th>
                 </template>
               </tr>
-              <tr class="bg-slate-100 sticky top-[72px] z-20 shadow-sm">
+              <tr class="bg-slate-100 sticky top-[72px] z-20">
                 <th class="text-left font-medium px-2 py-2 min-w-[104px] sticky left-0 z-30 bg-slate-100">Role</th>
                 <template x-for="column in layout.columns" :key="'gray-' + column.id">
                   <th class="text-left font-medium px-2 py-2 align-top min-w-[110px] bg-slate-100">
@@ -8540,8 +8548,8 @@ return {
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                     <td class="align-top min-w-[110px]"
                       :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
-                      <div class="w-full form-control form-control--dense text-sm"
-                        :class="!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50 text-gray-500' : 'text-gray-900'">
+                      <div class="w-full px-3 py-2 text-sm"
+                        :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50 text-gray-500' : 'text-gray-900'">
                         <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
                       </div>
                     </td>

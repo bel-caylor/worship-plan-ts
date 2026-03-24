@@ -6,7 +6,7 @@ import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, ge
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
-import { getTeamScheduleSnapshot, getServiceTeamAssignments, resetServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
+import { getTeamScheduleSnapshot, getServiceTeamAssignments, getUnavailableByServices, resetServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
 import { sendAvailabilityEmail, sendServiceTeamEmail } from './features/messaging';
 import { summarizePassageWithSongs } from './features/scripture';
@@ -67,6 +67,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return saveWeeklyTeamDefaults(payload as any);
       case 'getTeamScheduleSnapshot':
         return getTeamScheduleSnapshot(payload as any);
+      case 'getUnavailableByServices':
+        return getUnavailableByServices(payload as any);
       case 'getServiceTeamAssignments':
         return getServiceTeamAssignments(payload as any);
       case 'resetServiceTeamAssignments':
