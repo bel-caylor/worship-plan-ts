@@ -123,7 +123,7 @@
       const sourceDate = svc.date || parseDateFromServiceId(svc.id);
       const datePart = formatDateLabel(sourceDate);
       const timeFromId = parseTimeFromServiceId(svc.id);
-      const timePart = formatTimeLabel(svc.time || timeFromId);
+      const timePart = formatTimeLabel(timeFromId || svc.time);
       const leader = String(svc.leader || '').trim();
       const type = String(svc.type || '').trim();
       const pieces = [datePart, timePart].filter(Boolean);
@@ -250,7 +250,7 @@ return {
       formatTimeDisplay(svc) {
         if (!svc) return '';
         const parsed = parseTimeFromServiceId(svc.id);
-        return formatTimeLabel(svc.time || parsed);
+        return formatTimeLabel(parsed || svc.time);
       },
 
       formatSongDate(value) {

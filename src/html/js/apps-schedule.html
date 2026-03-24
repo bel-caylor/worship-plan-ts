@@ -1,0 +1,253 @@
+<script>
+  function scheduleApp() {
+    return {
+      loading: true,
+      error: '',
+      scheduleServices: [],
+      scheduleServiceLookup: {},
+      scheduleUnavailableMap: {},
+      scheduleAssignments: {},
+      scheduleLayouts: [],
+      memberLookup: {},
+
+      init() {
+        this.refresh();
+      },
+
+      normalize(value) {
+        return String(value || '').trim().toLowerCase();
+      },
+
+      formatDisplayName(value) {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        return text
+          .toLowerCase()
+          .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+      },
+
+      formatShortUnavailableName(value) {
+        const full = this.formatDisplayName(value);
+        if (!full) return '';
+        const parts = full.split(/\s+/).filter(Boolean);
+        if (!parts.length) return '';
+        if (parts.length === 1) return parts[0];
+        const first = parts[0];
+        const last = parts[parts.length - 1];
+        const initial = String(last || '').charAt(0);
+        return initial ? `${first} ${initial}.` : first;
+      },
+
+      buildMemberLookup(rows) {
+        const map = {};
+        (Array.isArray(rows) ? rows : []).forEach(row => {
+          const email = String(row?.email || '').trim().toLowerCase();
+          if (!email) return;
+          const first = String(row?.first || '').trim();
+          const last = String(row?.last || '').trim();
+          const label = [first, last].filter(Boolean).join(' ') || email;
+          map[email] = {
+            email,
+            label: this.formatDisplayName(label)
+          };
+        });
+        return map;
+      },
+
+      memberNameByEmail(email) {
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return '';
+        return this.memberLookup?.[key]?.label || this.formatDisplayName(email) || email || '';
+      },
+
+      async refresh() {
+        this.loading = true;
+        this.error = '';
+        try {
+          const [snapshot, rolesRes] = await Promise.all([
+            callRpc('getTeamScheduleSnapshot', { limit: 0 }),
+            callRpc('listRoles', null).catch(() => ({ items: [] }))
+          ]);
+          this.scheduleServices = this.normalizeScheduleServices(snapshot?.services);
+          this.buildScheduleServiceLookup(this.scheduleServices);
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
+          this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
+          this.memberLookup = this.buildMemberLookup(rolesRes?.items || []);
+          this.buildScheduleLayouts();
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Failed to load schedule.';
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      normalizeScheduleServices(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        return list
+          .map(item => {
+            const id = String(item?.id || '').trim();
+            if (!id) return null;
+            return {
+              id,
+              date: String(item?.date || '').trim(),
+              time: String(item?.time || '').trim(),
+              type: String(item?.type || '').trim(),
+              label: String(item?.label || '').trim() || String(item?.shortLabel || '').trim() || id,
+              shortLabel: String(item?.shortLabel || '').trim() || String(item?.label || '').trim() || id,
+              ordinalLabel: String(item?.ordinalLabel || '').trim(),
+              weekday: String(item?.weekday || '').trim()
+            };
+          })
+          .filter(Boolean);
+      },
+
+      buildScheduleServiceLookup(services) {
+        const lookup = {};
+        (Array.isArray(services) ? services : []).forEach(service => {
+          if (service?.id) lookup[service.id] = service;
+        });
+        this.scheduleServiceLookup = lookup;
+      },
+
+      normalizeScheduleUnavailable(raw) {
+        const map = {};
+        if (!raw || typeof raw !== 'object') return map;
+        Object.entries(raw).forEach(([serviceId, list]) => {
+          const id = String(serviceId || '').trim();
+          if (!id) return;
+          const set = new Set();
+          (Array.isArray(list) ? list : []).forEach(email => {
+            const key = String(email || '').trim().toLowerCase();
+            if (key) set.add(key);
+          });
+          map[id] = set;
+        });
+        return map;
+      },
+
+      normalizeScheduleAssignments(assignments) {
+        const map = {};
+        (Array.isArray(assignments) ? assignments : []).forEach(entry => {
+          const serviceId = String(entry?.serviceId || '').trim();
+          const teamType = String(entry?.teamType || '').trim();
+          const roleName = String(entry?.roleName || '').trim();
+          if (!serviceId || !teamType || !roleName) return;
+          const key = this.scheduleCellKey(serviceId, teamType, roleName);
+          map[key] = {
+            serviceId,
+            teamType,
+            roleName,
+            weeklyTeamName: String(entry?.weeklyTeamName || '').trim(),
+            memberEmail: String(entry?.memberEmail || '').trim(),
+            memberName: String(entry?.memberName || '').trim(),
+            roleType: String(entry?.roleType || '').trim()
+          };
+        });
+        return map;
+      },
+
+      scheduleCellKey(serviceId, teamType, roleName) {
+        return [
+          String(serviceId || '').trim().toLowerCase(),
+          this.normalize(teamType),
+          this.normalize(roleName)
+        ].join('::');
+      },
+
+      scheduleWeeklyTeamNameForService(teamType, service) {
+        const serviceObj = typeof service === 'object'
+          ? service
+          : this.scheduleServiceLookup?.[String(service || '').trim()];
+        if (!serviceObj) return '';
+        const key = this.normalize(teamType);
+        const found = Object.values(this.scheduleAssignments || {}).find(entry =>
+          entry.serviceId === serviceObj.id && this.normalize(entry.teamType) === key && entry.weeklyTeamName
+        );
+        return found?.weeklyTeamName || serviceObj.ordinalLabel || '';
+      },
+
+      roleNamesForTeamType(teamType) {
+        const seen = new Set();
+        const names = [];
+        Object.values(this.scheduleAssignments || {})
+          .filter(entry => this.normalize(entry.teamType) === this.normalize(teamType))
+          .forEach(entry => {
+            const name = String(entry?.roleName || '').trim();
+            const key = this.normalize(name);
+            if (!name || seen.has(key)) return;
+            seen.add(key);
+            names.push(name);
+          });
+        return names;
+      },
+
+      unavailableMembersForService(serviceId) {
+        const key = String(serviceId || '').trim();
+        if (!key) return [];
+        const blocked = this.scheduleUnavailableMap?.[key];
+        if (!blocked || !blocked.size) return [];
+        return Array.from(blocked.values())
+          .map(email => ({
+            email,
+            name: this.formatShortUnavailableName(this.memberNameByEmail(email) || email)
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      },
+
+      unavailableSummaryForService(serviceId) {
+        return this.unavailableMembersForService(serviceId).map(item => item.name).join(', ');
+      },
+
+      assignmentForCell(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, roleName);
+        const entry = this.scheduleAssignments?.[key];
+        const memberEmail = String(entry?.memberEmail || '').trim();
+        return {
+          memberEmail,
+          memberName: memberEmail
+            ? (String(entry?.memberName || '').trim() || this.memberNameByEmail(memberEmail))
+            : '',
+          roleType: String(entry?.roleType || roleName).trim() || roleName,
+          weeklyTeamName: String(entry?.weeklyTeamName || '').trim() || this.scheduleWeeklyTeamNameForService(teamType, serviceId) || ''
+        };
+      },
+
+      buildScheduleLayouts() {
+        const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
+        if (!services.length) {
+          this.scheduleLayouts = [];
+          return;
+        }
+        const teamTypes = [];
+        const seenTeams = new Set();
+        Object.values(this.scheduleAssignments || {}).forEach(entry => {
+          const teamType = String(entry?.teamType || '').trim();
+          const key = this.normalize(teamType);
+          if (!teamType || seenTeams.has(key)) return;
+          seenTeams.add(key);
+          teamTypes.push(teamType);
+        });
+        this.scheduleLayouts = teamTypes.map(teamType => {
+          const columns = services.map(service => ({
+            id: service.id,
+            service,
+            teamLabel: this.scheduleWeeklyTeamNameForService(teamType, service)
+          }));
+          const rows = this.roleNamesForTeamType(teamType).map(roleName => {
+            const cells = {};
+            columns.forEach(column => {
+              cells[column.id] = this.assignmentForCell(column.id, teamType, roleName);
+            });
+            return {
+              key: `${teamType}::${roleName}`,
+              label: roleName,
+              cells
+            };
+          });
+          return { teamType, columns, rows };
+        });
+      }
+    };
+  }
+</script>

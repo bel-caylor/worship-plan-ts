@@ -89,9 +89,11 @@
         scheduleDirtyKeys: {},
         scheduleDirty: false,
         scheduleSaving: false,
+        scheduleSaveTimer: null,
+        schedulePendingSaves: {},
         scheduleSaveMessage: '',
         scheduleSaveError: '',
-        scheduleServiceLimit: 6,
+        scheduleServiceLimit: 0,
 
       init() {
         this.computePresetLookup();
@@ -375,6 +377,45 @@
         return map;
       },
 
+      toDisplayNameCase(value) {
+        const text = String(value || '').trim();
+        if (!text) return '';
+        return text
+          .toLowerCase()
+          .replace(/\b([a-z])/g, (match) => match.toUpperCase());
+      },
+
+      formatShortUnavailableName(value) {
+        const full = this.toDisplayNameCase(value);
+        if (!full) return '';
+        const parts = full.split(/\s+/).filter(Boolean);
+        if (!parts.length) return '';
+        if (parts.length === 1) return parts[0];
+        const first = parts[0];
+        const last = parts[parts.length - 1];
+        const initial = String(last || '').charAt(0);
+        return initial ? `${first} ${initial}.` : first;
+      },
+
+      unavailableMembersForService(serviceId) {
+        const key = String(serviceId || '').trim();
+        if (!key) return [];
+        const blocked = this.scheduleUnavailableMap?.[key];
+        if (!blocked || !blocked.size) return [];
+        return Array.from(blocked.values())
+          .map(email => ({
+            email,
+            name: this.formatShortUnavailableName(this.memberNameByEmail(email) || this.memberLabel(email, email))
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+      },
+
+      unavailableSummaryForService(serviceId) {
+        return this.unavailableMembersForService(serviceId)
+          .map(item => item.name)
+          .join(', ');
+      },
+
       buildScheduleTemplateOverrides(assignments) {
         const overrides = {};
         (Array.isArray(assignments) ? assignments : []).forEach(entry => {
@@ -518,20 +559,15 @@
             source: 'saved'
           };
         }
-        const template = this.lookupWeeklyTemplateAssignment(teamType, service, roleName);
-        if (template && template.memberEmail && this.isMemberUnavailable(template.memberEmail, serviceId)) {
-          template.memberEmail = '';
-          template.memberName = '';
-        }
         return {
           serviceId,
           teamType,
           roleName,
-          memberEmail: template?.memberEmail || '',
-          memberName: template?.memberName || '',
-          weeklyTeamName: template?.weeklyTeamName || fallbackTeamName || '',
-          roleType: template?.roleType || roleName,
-          source: template ? 'template' : 'open'
+          memberEmail: '',
+          memberName: '',
+          weeklyTeamName: fallbackTeamName || '',
+          roleType: roleName,
+          source: 'open'
         };
       },
 
@@ -610,8 +646,123 @@
         next[key] = entry;
         this.scheduleAssignmentMap = next;
         this.scheduleSaveMessage = '';
+        this.queueScheduleAutosave(entry);
         this.recomputeScheduleDirty();
         this.buildScheduleLayouts();
+      },
+
+      queueScheduleAutosave(entry) {
+        const serviceId = String(entry?.serviceId || '').trim();
+        const teamType = String(entry?.teamType || '').trim();
+        const roleName = String(entry?.roleName || '').trim();
+        if (!serviceId || !teamType || !roleName) return;
+        const key = this.scheduleCellKey(serviceId, teamType, roleName);
+        this.schedulePendingSaves = {
+          ...(this.schedulePendingSaves || {}),
+          [key]: { ...entry }
+        };
+        if (this.scheduleSaveTimer) {
+          clearTimeout(this.scheduleSaveTimer);
+        }
+        this.scheduleSaveTimer = setTimeout(() => {
+          this.scheduleSaveTimer = null;
+          this.flushScheduleAutosave().catch(err => console.error(err));
+        }, 350);
+      },
+
+      async flushScheduleAutosave() {
+        const pending = { ...(this.schedulePendingSaves || {}) };
+        const assignments = Object.values(pending);
+        if (!assignments.length || this.scheduleSaving) return;
+        this.schedulePendingSaves = {};
+        this.scheduleSaving = true;
+        this.scheduleSaveError = '';
+        this.scheduleSaveMessage = '';
+        try {
+          await callRpc('saveServiceTeamAssignments', { assignments });
+          const nextBaseline = { ...(this.scheduleAssignmentBaseline || {}) };
+          assignments.forEach(entry => {
+            const key = this.scheduleCellKey(entry.serviceId, entry.teamType, entry.roleName);
+            nextBaseline[key] = {
+              serviceId: entry.serviceId,
+              teamType: entry.teamType,
+              roleName: entry.roleName,
+              weeklyTeamName: entry.weeklyTeamName || '',
+              memberEmail: entry.memberEmail || '',
+              memberName: entry.memberEmail ? (entry.memberName || '') : '',
+              roleType: entry.roleType || entry.roleName
+            };
+          });
+          this.scheduleAssignmentBaseline = nextBaseline;
+          this.scheduleSaveMessage = assignments.length === 1 ? 'Change saved.' : 'Changes saved.';
+          this.recomputeScheduleDirty();
+          this.buildScheduleLayouts();
+        } catch (e) {
+          console.error(e);
+          this.schedulePendingSaves = { ...pending, ...(this.schedulePendingSaves || {}) };
+          this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to save schedule changes.';
+        } finally {
+          this.scheduleSaving = false;
+          if (Object.keys(this.schedulePendingSaves || {}).length) {
+            this.queueScheduleAutosave(Object.values(this.schedulePendingSaves)[0]);
+          }
+        }
+      },
+
+      async resetScheduleWeek(serviceId, teamType) {
+        const service = this.resolveScheduleService(serviceId);
+        if (!service || this.scheduleSaving) return;
+        if (this.scheduleSaveTimer) {
+          clearTimeout(this.scheduleSaveTimer);
+          this.scheduleSaveTimer = null;
+        }
+        this.schedulePendingSaves = {};
+        const previousAssignments = { ...(this.scheduleAssignmentMap || {}) };
+        const previousOverrides = { ...(this.scheduleTemplateOverrides || {}) };
+        const roles = this.deriveRoleNamesForTeamType(teamType);
+        const nextAssignments = { ...(this.scheduleAssignmentMap || {}) };
+        roles.forEach(roleName => {
+          const key = this.scheduleCellKey(service.id, teamType, roleName);
+          delete nextAssignments[key];
+        });
+        this.scheduleAssignmentMap = nextAssignments;
+
+        const serviceKey = String(service.id || '').trim();
+        const teamKey = this.normalize(teamType);
+        if (serviceKey && teamKey && this.scheduleTemplateOverrides?.[serviceKey]?.[teamKey]) {
+          const nextOverrides = { ...(this.scheduleTemplateOverrides || {}) };
+          const currentServiceOverrides = { ...(nextOverrides[serviceKey] || {}) };
+          delete currentServiceOverrides[teamKey];
+          if (Object.keys(currentServiceOverrides).length) {
+            nextOverrides[serviceKey] = currentServiceOverrides;
+          } else {
+            delete nextOverrides[serviceKey];
+          }
+          this.scheduleTemplateOverrides = nextOverrides;
+        }
+
+        this.scheduleSaving = true;
+        this.scheduleSaveMessage = '';
+        this.scheduleSaveError = '';
+        this.recomputeScheduleDirty();
+        this.buildScheduleLayouts();
+        try {
+          await callRpc('resetServiceTeamAssignments', {
+            serviceId: service.id,
+            teamType
+          });
+          this.scheduleSaveMessage = 'Week reset.';
+          await this.loadSchedule();
+        } catch (e) {
+          console.error(e);
+          this.scheduleAssignmentMap = previousAssignments;
+          this.scheduleTemplateOverrides = previousOverrides;
+          this.recomputeScheduleDirty();
+          this.buildScheduleLayouts();
+          this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to reset week.';
+        } finally {
+          this.scheduleSaving = false;
+        }
       },
 
       formatScheduleDate(dateStr, options) {

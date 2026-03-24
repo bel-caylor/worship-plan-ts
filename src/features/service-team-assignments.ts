@@ -7,6 +7,7 @@ import {
   WEEKLY_TEAM_ROLE_DEFAULTS_COL
 } from '../constants';
 import { listServices, ListServicesOptions, ServiceItem } from './services';
+import { listWeeklyTeams } from './weekly-teams';
 
 type ServiceTeamAssignmentRow = {
   serviceId: string;
@@ -188,6 +189,127 @@ function orderedRoleNames(entry: RoleOrderEntry | null) {
     .map(item => item.name);
 }
 
+function findWeeklyTeamRecord(
+  weeklyTeams: Array<{ team: string; teamName: string; roles?: Array<{ roleName?: string; roleType?: string; memberEmail?: string; memberName?: string }> }>,
+  teamType: string,
+  preferredTeamName: string
+) {
+  const teamKey = normLower(teamType);
+  const nameKey = normLower(preferredTeamName);
+  if (!teamKey) return null;
+  if (nameKey) {
+    const exact = weeklyTeams.find(team =>
+      normLower(team?.team) === teamKey &&
+      normLower(team?.teamName) === nameKey
+    );
+    if (exact) return exact;
+  }
+  return weeklyTeams.find(team => normLower(team?.team) === teamKey) || null;
+}
+
+function buildTemplateRoleRows(
+  weeklyTeams: Array<{ team: string; teamName: string; roles?: Array<{ roleName?: string; roleType?: string; memberEmail?: string; memberName?: string }> }>,
+  roleOrderLookup: { byKey: Map<string, RoleOrderEntry>; entries: RoleOrderEntry[] },
+  teamType: string,
+  preferredTeamName: string
+) {
+  const teamRecord = findWeeklyTeamRecord(weeklyTeams, teamType, preferredTeamName);
+  if (!teamRecord) return { weeklyTeamName: preferredTeamName, roles: [] as Array<{ roleName: string; roleType: string; memberEmail: string; memberName: string }> };
+  const entry = resolveRoleOrderEntry(roleOrderLookup, teamType, teamRecord.teamName || preferredTeamName);
+  const orderedNames = orderedRoleNames(entry);
+  const roles = Array.isArray(teamRecord.roles) ? teamRecord.roles : [];
+  const seen = new Set<string>();
+  const names: string[] = [];
+  const pushName = (value: unknown) => {
+    const clean = norm(value);
+    const key = normLower(clean);
+    if (!clean || seen.has(key)) return;
+    seen.add(key);
+    names.push(clean);
+  };
+  orderedNames.forEach(pushName);
+  roles.forEach(role => pushName(role?.roleName || role?.roleType));
+  return {
+    weeklyTeamName: teamRecord.teamName || preferredTeamName,
+    roles: names.map(roleName => {
+      const match = roles.find(role =>
+        normLower(role?.roleName || role?.roleType) === normLower(roleName)
+      );
+      return {
+        roleName,
+        roleType: norm(match?.roleType || match?.roleName || roleName),
+        memberEmail: norm(match?.memberEmail),
+        memberName: norm(match?.memberName)
+      };
+    })
+  };
+}
+
+function seedScheduleAssignments(
+  services: Array<{ id: string; ordinalLabel: string }>,
+  unavailableMap: Record<string, Set<string>>
+) {
+  if (!services.length) return;
+  const weeklyTeamResult = listWeeklyTeams();
+  const weeklyTeams = Array.isArray(weeklyTeamResult?.items) ? weeklyTeamResult.items : [];
+  if (!weeklyTeams.length) return;
+  const roleOrderLookup = readRoleOrderLookup();
+  const existingRows = readAssignmentRows().filter(row => services.some(service => service.id === row.serviceId));
+  const existingKeys = new Set(existingRows.map(row => assignmentKey(row.serviceId, row.teamType, row.roleName)));
+  const teamTypes = Array.from(new Set(weeklyTeams.map(team => norm(team.team)).filter(Boolean)));
+  if (!teamTypes.length) return;
+
+  const sh = ensureAssignmentSheet();
+  const lastCol = Math.max(sh.getLastColumn(), Object.keys(SERVICE_TEAM_ASSIGNMENTS_COL).length);
+  const headers = sh
+    .getRange(1, 1, 1, lastCol)
+    .getValues()[0]
+    .map(v => String(v ?? '').trim());
+  const idxServiceId = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceId);
+  const idxServiceType = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.serviceType);
+  const idxTeamType = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.teamType);
+  const idxWeeklyTeam = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.weeklyTeamName);
+  const idxRoleName = headerIndex(headers, SERVICE_TEAM_ASSIGNMENTS_COL.roleName);
+  const idxRoleType = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.roleType);
+  const idxMemberEmail = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.memberEmail);
+  const idxMemberName = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.memberName);
+  const idxStatus = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.status);
+  const idxNotes = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.notes);
+
+  const rowsToInsert: string[][] = [];
+  services.forEach(service => {
+    teamTypes.forEach(teamType => {
+      const template = buildTemplateRoleRows(weeklyTeams, roleOrderLookup, teamType, service.ordinalLabel || '');
+      if (!template.roles.length) return;
+      template.roles.forEach(role => {
+        const key = assignmentKey(service.id, teamType, role.roleName);
+        if (existingKeys.has(key)) return;
+        const blocked = unavailableMap?.[service.id];
+        const memberEmail = norm(role.memberEmail);
+        const isBlocked = memberEmail && blocked?.has(normLower(memberEmail));
+        const rowValues = Array.from({ length: lastCol }, () => '');
+        rowValues[idxServiceId] = service.id;
+        if (idxServiceType >= 0) rowValues[idxServiceType] = '';
+        rowValues[idxTeamType] = teamType;
+        if (idxWeeklyTeam >= 0) rowValues[idxWeeklyTeam] = template.weeklyTeamName || service.ordinalLabel || '';
+        rowValues[idxRoleName] = role.roleName;
+        if (idxRoleType >= 0) rowValues[idxRoleType] = role.roleType || role.roleName;
+        if (idxMemberEmail >= 0) rowValues[idxMemberEmail] = isBlocked ? '' : memberEmail;
+        if (idxMemberName >= 0) rowValues[idxMemberName] = isBlocked ? '' : norm(role.memberName);
+        if (idxStatus >= 0) rowValues[idxStatus] = isBlocked || !memberEmail ? 'Open' : 'Assigned';
+        if (idxNotes >= 0) rowValues[idxNotes] = '';
+        rowsToInsert.push(rowValues);
+        existingKeys.add(key);
+      });
+    });
+  });
+
+  if (rowsToInsert.length) {
+    const startRow = Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(startRow, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
+  }
+}
+
 function ensureAssignmentSheet(): GoogleAppsScript.Spreadsheet.Sheet {
   const ss = SpreadsheetApp.getActive();
   let sh = ss.getSheetByName(SERVICE_TEAM_ASSIGNMENTS_SHEET);
@@ -330,11 +452,13 @@ type TeamScheduleSnapshot = {
 
 export function getTeamScheduleSnapshot(input?: { limit?: number } & ListServicesOptions): TeamScheduleSnapshot {
   const limitRaw = Number(input?.limit);
-  const limit = Number.isFinite(limitRaw) ? Math.min(12, Math.max(1, Math.floor(limitRaw))) : 6;
+  const limit = Number.isFinite(limitRaw)
+    ? Math.max(0, Math.floor(limitRaw))
+    : 0;
   const serviceOptions: ListServicesOptions = {
     includePast: false,
     sort: 'asc',
-    limit
+    ...(limit > 0 ? { limit } : {})
   };
   const serviceResult = listServices(serviceOptions);
   const services = Array.isArray(serviceResult?.items) ? serviceResult.items : [];
@@ -355,21 +479,29 @@ export function getTeamScheduleSnapshot(input?: { limit?: number } & ListService
     });
   const serviceIds = normalizedServices.map(svc => svc.id);
   const unavailableMap = readUnavailableByService(serviceIds);
+  seedScheduleAssignments(normalizedServices, unavailableMap);
   const assignments = readAssignmentRows().filter(row => serviceIds.includes(row.serviceId));
-  const rowsToDelete: number[] = [];
-  const cleanedAssignments: ServiceTeamAssignmentRow[] = [];
-  assignments.forEach(row => {
+  const rowsToClear = assignments.filter(row => {
     const email = normLower(row.memberEmail);
-    if (email && unavailableMap[row.serviceId]?.has(email)) {
-      rowsToDelete.push(row.rowNumber);
-      return;
-    }
-    cleanedAssignments.push(row);
+    return Boolean(email && unavailableMap[row.serviceId]?.has(email));
   });
-  if (rowsToDelete.length) {
+  if (rowsToClear.length) {
     const sh = ensureAssignmentSheet();
-    rowsToDelete.sort((a, b) => b - a).forEach(row => sh.deleteRow(row));
+    const lastCol = Math.max(sh.getLastColumn(), Object.keys(SERVICE_TEAM_ASSIGNMENTS_COL).length);
+    const headers = sh
+      .getRange(1, 1, 1, lastCol)
+      .getValues()[0]
+      .map(v => String(v ?? '').trim());
+    const idxMemberEmail = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.memberEmail);
+    const idxMemberName = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.memberName);
+    const idxStatus = headerIndexOptional(headers, SERVICE_TEAM_ASSIGNMENTS_COL.status);
+    rowsToClear.forEach(row => {
+      if (idxMemberEmail >= 0) sh.getRange(row.rowNumber, idxMemberEmail + 1).setValue('');
+      if (idxMemberName >= 0) sh.getRange(row.rowNumber, idxMemberName + 1).setValue('');
+      if (idxStatus >= 0) sh.getRange(row.rowNumber, idxStatus + 1).setValue('Open');
+    });
   }
+  const cleanedAssignments = readAssignmentRows().filter(row => serviceIds.includes(row.serviceId));
   const unavailable = Object.fromEntries(
     Object.entries(unavailableMap).map(([serviceId, set]) => [serviceId, Array.from(set.values())])
   );
@@ -444,6 +576,33 @@ function groupLabel(group: ServiceTeamAssignmentGroup): string {
   return (group.teamType || '').toLowerCase();
 }
 
+export function resetServiceTeamAssignments(payload: { serviceId?: string; teamType?: string }) {
+  const serviceId = norm(payload?.serviceId);
+  const teamType = norm(payload?.teamType);
+  if (!serviceId) throw new Error('Service ID is required.');
+  if (!teamType) throw new Error('Team type is required.');
+
+  const rowsToDelete = readAssignmentRows()
+    .filter(row =>
+      normLower(row.serviceId) === normLower(serviceId) &&
+      normLower(row.teamType) === normLower(teamType)
+    )
+    .map(row => row.rowNumber)
+    .sort((a, b) => b - a);
+
+  if (!rowsToDelete.length) return { deleted: 0 };
+
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
+  try {
+    const sh = ensureAssignmentSheet();
+    rowsToDelete.forEach(rowNumber => sh.deleteRow(rowNumber));
+    return { deleted: rowsToDelete.length };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignmentInput[] }) {
   const entries = Array.isArray(payload?.assignments) ? payload.assignments : [];
   if (!entries.length) return { updated: 0 };
@@ -499,12 +658,6 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
       const key = entry.key;
       const memberEmail = norm(entry.memberEmail);
       const existingRow = existingMap.get(key);
-      if (!memberEmail) {
-        if (existingRow) {
-          rowsToDelete.push(existingRow.rowNumber);
-        }
-        return;
-      }
       if (existingRow) {
         rowUpdates.push({ rowNumber: existingRow.rowNumber, entry });
       } else {
@@ -517,8 +670,8 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
         rowValues[idxRoleName] = entry.roleName;
         if (idxRoleType >= 0) rowValues[idxRoleType] = norm(entry.roleType || entry.roleName);
         if (idxMemberEmail >= 0) rowValues[idxMemberEmail] = memberEmail;
-        if (idxMemberName >= 0) rowValues[idxMemberName] = norm(entry.memberName);
-        if (idxStatus >= 0) rowValues[idxStatus] = norm(entry.status) || 'Assigned';
+        if (idxMemberName >= 0) rowValues[idxMemberName] = memberEmail ? norm(entry.memberName) : '';
+        if (idxStatus >= 0) rowValues[idxStatus] = norm(entry.status) || (memberEmail ? 'Assigned' : 'Open');
         if (idxNotes >= 0) rowValues[idxNotes] = norm(entry.notes);
         rowsToInsert.push(rowValues);
       }
@@ -532,9 +685,10 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
       if (idxWeeklyTeam >= 0) sh.getRange(rowNumber, idxWeeklyTeam + 1).setValue(norm(entry.weeklyTeamName));
       if (idxRoleName >= 0) sh.getRange(rowNumber, idxRoleName + 1).setValue(entry.roleName);
       if (idxRoleType >= 0) sh.getRange(rowNumber, idxRoleType + 1).setValue(norm(entry.roleType || entry.roleName));
-      if (idxMemberEmail >= 0) sh.getRange(rowNumber, idxMemberEmail + 1).setValue(norm(entry.memberEmail));
-      if (idxMemberName >= 0) sh.getRange(rowNumber, idxMemberName + 1).setValue(norm(entry.memberName));
-      if (idxStatus >= 0) sh.getRange(rowNumber, idxStatus + 1).setValue(norm(entry.status) || 'Assigned');
+      const memberEmail = norm(entry.memberEmail);
+      if (idxMemberEmail >= 0) sh.getRange(rowNumber, idxMemberEmail + 1).setValue(memberEmail);
+      if (idxMemberName >= 0) sh.getRange(rowNumber, idxMemberName + 1).setValue(memberEmail ? norm(entry.memberName) : '');
+      if (idxStatus >= 0) sh.getRange(rowNumber, idxStatus + 1).setValue(norm(entry.status) || (memberEmail ? 'Assigned' : 'Open'));
       if (idxNotes >= 0) sh.getRange(rowNumber, idxNotes + 1).setValue(norm(entry.notes));
     });
     if (rowsToInsert.length) {

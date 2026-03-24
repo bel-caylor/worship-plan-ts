@@ -37,7 +37,9 @@
   window.addEventListener('message', handleAuthMessage, false);
 
   function openAdminLogin() {
-    const loginUrl = 'https://script.google.com/macros/s/AKfycbw5bFw0KZxQpPVCRJ_NaP03ZbvXZ_bw2NCa5YEHpDU4XsxOQluWCgXexV5pFMqDNFU/exec';
+    const loginUrl =
+      String(window.APP_CTX?.links?.adminLogin || '').trim() ||
+      'https://script.google.com/macros/s/AKfycbzLVHRDLYH49I9CIsmem1jaZHgFjQJaBX_X4QKfpnaYskKSvYPeUYK6uf5xR24gzlTa/exec';
     window.open(loginUrl, 'worship-admin-login');
   }
 

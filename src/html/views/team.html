@@ -189,26 +189,39 @@
       </div>
       <template x-for="layout in scheduleLayouts" :key="layout.teamType">
         <section class="border border-slate-200 rounded bg-white shadow-sm relative">
-          <div class="bg-blue-900 text-white px-4 py-3 flex flex-wrap items-center gap-4 sticky top-0 z-10 shadow" style="top:0">
-            <div class="flex flex-col">
-              <h3 class="text-xl font-semibold" x-text="layout.teamType || '(unspecified team)'"></h3>
-              <span class="text-xs text-blue-100" x-text="layout.columns.length + ' services'"></span>
-            </div>
-            <div class="flex-1"></div>
-            <span class="badge badge--warning badge--on-dark" x-show="scheduleDirty">Unsaved</span>
-          </div>
           <div class="overflow-auto">
             <table class="app-table">
-              <thead class="bg-slate-100 text-gray-700">
-                <tr>
-                  <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
-                  <template x-for="column in layout.columns" :key="column.id">
-                    <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
-                      <div class="font-semibold" x-text="column.service.label"></div>
-                      <div class="text-hint" x-text="column.service.ordinalLabel"></div>
-                      <div class="text-xs text-gray-400"
+              <thead class="text-gray-700">
+                <tr class="bg-blue-900 text-white sticky top-0 z-10 shadow">
+                  <th class="text-left px-3 py-3 min-w-[120px] sticky left-0 z-20 bg-blue-900 align-top">
+                    <div class="flex flex-col">
+                      <h3 class="text-xl font-semibold text-white normal-case" x-text="layout.teamType || '(unspecified team)'"></h3>
+                      <span class="text-xs text-blue-200 normal-case" x-text="layout.columns.length + ' services'"></span>
+                    </div>
+                  </th>
+                  <template x-for="column in layout.columns" :key="'blue-' + column.id">
+                    <th class="text-left font-medium px-3 py-3 align-top min-w-[150px] bg-blue-900 text-white">
+                      <div class="font-semibold text-white normal-case" x-text="column.service.label"></div>
+                      <div class="text-xs text-blue-100 normal-case" x-text="column.service.ordinalLabel"></div>
+                      <div class="text-xs text-blue-200 normal-case"
                         x-show="column.teamLabel && column.teamLabel !== column.service.ordinalLabel"
                         x-text="column.teamLabel"></div>
+                    </th>
+                  </template>
+                </tr>
+                <tr class="bg-slate-100">
+                  <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
+                  <template x-for="column in layout.columns" :key="'gray-' + column.id">
+                    <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
+                      <div class="mt-1 text-xs text-rose-700 normal-case"
+                        x-show="unavailableMembersForService(column.id).length"
+                        x-text="unavailableSummaryForService(column.id)"></div>
+                      <button type="button"
+                        class="mt-2 btn btn--muted btn--xs"
+                        :disabled="scheduleSaving"
+                        @click="resetScheduleWeek(column.id, layout.teamType)">
+                        Reset week
+                      </button>
                     </th>
                   </template>
                 </tr>

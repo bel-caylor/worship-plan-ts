@@ -5,7 +5,7 @@
     <!-- Current view label (always visible) -->
     <div class="text-sm text-gray-700 flex-1 min-w-0 text-center md:hidden">
       <span class="truncate text-lg font-bold text-blue-700"
-            x-text="route==='services' ? 'Services' : (route==='plan' ? 'Weekly Plan' : (route==='songs' ? 'Song List' : (route==='team' ? 'Team' : 'Availability')))"></span>
+            x-text="route==='services' ? 'Services' : (route==='schedule' ? 'Schedule' : (route==='plan' ? 'Weekly Plan' : (route==='songs' ? 'Song List' : (route==='team' ? 'Team' : 'Availability'))))"></span>
     </div>
     <div class="flex justify-between w-full">
       <!-- Desktop tabs -->
@@ -14,6 +14,12 @@
            class="app-tab"
            :class="route==='services' ? 'is-active' : ''">
           Services
+        </a>
+
+        <a href="#/schedule"
+           class="app-tab"
+           :class="route==='schedule' ? 'is-active' : ''">
+          Schedule
         </a>
   
         <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
@@ -63,6 +69,8 @@
           <nav class="py-1">
             <a href="#/services" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
                :class="route==='services' ? 'font-semibold' : ''" @click="menuOpen=false">Services</a>
+            <a href="#/schedule" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+               :class="route==='schedule' ? 'font-semibold' : ''" @click="menuOpen=false">Schedule</a>
             <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
               <a href="#/plan" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
                  :class="route==='plan' ? 'font-semibold' : ''" @click="menuOpen=false">Weekly Plan</a>

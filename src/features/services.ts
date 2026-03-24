@@ -404,10 +404,11 @@ function fetchServicesUnfiltered(): ServiceItem[] {
         const rawId = idIdx >= 0 ? String(r[idIdx] ?? '') : '';
         const rawDate = dateIdx >= 0 ? toISO(r[dateIdx]) : '';
         const rawTime = timeIdx >= 0 ? toTime(r[timeIdx]) : '';
+        const derivedTime = deriveTimeFromServiceId(rawId);
         return {
           id: rawId,
           date: rawDate || deriveDateFromServiceId(rawId),
-          time: rawTime || deriveTimeFromServiceId(rawId),
+          time: derivedTime || rawTime,
           type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
           leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
           preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
@@ -489,10 +490,11 @@ function fetchServicesUnfiltered(): ServiceItem[] {
     const rawId = idIdx >= 0 ? String(r[idIdx] ?? '') : '';
     const rawDate = dateIdx >= 0 ? toISO(r[dateIdx]) : '';
     const rawTime = timeIdx >= 0 ? toTime(r[timeIdx]) : '';
+    const derivedTime = deriveTimeFromServiceId(rawId);
     return {
       id: rawId,
       date: rawDate || deriveDateFromServiceId(rawId),
-      time: rawTime || deriveTimeFromServiceId(rawId),
+      time: derivedTime || rawTime,
       type: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
       leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
       preacher: preacherIdx >= 0 ? String(r[preacherIdx] ?? '') : '',
@@ -571,6 +573,7 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
   const typeIdx = col(SERVICES_COL.type);
   const leaderIdx = col(SERVICES_COL.leader);
   const preacherIdx = col(SERVICES_COL.preacher);
+  const suggestedSongsIdx = col(SERVICES_COL.suggestedSongs);
 
   const created: { id: string; date: string; time: string; type: string }[] = [];
   const lock = LockService.getDocumentLock();

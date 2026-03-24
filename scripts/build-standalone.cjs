@@ -13,6 +13,7 @@ const INCLUDE_FILES = [
   'context',
   'apps-service-viewer',
   'apps-songs',
+  'apps-schedule',
   'apps-team',
   'apps-weekly-plan',
   'apps-availability',
@@ -21,6 +22,7 @@ const INCLUDE_FILES = [
   'topbar',
   'songs',
   'songs-browser',
+  'schedule',
   'weekly-plan',
   'team',
   'availability'
