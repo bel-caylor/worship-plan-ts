@@ -62,22 +62,62 @@
         return map;
       },
 
+      memberLookupFirstNames() {
+        const names = [];
+        Object.values(this.memberLookup || {}).forEach(entry => {
+          const first = String(entry?.label || '').trim().split(/\s+/)[0];
+          if (first) names.push(first);
+        });
+        return Array.from(new Set(names)).sort((a, b) => b.length - a.length);
+      },
+
       memberNameByEmail(email) {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return '';
         return this.memberLookup?.[key]?.label || this.formatDisplayName(email) || email || '';
       },
 
+      unavailableNameForEmail(email) {
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return '';
+        const known = this.memberNameByEmail(key);
+        if (known && !/^[^@]+@[^@]+$/.test(known)) return this.formatShortUnavailableName(known);
+
+        const local = key.split('@')[0] || '';
+        if (!local) return '';
+        const cleaned = local
+          .split(/[+._-]/)
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const firstNames = this.memberLookupFirstNames();
+        const compact = local.replace(/[^a-z]/g, '');
+        for (const firstName of firstNames) {
+          const normalizedFirst = this.normalize(firstName);
+          if (!normalizedFirst) continue;
+          if (!compact.startsWith(normalizedFirst)) continue;
+          const remainder = compact.slice(normalizedFirst.length);
+          const lastInitial = String(remainder || '').trim().charAt(0);
+          if (lastInitial) {
+            return `${this.formatDisplayName(firstName)} ${lastInitial.toUpperCase()}.`;
+          }
+        }
+        if (cleaned) return this.formatDisplayName(cleaned);
+        return this.formatDisplayName(local);
+      },
+
       async refresh() {
         this.loading = true;
         this.error = '';
         try {
-          const [snapshot, rolesRes] = await Promise.all([
+          const [snapshot, servicesRes, rolesRes] = await Promise.all([
             callRpc('getTeamScheduleSnapshot', { limit: 0 }),
+            callRpc('listServices', { includePast: false, sort: 'asc', limit: 0 }).catch(() => ({ items: [] })),
             callRpc('listWeeklyTeams', null).catch(() => ({ items: [] })),
             callRpc('listRoles', null).catch(() => ({ items: [] }))
           ]);
-          this.scheduleServices = this.normalizeScheduleServices(snapshot?.services);
+          const services = this.normalizeScheduleServices(servicesRes?.items || snapshot?.services);
+          this.scheduleServices = services.length ? services : this.normalizeScheduleServices(snapshot?.services);
           this.buildScheduleServiceLookup(this.scheduleServices);
           this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
@@ -236,10 +276,7 @@
         const blocked = this.scheduleUnavailableMap?.[key];
         if (!blocked || !blocked.size) return [];
         return Array.from(blocked.values())
-          .map(email => ({
-            email,
-            name: this.formatShortUnavailableName(this.memberNameByEmail(email) || email)
-          }))
+          .map(email => ({ email, name: this.formatShortUnavailableName(this.unavailableNameForEmail(email)) }))
           .sort((a, b) => a.name.localeCompare(b.name));
       },
 
