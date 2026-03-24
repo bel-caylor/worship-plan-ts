@@ -2234,6 +2234,53 @@ return {
         return map;
       },
 
+      mergeUnavailableMaps(...sources) {
+        const merged = {};
+        sources.forEach(source => {
+          if (!source || typeof source !== 'object') return;
+          Object.entries(source).forEach(([serviceId, list]) => {
+            const id = String(serviceId || '').trim();
+            if (!id) return;
+            if (!merged[id]) merged[id] = new Set();
+            (Array.isArray(list) ? list : []).forEach(email => {
+              const key = String(email || '').trim().toLowerCase();
+              if (key) merged[id].add(key);
+            });
+          });
+        });
+        return Object.fromEntries(
+          Object.entries(merged).map(([serviceId, set]) => [serviceId, Array.from(set.values())])
+        );
+      },
+
+      async unavailableMapFromMembers(serviceIds, roleItems) {
+        const ids = new Set((Array.isArray(serviceIds) ? serviceIds : []).map(id => String(id || '').trim()).filter(Boolean));
+        if (!ids.size) return {};
+        const emails = Array.from(new Set(
+          (Array.isArray(roleItems) ? roleItems : [])
+            .map(item => String(item?.email || '').trim().toLowerCase())
+            .filter(Boolean)
+        ));
+        if (!emails.length) return {};
+        const responses = await Promise.all(
+          emails.map(email =>
+            callRpc('getMemberAvailability', { email })
+              .then(res => ({ email, unavailable: Array.isArray(res?.unavailable) ? res.unavailable : [] }))
+              .catch(() => ({ email, unavailable: [] }))
+          )
+        );
+        const map = {};
+        responses.forEach(entry => {
+          entry.unavailable.forEach(serviceId => {
+            const id = String(serviceId || '').trim();
+            if (!id || !ids.has(id)) return;
+            if (!map[id]) map[id] = [];
+            map[id].push(entry.email);
+          });
+        });
+        return map;
+      },
+
       memberLabel(email, fallback = '') {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return fallback || '';
@@ -2278,16 +2325,20 @@ return {
           this.buildScheduleServiceLookup(services);
           const serviceIds = services.map(service => service.id).filter(Boolean);
           const unavailableRes = serviceIds.length
-            ? await callRpc('getUnavailableByServices', { serviceIds }).catch(() => ({ unavailable: snapshot?.unavailable || {} }))
-            : { unavailable: snapshot?.unavailable || {} };
-          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(unavailableRes?.unavailable || snapshot?.unavailable);
+            ? await callRpc('getUnavailableByServices', { serviceIds }).catch(() => ({ unavailable: {} }))
+            : { unavailable: {} };
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyTeamsRes?.defaults);
           this.weeklyTeams = (Array.isArray(weeklyTeamsRes?.items) ? weeklyTeamsRes.items : [])
             .map(item => this.normalizeWeeklyTeam(item))
             .filter(item => !this.isHiddenTeamType(item.team));
-          this.memberLookup = this.buildMemberLookup(rolesRes?.items || []);
+          const roleItems = Array.isArray(rolesRes?.items) ? rolesRes.items : [];
+          this.memberLookup = this.buildMemberLookup(roleItems);
+          const memberUnavailable = await this.unavailableMapFromMembers(serviceIds, roleItems);
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(
+            this.mergeUnavailableMaps(snapshot?.unavailable, unavailableRes?.unavailable, memberUnavailable)
+          );
           this.buildScheduleLayouts();
         } catch (e) {
           console.error(e);
