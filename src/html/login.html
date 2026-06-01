@@ -15,6 +15,7 @@
     <p class="status" id="status">Please wait while we sign you in with Google.</p>
   </div>
   <script>
+    const serverToken = `<?!= JSON.stringify(typeof authToken !== 'undefined' ? authToken : '') ?>`;
     const statusEl = document.getElementById('status');
     const setStatus = (message) => {
       if (statusEl) statusEl.textContent = message;
@@ -32,19 +33,22 @@
       console.error(err);
     };
     const start = () => {
-      if (!(window.google && google.script && google.script.run)) {
-        setStatus('Google sign-in is still loading. If this does not change, close this window and try again.');
+      let token = '';
+      try {
+        token = JSON.parse(serverToken);
+      } catch (_) {
+        token = '';
+      }
+      if (!token) {
+        reportError(new Error('Google sign-in required. Make sure you opened the deployed web app while signed into Google.'));
         return;
       }
-      setStatus('Contacting Google Apps Script...');
-      google.script.run
-        .withSuccessHandler(sendToken)
-        .withFailureHandler(reportError)
-        .issueAuthToken();
+      setStatus('Signed in. Returning to the app...');
+      sendToken(token);
     };
     window.addEventListener('load', start);
     setTimeout(() => {
-      if (statusEl && /Contacting|Please wait|loading/i.test(statusEl.textContent || '')) {
+      if (statusEl && /Please wait|loading/i.test(statusEl.textContent || '')) {
         setStatus('Still working... if this stays open, close it and click Login again.');
       }
     }, 5000);

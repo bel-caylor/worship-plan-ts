@@ -27,6 +27,11 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
 
   if (viewMode === 'login') {
     const tplLogin = HtmlService.createTemplateFromFile('login');
+    try {
+      tplLogin.authToken = issueAuthToken();
+    } catch (_) {
+      tplLogin.authToken = '';
+    }
     return tplLogin.evaluate().setTitle('Admin Login');
   }
 
