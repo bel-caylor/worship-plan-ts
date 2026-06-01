@@ -1,5 +1,16 @@
 <script>
   const AUTH_STORAGE_KEY = '__wpAuthToken';
+  const GOOGLE_CLIENT_ID = (() => {
+    const explicit = String(window.__GOOGLE_CLIENT_ID__ || '').trim();
+    if (explicit) return explicit;
+    try {
+      const meta = document.querySelector('meta[name="google-client-id"]');
+      return String(meta?.content || '').trim();
+    } catch (_) {
+      return '';
+    }
+  })();
+  let googleAuthInitialized = false;
 
   function getStoredAuthToken() {
     if (typeof window === 'undefined') return '';
@@ -23,36 +34,92 @@
     } catch (_) { /* ignore */ }
   }
 
-  function handleAuthMessage(evt) {
-    try {
-      if (!evt || !evt.origin || !evt.origin.includes('script.google.com')) return;
-      const data = evt.data;
-      if (data && data.type === 'auth-token' && typeof data.token === 'string') {
-        setStoredAuthToken(data.token);
-        refreshAuthContext();
-      }
-    } catch (_) { }
+  function clearStoredAuthToken() {
+    setStoredAuthToken('');
   }
 
-  window.addEventListener('message', handleAuthMessage, false);
+  function renderGoogleSignInButtons() {
+    if (!GOOGLE_CLIENT_ID) return;
+    if (!(window.google && google.accounts && google.accounts.id)) return;
+    document.querySelectorAll('[data-google-signin]').forEach((node) => {
+      if (!node || node.dataset.googleRendered === 'true') return;
+      node.innerHTML = '';
+      google.accounts.id.renderButton(node, {
+        theme: 'outline',
+        size: 'medium',
+        shape: 'pill',
+        text: 'signin_with',
+        logo_alignment: 'left',
+        width: 220
+      });
+      node.dataset.googleRendered = 'true';
+    });
+  }
+
+  function initializeGoogleAuth() {
+    if (!GOOGLE_CLIENT_ID) return false;
+    if (!(window.google && google.accounts && google.accounts.id)) return false;
+    if (!googleAuthInitialized) {
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (response) => {
+          const credential = String(response && response.credential || '').trim();
+          if (!credential) {
+            notify('Google sign-in did not return a credential.', 'error', 3200);
+            return;
+          }
+          setStoredAuthToken(credential);
+          try {
+            const auth = await refreshAuthContext();
+            renderGoogleSignInButtons();
+            if (auth && auth.isLoggedIn) {
+              notify(`Signed in as ${auth.email}`, 'success', 2600);
+            } else {
+              notify('Signed in, but no matching role was found for this account.', 'error', 3600);
+            }
+          } catch (err) {
+            clearStoredAuthToken();
+            notify(err && err.message ? err.message : 'Google sign-in failed.', 'error', 3600);
+          }
+        },
+        auto_select: false,
+        cancel_on_tap_outside: true
+      });
+      googleAuthInitialized = true;
+    }
+    renderGoogleSignInButtons();
+    return true;
+  }
 
   function openAdminLogin() {
-    const baseUrl =
-      String(window.APP_CTX?.links?.adminLogin || '').trim() ||
-      String(window.__ADMIN_BASE__ || '').trim() ||
-      'https://script.google.com/macros/s/AKfycbx1vq3FKGTTEScwXMKXKB_2oFARnehCg9X3tTRSgi7933FLhll5D2L484p1nlECoGzh/exec';
-    let loginUrl = baseUrl;
-    try {
-      const url = new URL(baseUrl);
-      url.searchParams.set('mode', 'login');
-      loginUrl = url.toString();
-    } catch (_) {
-      loginUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}mode=login`;
+    if (!GOOGLE_CLIENT_ID) {
+      notify('Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID in Script Properties.', 'error', 4000);
+      return;
     }
-    window.open(loginUrl, 'worship-admin-login');
+    if (!initializeGoogleAuth()) {
+      notify('Google sign-in is still loading. Please try again in a moment.', 'info', 2800);
+      return;
+    }
+    try {
+      google.accounts.id.prompt();
+    } catch (_) {
+      notify('Use the Google sign-in button to continue.', 'info', 2600);
+    }
   }
 
   window.openAdminLogin = openAdminLogin;
+  window.signOutGoogleAuth = async function signOutGoogleAuth() {
+    clearStoredAuthToken();
+    try {
+      if (window.google && google.accounts && google.accounts.id) {
+        google.accounts.id.disableAutoSelect();
+      }
+    } catch (_) { /* ignore */ }
+    const auth = setAuthState(DEFAULT_AUTH, { ready: true });
+    renderGoogleSignInButtons();
+    notify('Signed out.', 'info', 1800);
+    return auth;
+  };
 
   function callRpc(method, payload) {
     return new Promise((resolve, reject) => {
@@ -61,7 +128,7 @@
       const runner = (window.google && google.script && google.script.run) || null;
       const rpcUrl = /\/(exec|dev)$/i.test(base) ? base : `${base}/exec`;
 
-      // When a login token exists, force the HTTP RPC path so the server can
+      // When an auth token exists, force the HTTP RPC path so the server can
       // resolve the signed-in user's email from the bearer token.
       if ((!authToken || !base) && runner && runner.rpc) {
         runner
@@ -183,6 +250,7 @@
   };
 
   const DEFAULT_CAPABILITIES = {
+    canViewPlan: false,
     canEditPlan: false,
     canEditSongs: false,
     canViewTeam: false,
@@ -228,6 +296,7 @@
     window.__AUTH__ = normalized;
     window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || forcedGuestFlag || !normalized.capabilities.canEditPlan);
     dispatchAuthChanged(normalized);
+    setTimeout(() => renderGoogleSignInButtons(), 0);
     return normalized;
   }
 
@@ -237,6 +306,7 @@
       return setAuthState(profile, { ready: true });
     } catch (err) {
       console.warn('Auth check failed', err);
+      clearStoredAuthToken();
       const fallbackReady = Boolean(devAuthOverride);
       return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: fallbackReady });
     }
@@ -250,6 +320,10 @@
   dispatchAuthChanged(window.__AUTH__);
   refreshAuthContext();
   window.refreshAuthContext = refreshAuthContext;
+  window.addEventListener('load', () => {
+    initializeGoogleAuth();
+    renderGoogleSignInButtons();
+  });
 
   // Minimal toast-style notifier for consistent UX (client-only)
   function notify(message, type = 'info', ms = 2200) {

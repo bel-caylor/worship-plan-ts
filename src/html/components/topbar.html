@@ -50,8 +50,11 @@
           Availability
         </a>
       </nav>
-      <div class="hidden md:block ml-4">
-        <button class="btn btn--outline text-sm text-gray-700" @click.prevent="openAdminLogin()">Login</button>
+      <div class="hidden md:flex ml-4 items-center gap-3">
+        <div x-show="auth && auth.isLoggedIn" class="text-xs text-gray-600 max-w-[220px] truncate" :title="auth && auth.email ? auth.email : ''" x-text="auth && auth.email ? auth.email : ''"></div>
+        <div x-show="!auth || !auth.isLoggedIn" data-google-signin></div>
+        <button x-show="!auth || !auth.isLoggedIn" class="btn btn--outline text-sm text-gray-700" @click.prevent="openAdminLogin()">Sign In</button>
+        <button x-show="auth && auth.isLoggedIn" class="btn btn--outline text-sm text-gray-700" @click.prevent="signOut()">Sign Out</button>
       </div>
     </div>
 
@@ -83,8 +86,16 @@
             </template>
           <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
              :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
+          <div class="px-4 py-2" x-show="!auth || !auth.isLoggedIn">
+            <div data-google-signin></div>
+          </div>
+          <div class="px-4 py-2 text-xs text-gray-500 break-all" x-show="auth && auth.isLoggedIn" x-text="auth && auth.email ? auth.email : ''"></div>
           <button type="button" class="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-             @click="openAdminLogin(); menuOpen=false">Admin Login</button>
+             x-show="!auth || !auth.isLoggedIn"
+             @click="openAdminLogin(); menuOpen=false">Sign In</button>
+          <button type="button" class="block w-full text-left px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+             x-show="auth && auth.isLoggedIn"
+             @click="signOut(); menuOpen=false">Sign Out</button>
         </nav>
         </div>
       </div>

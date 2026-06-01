@@ -3,7 +3,7 @@ import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { getViewerProfile } from './features/roles';
 import { rpc } from './rpc';
-import { requestTokenEmail } from './auth';
+import { getGoogleClientId, issueAuthToken, requestTokenEmail } from './auth';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
@@ -41,6 +41,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   try { tpl.servicesData = listServices(); } catch (_) { tpl.servicesData = { items: [] }; }
   tpl.guestMode = guestMode;
   tpl.viewerProfile = viewerProfile;
+  tpl.googleClientId = getGoogleClientId();
   try {
     // Provide the deployed Web App base URL to client for fetch fallbacks
     const scriptUrl = (ScriptApp.getService && ScriptApp.getService().getUrl && ScriptApp.getService().getUrl()) || '';
