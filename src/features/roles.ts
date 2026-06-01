@@ -72,12 +72,11 @@ function computeCapabilities(permission: string | undefined | null) {
   const normalized = normalizePermission(permission);
   const isAdmin = normalized === 'administrator' || normalized === 'admin';
   const isEditor = normalized === 'editor';
-  const isSubscriber = normalized === 'subscriber';
   const capabilities: ViewerCapabilities = {
-    canViewPlan: isAdmin || isEditor || isSubscriber,
+    canViewPlan: isAdmin || isEditor,
     canEditPlan: isAdmin || isEditor,
     canEditSongs: isAdmin || isEditor,
-    canViewTeam: isAdmin,
+    canViewTeam: isAdmin || isEditor,
     canManageTeams: isAdmin,
     canAdminAvailability: isAdmin || isEditor
   };

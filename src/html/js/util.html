@@ -39,7 +39,7 @@
   function openAdminLogin() {
     const loginUrl =
       String(window.APP_CTX?.links?.adminLogin || '').trim() ||
-      'https://script.google.com/macros/s/AKfycbzLVHRDLYH49I9CIsmem1jaZHgFjQJaBX_X4QKfpnaYskKSvYPeUYK6uf5xR24gzlTa/exec';
+      'https://script.google.com/macros/s/AKfycbxkFp3tncT-r4TpgsQsxYEFK10F5Iw1iy3ipEdxnbcZrKfcVcfKPrPIxpni5LSN3Uhy/exec';
     window.open(loginUrl, 'worship-admin-login');
   }
 
@@ -47,8 +47,13 @@
 
   function callRpc(method, payload) {
     return new Promise((resolve, reject) => {
+      const base = String(window.__BASE__ || '').replace(/\/+$/, '');
+      const authToken = getStoredAuthToken();
       const runner = (window.google && google.script && google.script.run) || null;
-      if (runner && runner.rpc) {
+
+      // When a login token exists, force the HTTP RPC path so the server can
+      // resolve the signed-in user's email from the bearer token.
+      if ((!authToken || !base) && runner && runner.rpc) {
         runner
           .withSuccessHandler(resolve)
           .withFailureHandler(reject)
@@ -56,7 +61,6 @@
         return;
       }
 
-      const base = String(window.__BASE__ || '').replace(/\/+$/, '');
       if (!base) {
         reject(new Error('RPC endpoint is not configured.'));
         return;
@@ -68,10 +72,7 @@
           ? window.__RPC_HEADERS__
           : {}
       );
-      const authToken = getStoredAuthToken();
-      if (authToken) {
-        headers.Authorization = `Bearer ${authToken}`;
-      }
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
       fetch(`${base}/exec`, {
         method: 'POST',
