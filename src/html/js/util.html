@@ -37,9 +37,18 @@
   window.addEventListener('message', handleAuthMessage, false);
 
   function openAdminLogin() {
-    const loginUrl =
+    const baseUrl =
       String(window.APP_CTX?.links?.adminLogin || '').trim() ||
-      'https://script.google.com/macros/s/AKfycbxkFp3tncT-r4TpgsQsxYEFK10F5Iw1iy3ipEdxnbcZrKfcVcfKPrPIxpni5LSN3Uhy/exec';
+      String(window.__ADMIN_BASE__ || '').trim() ||
+      'https://script.google.com/macros/s/AKfycbwNjQMtjxsN8ov4uhbWiEjkOvP_yT2Qz5SZH_RmhZXMlhkbSFgNGIOjrhNaeLJxEv6w/exec';
+    let loginUrl = baseUrl;
+    try {
+      const url = new URL(baseUrl);
+      url.searchParams.set('mode', 'login');
+      loginUrl = url.toString();
+    } catch (_) {
+      loginUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}mode=login`;
+    }
     window.open(loginUrl, 'worship-admin-login');
   }
 
@@ -50,6 +59,7 @@
       const base = String(window.__BASE__ || '').replace(/\/+$/, '');
       const authToken = getStoredAuthToken();
       const runner = (window.google && google.script && google.script.run) || null;
+      const rpcUrl = /\/(exec|dev)$/i.test(base) ? base : `${base}/exec`;
 
       // When a login token exists, force the HTTP RPC path so the server can
       // resolve the signed-in user's email from the bearer token.
@@ -74,7 +84,7 @@
       );
       if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-      fetch(`${base}/exec`, {
+      fetch(rpcUrl, {
         method: 'POST',
         mode: 'cors',
         credentials: 'omit',
