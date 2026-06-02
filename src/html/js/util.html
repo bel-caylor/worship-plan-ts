@@ -139,7 +139,7 @@
         mode: 'cors',
         credentials: 'omit',
         headers,
-        body: JSON.stringify({ method, payload })
+        body: JSON.stringify({ method, payload, authToken })
       })
         .then(async (res) => {
           let data = null;

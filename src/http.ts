@@ -83,7 +83,7 @@ const makeJsonResponse = (payload: unknown, origin?: string) =>
 
 export function doPost(e?: GoogleAppsScript.Events.DoPost) {
   const body = e?.postData?.contents || '';
-  let parsed: { method?: string; payload?: unknown } = {};
+  let parsed: { method?: string; payload?: unknown; authToken?: unknown } = {};
   try { parsed = body ? JSON.parse(body) : {}; }
   catch (parseErr) {
     Logger.log(`doPost parse error: %s`, parseErr);
@@ -93,7 +93,8 @@ export function doPost(e?: GoogleAppsScript.Events.DoPost) {
   const origin = resolveOrigin(e);
   const headerAuth = (e as any)?.headers?.Authorization;
   const bearer = typeof headerAuth === 'string' ? headerAuth.replace(/^Bearer\s+/i, '').trim() : '';
-  global.__REQUEST_AUTH_TOKEN__ = bearer || '';
+  const payloadAuth = typeof parsed?.authToken === 'string' ? parsed.authToken.trim() : '';
+  global.__REQUEST_AUTH_TOKEN__ = bearer || payloadAuth || '';
 
   Logger.log(`doPost origin=%s method=%s`, origin || '???', parsed?.method || '');
 
