@@ -4,7 +4,6 @@ import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from '
 import { buildLeadersFromPlanner } from './features/leaders';
 import { getFilesForFolderUrl } from './util/drive';
 import { rpc } from './rpc';
-import { issueAuthToken as issueAuthTokenImpl } from './auth';
 
 // Top-level wrappers so Apps Script Run menu can see them
 export function onOpen() {
@@ -26,7 +25,6 @@ global.doPost = doPost;
 global.doOptions = doOptions;
 global.rpc = rpc;
 global.getFilesForFolderUrl = getFilesForFolderUrl;
-global.issueAuthToken = issueAuthTokenImpl;
 
 global.linkSongMedia = linkSongMedia;
 global.buildLeadersFromPlanner = buildLeadersFromPlanner;
@@ -36,8 +34,3 @@ global.syncSongsFromDrive = syncSongsFromDrive;
 global.onOpen = onOpen;
 global.showMenuNow = showMenuNow;
 global.setupMenuTrigger = setupMenuTrigger;
-
-// Top-level wrapper so google.script.run can invoke auth from login.html
-export function issueAuthToken() {
-  return issueAuthTokenImpl();
-}

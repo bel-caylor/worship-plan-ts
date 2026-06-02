@@ -99,5 +99,4 @@ export const SERVICE_TEAM_ASSIGNMENTS_COL = {
   notes: 'Notes'
 } as const;
 
-export const AUTH_TOKEN_SECRET_KEY = 'AUTH_TOKEN_SECRET';
 export const GOOGLE_CLIENT_ID_PROPERTY_KEY = 'GOOGLE_CLIENT_ID';

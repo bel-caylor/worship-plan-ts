@@ -3,7 +3,7 @@ import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { getViewerProfile } from './features/roles';
 import { rpc } from './rpc';
-import { getGoogleClientId, issueAuthToken, requestTokenEmail } from './auth';
+import { getGoogleClientId } from './auth';
 
 export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   const action = e?.parameter?.action;
@@ -23,16 +23,6 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
     return ContentService
       .createTextOutput(JSON.stringify({ files }))
       .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  if (viewMode === 'login') {
-    const tplLogin = HtmlService.createTemplateFromFile('login');
-    try {
-      tplLogin.authToken = issueAuthToken();
-    } catch (_) {
-      tplLogin.authToken = '';
-    }
-    return tplLogin.evaluate().setTitle('Admin Login');
   }
 
   // HTML app

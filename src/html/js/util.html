@@ -91,23 +91,6 @@
     return true;
   }
 
-  function openAdminLogin() {
-    if (!GOOGLE_CLIENT_ID) {
-      notify('Google sign-in is not configured yet. Add GOOGLE_CLIENT_ID in Script Properties.', 'error', 4000);
-      return;
-    }
-    if (!initializeGoogleAuth()) {
-      notify('Google sign-in is still loading. Please try again in a moment.', 'info', 2800);
-      return;
-    }
-    try {
-      google.accounts.id.prompt();
-    } catch (_) {
-      notify('Use the Google sign-in button to continue.', 'info', 2600);
-    }
-  }
-
-  window.openAdminLogin = openAdminLogin;
   window.signOutGoogleAuth = async function signOutGoogleAuth() {
     clearStoredAuthToken();
     try {
@@ -306,7 +289,6 @@
       return setAuthState(profile, { ready: true });
     } catch (err) {
       console.warn('Auth check failed', err);
-      clearStoredAuthToken();
       const fallbackReady = Boolean(devAuthOverride);
       return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: fallbackReady });
     }

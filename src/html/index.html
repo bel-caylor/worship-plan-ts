@@ -54,7 +54,6 @@
     window.__GOOGLE_CLIENT_ID__ = googleClientIdFromServer || '';
   </script>
   <meta name="app-script-base" content="https://script.google.com/macros/s/AKfycbx1vq3FKGTTEScwXMKXKB_2oFARnehCg9X3tTRSgi7933FLhll5D2L484p1nlECoGzh/exec">
-  <meta name="app-admin-base" content="https://script.google.com/macros/s/AKfycbx1vq3FKGTTEScwXMKXKB_2oFARnehCg9X3tTRSgi7933FLhll5D2L484p1nlECoGzh/exec">
   <meta name="google-client-id" content="<?!= googleClientId || '' ?>">
   <script>
     (function ensureRpcBase() {
@@ -67,13 +66,6 @@
         const meta = document.querySelector('meta[name="app-script-base"]');
         if (meta && meta.content) window.__BASE__ = meta.content;
       } catch (_) { }
-    })();
-  </script>
-  <script>
-    (function ensureAdminBase() {
-      const meta = document.querySelector('meta[name="app-admin-base"]');
-      const adminUrl = meta && meta.content ? meta.content : '';
-      window.__ADMIN_BASE__ = adminUrl || window.__BASE__ || `${location.origin}${location.pathname}`;
     })();
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
@@ -150,11 +142,6 @@
         route: 'services',
         auth: initialAuth,
         allowedRoutes: routesForAuth(initialAuth),
-        openAdminLogin() {
-          if (typeof window.openAdminLogin === 'function') {
-            window.openAdminLogin();
-          }
-        },
         signOut() {
           if (typeof window.signOutGoogleAuth === 'function') {
             window.signOutGoogleAuth();
