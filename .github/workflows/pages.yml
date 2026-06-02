@@ -36,6 +36,7 @@ jobs:
       - name: Build standalone
         env:
           APPS_SCRIPT_BASE: ${{ secrets.APPS_SCRIPT_BASE }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         run: npm run build:standalone
 
       - name: Upload Pages artifact

@@ -45,6 +45,8 @@ const ensureDistFile = (name) => {
   return filePath;
 };
 
+const replaceTemplateString = (html, pattern, replacement) => html.replace(pattern, replacement);
+
 function main() {
   if (!fs.existsSync(DIST)) {
     throw new Error('dist/ not found. Run "npm run build" before building the standalone bundle.');
@@ -58,6 +60,7 @@ function main() {
   });
 
   const base = process.env.APPS_SCRIPT_BASE || '';
+  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
   if (base) {
     const metaTag = `  <meta name="app-script-base" content="${base}">`;
     if (html.includes('<meta charset="utf-8" />')) {
@@ -67,6 +70,31 @@ function main() {
     }
   } else {
     console.warn('[standalone] APPS_SCRIPT_BASE env not set. Configure window.APP_RPC_BASE manually at runtime.');
+  }
+
+  if (googleClientId) {
+    html = replaceTemplateString(
+      html,
+      /<meta name="google-client-id" content="<\?!= googleClientId \|\| '' \?>">/g,
+      `  <meta name="google-client-id" content="${googleClientId}">`
+    );
+    html = replaceTemplateString(
+      html,
+      /const googleClientTemplate = `?<\?!= JSON\.stringify\(typeof googleClientId !== 'undefined' \? googleClientId : ''\) \?>`?;/g,
+      `const googleClientTemplate = ${JSON.stringify(JSON.stringify(googleClientId))};`
+    );
+  } else {
+    html = replaceTemplateString(
+      html,
+      /<meta name="google-client-id" content="<\?!= googleClientId \|\| '' \?>">/g,
+      '  <meta name="google-client-id" content="">'
+    );
+    html = replaceTemplateString(
+      html,
+      /const googleClientTemplate = `?<\?!= JSON\.stringify\(typeof googleClientId !== 'undefined' \? googleClientId : ''\) \?>`?;/g,
+      `const googleClientTemplate = "";`
+    );
+    console.warn('[standalone] GOOGLE_CLIENT_ID env not set. Google sign-in will be unavailable in the standalone site.');
   }
 
   fs.rmSync(OUT_DIR, { recursive: true, force: true });
