@@ -140,7 +140,6 @@
           ? window.__RPC_HEADERS__
           : {}
       );
-      if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
       fetch(rpcUrl, {
         method: 'POST',
