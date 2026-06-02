@@ -1,14 +1,19 @@
-const APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbzLVHRDLYH49I9CIsmem1jaZHgFjQJaBX_X4QKfpnaYskKSvYPeUYK6uf5xR24gzlTa'; // no /exec
+type Env = {
+  APPS_SCRIPT_BASE?: string;
+};
+
+const DEFAULT_APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbyJjOwVSDYeaiJxAjWSKZePBD8BK9_fmoKDvCB_XcJaTUxnGU6D0YUbf9fsdWnZZjgv';
 
 export default {
-  async fetch(request) {
+  async fetch(request: Request, env: Env) {
     const origin = request.headers.get('Origin') || '';
     if (request.method === 'OPTIONS') {
       return new Response('', { headers: cors(origin) });
     }
 
     const body = await request.text();
-    const upstream = await fetch(`${APPS_SCRIPT_BASE}/exec`, {
+    const appsScriptBase = String(env.APPS_SCRIPT_BASE || DEFAULT_APPS_SCRIPT_BASE).replace(/\/+$/, '');
+    const upstream = await fetch(`${appsScriptBase}/exec`, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body

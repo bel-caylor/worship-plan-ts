@@ -24,12 +24,15 @@ cd worship-plan-proxy
 npm install          # once
 wrangler login       # once per machine
 
-# edit src/index.ts then:
+# set the Apps Script deployment URL for the Worker:
+wrangler secret put APPS_SCRIPT_BASE
+
+# then deploy:
 wrangler deploy
 ```
 
-Set `APPS_SCRIPT_BASE` at the top of `src/index.ts` (or store it as a Worker
-secret) so the proxy knows which Apps Script deployment to call.
+The Worker reads `APPS_SCRIPT_BASE` from a Wrangler secret. If no secret is
+set, it falls back to the default URL in `src/index.ts`.
 
 ## Frontend configuration
 
@@ -41,4 +44,5 @@ npm run build:standalone
 ```
 
 The GitHub Pages workflow also reads the `APPS_SCRIPT_BASE` secret; update it
-whenever the Worker hostname changes.
+to the Worker URL, not the Apps Script URL, whenever the Worker hostname
+changes.
