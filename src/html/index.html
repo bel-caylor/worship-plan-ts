@@ -92,33 +92,45 @@
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
   <main class="overflow-hidden flex flex-col flex-1 min-h-0"
     :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
-    <div x-show="route==='services'" class="h-full flex-1 min-h-0 flex flex-col">
-      <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
-    </div>
+    <template x-if="route==='services'">
+      <div class="h-full flex-1 min-h-0 flex flex-col">
+        <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
+      </div>
+    </template>
 
-    <div x-show="route==='schedule'" class="h-full flex-1 min-h-0 flex flex-col">
-      <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
-    </div>
+    <template x-if="route==='schedule'">
+      <div class="h-full flex-1 min-h-0 flex flex-col">
+        <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
+      </div>
+    </template>
 
-    <div x-show="route==='schedule-embed'" class="h-full flex-1 min-h-0 flex flex-col bg-white">
-      <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
-    </div>
+    <template x-if="route==='schedule-embed'">
+      <div class="h-full flex-1 min-h-0 flex flex-col bg-white">
+        <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
+      </div>
+    </template>
 
     <template x-if="route==='songs'">
       <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
     </template>
 
-    <div x-show="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan" class="h-full flex-1 min-h-0 flex flex-col">
-      <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
-    </div>
+    <template x-if="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan">
+      <div class="h-full flex-1 min-h-0 flex flex-col">
+        <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
+      </div>
+    </template>
 
-    <div x-show="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam" class="h-full flex-1 min-h-0">
-      <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
-    </div>
+    <template x-if="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam">
+      <div class="h-full flex-1 min-h-0">
+        <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
+      </div>
+    </template>
 
-    <div x-show="route==='availability'" class="h-full flex-1 min-h-0">
-      <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
-    </div>
+    <template x-if="route==='availability'">
+      <div class="h-full flex-1 min-h-0">
+        <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
+      </div>
+    </template>
   </main>
 
 
