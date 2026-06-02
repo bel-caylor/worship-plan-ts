@@ -97,3 +97,16 @@
       </div>
   </div>
 </div>
+<div x-show="authDebug && authDebug.enabled" class="border-t bg-amber-50 text-[11px] text-amber-900 px-4 py-2 space-y-1 break-all">
+  <div class="font-semibold">Auth Debug</div>
+  <div>Backend: <span x-text="authDebug.baseUrl || '(none)'"></span></div>
+  <div>Google Client: <span x-text="authDebug.googleClientIdPreview || '(none)'"></span></div>
+  <div>Token Present: <span x-text="authDebug.tokenPresent ? 'yes' : 'no'"></span></div>
+  <div>Token Preview: <span x-text="authDebug.tokenPreview || '(none)'"></span></div>
+  <div>Token Email: <span x-text="authDebug.tokenEmail || '(none)'"></span></div>
+  <div>Session Email: <span x-text="authDebug.sessionEmail || '(none)'"></span></div>
+  <div>Resolved Email: <span x-text="authDebug.resolvedEmail || '(none)'"></span></div>
+  <div>Permissions: <span x-text="authDebug.permissions || '(none)'"></span></div>
+  <div>Plan Access: <span x-text="authDebug.hasPlanAccess ? 'yes' : 'no'"></span> | Team Access: <span x-text="authDebug.hasTeamAccess ? 'yes' : 'no'"></span></div>
+  <div x-show="authDebug.error">Error: <span x-text="authDebug.error"></span></div>
+</div>

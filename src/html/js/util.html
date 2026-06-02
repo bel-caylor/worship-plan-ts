@@ -11,6 +11,14 @@
     }
   })();
   let googleAuthInitialized = false;
+  const DEBUG_FLAG = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      return ['1', 'true', 'yes', 'on'].includes(String(params.get('debugAuth') || '').toLowerCase());
+    } catch (_) {
+      return false;
+    }
+  })();
 
   function getStoredAuthToken() {
     if (typeof window === 'undefined') return '';
@@ -250,6 +258,22 @@
     capabilities: { ...DEFAULT_CAPABILITIES },
     ready: false
   };
+  const DEFAULT_AUTH_DEBUG = {
+    enabled: DEBUG_FLAG,
+    baseUrl: '',
+    tokenPresent: false,
+    tokenPreview: '',
+    googleClientIdPreview: '',
+    tokenEmail: '',
+    sessionEmail: '',
+    resolvedEmail: '',
+    permissions: '',
+    isLoggedIn: false,
+    hasPlanAccess: false,
+    hasTeamAccess: false,
+    error: '',
+    updatedAt: 0
+  };
 
   const dispatchAuthChanged = (auth) => {
     try {
@@ -286,11 +310,54 @@
   async function refreshAuthContext() {
     try {
       const profile = await callRpc('getViewerProfile', null);
+      refreshAuthDebug();
       return setAuthState(profile, { ready: true });
     } catch (err) {
       console.warn('Auth check failed', err);
+      refreshAuthDebug(err);
       const fallbackReady = Boolean(devAuthOverride);
       return setAuthState(window.__AUTH__ || DEFAULT_AUTH, { ready: fallbackReady });
+    }
+  }
+
+  async function refreshAuthDebug(err) {
+    const token = getStoredAuthToken();
+    const baseUrl = String(window.__BASE__ || '').trim();
+    const googleClientId = String(GOOGLE_CLIENT_ID || '').trim();
+    const seed = {
+      ...DEFAULT_AUTH_DEBUG,
+      enabled: DEBUG_FLAG,
+      baseUrl,
+      tokenPresent: Boolean(token),
+      tokenPreview: token ? `${token.slice(0, 18)}...` : '',
+      googleClientIdPreview: googleClientId ? `${googleClientId.slice(0, 24)}...` : '',
+      error: err && err.message ? err.message : '',
+      updatedAt: Date.now()
+    };
+    if (!DEBUG_FLAG) {
+      window.__AUTH_DEBUG__ = seed;
+      try {
+        document.dispatchEvent(new CustomEvent('app-auth-debug-changed', { detail: seed }));
+      } catch (_) { /* ignore */ }
+      return seed;
+    }
+    try {
+      const data = await callRpc('getViewerAuthDebug', null);
+      const next = Object.assign({}, seed, data || {}, { updatedAt: Date.now() });
+      window.__AUTH_DEBUG__ = next;
+      try {
+        document.dispatchEvent(new CustomEvent('app-auth-debug-changed', { detail: next }));
+      } catch (_) { /* ignore */ }
+      return next;
+    } catch (debugErr) {
+      const fallback = Object.assign({}, seed, {
+        error: debugErr && debugErr.message ? debugErr.message : seed.error
+      });
+      window.__AUTH_DEBUG__ = fallback;
+      try {
+        document.dispatchEvent(new CustomEvent('app-auth-debug-changed', { detail: fallback }));
+      } catch (_) { /* ignore */ }
+      return fallback;
     }
   }
 
@@ -300,11 +367,14 @@
   window.__AUTH__ = normalizeAuthState(initialProfile, initialReady);
   window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || !window.__AUTH__.capabilities.canEditPlan);
   dispatchAuthChanged(window.__AUTH__);
+  window.__AUTH_DEBUG__ = { ...DEFAULT_AUTH_DEBUG, enabled: DEBUG_FLAG };
   refreshAuthContext();
   window.refreshAuthContext = refreshAuthContext;
+  window.refreshAuthDebug = refreshAuthDebug;
   window.addEventListener('load', () => {
     initializeGoogleAuth();
     renderGoogleSignInButtons();
+    refreshAuthDebug();
   });
 
   // Minimal toast-style notifier for consistent UX (client-only)

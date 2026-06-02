@@ -200,6 +200,26 @@ export function getViewerProfile(): ViewerProfile {
   return emptyProfile;
 }
 
+export function getViewerAuthDebug() {
+  const tokenEmail = normalizeEmail(requestTokenEmail());
+  let sessionEmail = '';
+  try {
+    sessionEmail = normalizeEmail(Session.getActiveUser?.().getEmail?.());
+  } catch (_) {
+    sessionEmail = '';
+  }
+  const viewer = getViewerProfile();
+  return {
+    tokenEmail,
+    sessionEmail,
+    resolvedEmail: normalizeEmail(viewer?.email),
+    permissions: String(viewer?.permissions || '').trim(),
+    isLoggedIn: Boolean(viewer?.isLoggedIn),
+    hasPlanAccess: Boolean(viewer?.capabilities?.canViewPlan),
+    hasTeamAccess: Boolean(viewer?.capabilities?.canViewTeam)
+  };
+}
+
 export function listRoles() {
   const sh = getSheetByName(ROLES_SHEET);
   const lastRow = sh.getLastRow();

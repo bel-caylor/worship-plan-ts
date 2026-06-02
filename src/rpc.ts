@@ -4,7 +4,7 @@ import { addService, createServicesBatch, getServicePeople, esvPassage, listServ
 import { getOrder, saveOrder } from './features/order';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
-import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile } from './features/roles';
+import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
 import { getTeamScheduleSnapshot, getServiceTeamAssignments, getUnavailableByServices, resetServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
@@ -57,6 +57,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return memberExistsInRoles(payload as any);
       case 'getViewerProfile':
         return getViewerProfile();
+      case 'getViewerAuthDebug':
+        return getViewerAuthDebug();
       case 'listWeeklyTeams':
         return listWeeklyTeams();
       case 'createWeeklyTeam':

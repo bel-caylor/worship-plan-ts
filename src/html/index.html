@@ -141,6 +141,7 @@
       return {
         route: 'services',
         auth: initialAuth,
+        authDebug: (typeof window !== 'undefined' && window.__AUTH_DEBUG__) || { enabled: false },
         allowedRoutes: routesForAuth(initialAuth),
         signOut() {
           if (typeof window.signOutGoogleAuth === 'function') {
@@ -215,6 +216,9 @@
 
           try {
             document.addEventListener('app-auth-changed', (evt) => applyAuth(evt.detail || initialAuth));
+            document.addEventListener('app-auth-debug-changed', (evt) => {
+              this.authDebug = evt.detail || { enabled: false };
+            });
           } catch (_) { /* ignore */ }
         }
       }
