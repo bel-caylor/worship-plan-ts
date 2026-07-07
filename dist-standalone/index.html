@@ -41,8 +41,27 @@
     const baseFromServer = parseTemplateString(baseTemplate, '');
     const guestFromServer = parseTemplateString(guestTemplate, false);
     const googleClientIdFromServer = parseTemplateString(googleClientTemplate, '');
-    // Prefer server-provided Web App URL; fallback to current location
-    window.__BASE__ = baseFromServer || (location.origin + location.pathname);
+    const metaBase = (() => {
+      try {
+        const meta = document.querySelector('meta[name="app-script-base"]');
+        return String(meta?.content || '').trim();
+      } catch (_) {
+        return '';
+      }
+    })();
+    const isAppsScriptHost = (() => {
+      try {
+        const host = String(location.hostname || '').toLowerCase();
+        return host === 'script.google.com' || host.endsWith('.script.google.com');
+      } catch (_) {
+        return false;
+      }
+    })();
+    // Prefer explicit backend config. Only fall back to the current URL when already on Apps Script.
+    window.__BASE__ = baseFromServer
+      || String(window.APP_RPC_BASE || '').trim()
+      || metaBase
+      || (isAppsScriptHost ? (location.origin + location.pathname) : '');
     // Guest mode injected by server (via ?mode=guest)
     window.__GUEST__ = guestFromServer;
     window.__GOOGLE_CLIENT_ID__ = googleClientIdFromServer || '';
@@ -51,7 +70,14 @@
   <script>
     (function ensureRpcBase() {
       if (window.__BASE__) return;
-      if (window.APP_RPC_BASE) window.__BASE__ = window.APP_RPC_BASE;
+      if (window.APP_RPC_BASE) {
+        window.__BASE__ = window.APP_RPC_BASE;
+        return;
+      }
+      try {
+        const meta = document.querySelector('meta[name="app-script-base"]');
+        if (meta?.content) window.__BASE__ = String(meta.content).trim();
+      } catch (_) { /* ignore */ }
     })();
   </script>
   <script>
