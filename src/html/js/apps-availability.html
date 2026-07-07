@@ -1,5 +1,9 @@
 <script>
   function availabilityApp() {
+    const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
+      ? window.APP_CTX.activeTeamTypes
+      : ['Worship'];
+    const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     return {
       email: '',
       services: [],
@@ -16,6 +20,7 @@
       emailSubject: '',
       emailBody: '',
       emailEditorOpen: false,
+      activeAdminTab: 'availability',
       isAdmin: false,
       viewerProfile: null,
       recipientLoading: false,
@@ -31,6 +36,10 @@
 
       init() {
         this.prepareEmailTemplate();
+        this.applyViewerProfile((typeof window !== 'undefined' && window.__AUTH__) || null);
+        document.addEventListener('app-auth-changed', (event) => {
+          this.applyViewerProfile(event?.detail || null);
+        });
         this.loadViewerProfile();
         this.fetchServices();
         try {
@@ -43,19 +52,48 @@
         } catch (_) { /* ignore */ }
       },
 
+      applyViewerProfile(profile) {
+        const next = profile && typeof profile === 'object' ? profile : null;
+        this.viewerProfile = next;
+        const canAdminAvailability = Boolean(next?.capabilities?.canAdminAvailability);
+        const isAdmin = Boolean(next?.isAdmin || canAdminAvailability);
+        const becameAdmin = isAdmin && !this.isAdmin;
+        this.isAdmin = isAdmin;
+        if (!isAdmin) {
+          this.activeAdminTab = 'availability';
+        }
+        if (becameAdmin && !this.recipientLoading && !this.recipientMembers.length) {
+          this.loadEmailRecipients();
+        }
+      },
+
+      setAdminTab(tab) {
+        this.activeAdminTab = tab === 'share' ? 'share' : 'availability';
+      },
+
       async loadViewerProfile() {
         try {
           const profile = await callRpc('getViewerProfile', null);
-          this.viewerProfile = profile || null;
-          this.isAdmin = Boolean(profile?.isAdmin);
-          if (this.isAdmin) {
-            this.loadEmailRecipients();
-          }
+          const fallbackProfile = (typeof window !== 'undefined' && window.__AUTH__) || null;
+          const profileCanAdmin = Boolean(profile?.isAdmin || profile?.capabilities?.canAdminAvailability);
+          const fallbackCanAdmin = Boolean(fallbackProfile?.isAdmin || fallbackProfile?.capabilities?.canAdminAvailability);
+          const hasProfileIdentity = Boolean(profile?.email || profile?.isLoggedIn);
+          const effectiveProfile = fallbackCanAdmin && !profileCanAdmin
+            ? fallbackProfile
+            : (hasProfileIdentity || profileCanAdmin ? profile : fallbackProfile);
+          this.applyViewerProfile(effectiveProfile);
         } catch (e) {
           console.error(e);
-          this.viewerProfile = null;
-          this.isAdmin = false;
+          this.applyViewerProfile((typeof window !== 'undefined' && window.__AUTH__) || null);
         }
+      },
+
+      adminMemberOptions() {
+        return Array.isArray(this.recipientMembers) ? this.recipientMembers : [];
+      },
+
+      adminEmailSelectDisabled() {
+        return !this.isAdmin || this.recipientLoading || !this.adminMemberOptions().length;
       },
 
       prepareEmailTemplate() {
@@ -64,6 +102,10 @@
         if (!this.emailBody) {
           this.emailBody = `Hi team,\n\nPlease record your upcoming availability here:\n${this.shareLink}\n\nThank you!`;
         }
+      },
+
+      isActiveTeamType(value) {
+        return ACTIVE_TEAM_TYPE_SET.has(String(value || '').trim().toLowerCase());
       },
 
       availabilityShareUrl() {
@@ -195,21 +237,23 @@
               const first = String(row?.first || '').trim();
               const last = String(row?.last || '').trim();
               const teams = Array.isArray(row?.teams)
-                ? row.teams.filter(Boolean)
+                ? row.teams.filter(team => this.isActiveTeamType(team))
                 : String(row?.teamRaw || '')
                     .split(/[,;|]/)
                     .map(v => v.trim())
-                    .filter(Boolean);
+                    .filter(team => this.isActiveTeamType(team));
+              if (!teams.length) return null;
               return {
                 email,
                 name: [first, last].filter(Boolean).join(' '),
+                label: ([first, last].filter(Boolean).join(' ') || email),
                 teams
               };
             })
             .filter(Boolean)
             .sort((a, b) => {
-              const nameA = a.name || a.email;
-              const nameB = b.name || b.email;
+              const nameA = a.label || a.email;
+              const nameB = b.label || b.email;
               return nameA.localeCompare(nameB);
             });
           const teamSet = new Set();
@@ -283,6 +327,15 @@
           this.statusMessage = '';
         }
         if (!this.emailValid()) {
+          this.error = '';
+        }
+      },
+
+      onAdminEmailChange() {
+        this.onEmailInput();
+        if (this.emailValid()) {
+          this.prefillAvailability(true);
+        } else {
           this.error = '';
         }
       },

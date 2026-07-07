@@ -1,18 +1,45 @@
-<div x-data="availabilityApp()" x-init="init()" class="min-h-full bg-gray-50 overflow-y-auto">
-  <div class="max-w-3xl mx-auto p-6">
-    <div class="bg-white rounded-lg shadow p-5">
+<div x-data="availabilityApp()" x-init="init()" class="h-full min-h-0 bg-gray-50 overflow-hidden flex flex-col">
+  <div class="max-w-3xl w-full mx-auto p-6 pb-6 flex-1 min-h-0 flex flex-col">
+    <div x-cloak x-show="isAdmin" class="mb-0">
+      <div class="inline-flex items-end gap-1">
+        <button type="button"
+          class="px-4 py-2 text-sm leading-none rounded-t-lg border border-b-0 transition relative"
+          :class="activeAdminTab === 'availability' ? 'bg-white text-blue-700 border-gray-300 font-semibold -mb-px z-10' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-50'"
+          @click="setAdminTab('availability')">
+          Your Availability
+        </button>
+        <button type="button"
+          class="px-4 py-2 text-sm leading-none rounded-t-lg border border-b-0 transition relative"
+          :class="activeAdminTab === 'share' ? 'bg-white text-blue-700 border-gray-300 font-semibold -mb-px z-10' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-50'"
+          @click="setAdminTab('share')">
+          Share Link
+        </button>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-b-lg rounded-tr-lg shadow border border-gray-300 p-5 flex-1 min-h-0 flex flex-col overflow-hidden" x-show="!isAdmin || activeAdminTab === 'availability'">
       <h1 class="text-2xl font-semibold mb-1">Your Availability</h1>
       <p class="text-sm text-gray-600 mb-5">Let us know which upcoming services you are <span class="font-semibold">unavailable</span> to serve.</p>
 
       <label class="block text-sm text-gray-700 mb-3">
-        Email address
+        <span x-text="isAdmin ? 'Team member' : 'Email address'"></span>
         <div class="mt-1 flex gap-2">
-          <input type="email" placeholder="you@example.com"
+          <input x-show="!isAdmin" type="email" placeholder="you@example.com"
             class="flex-1 form-control"
             x-model="email"
             @input="onEmailInput()"
             @blur="prefillAvailability()"
             autocomplete="email" required>
+          <select x-cloak x-show="isAdmin"
+            class="flex-1 form-control"
+            x-model="email"
+            @change="onAdminEmailChange()"
+            :disabled="adminEmailSelectDisabled()">
+            <option value="">Select a user</option>
+            <template x-for="member in adminMemberOptions()" :key="member.email">
+              <option :value="member.email" x-text="member.label"></option>
+            </template>
+          </select>
           <button type="button" class="btn btn--surface btn--lg"
             @click="prefillAvailability(true)" :disabled="loadingAvailability || !emailValid()">
             <span x-show="!loadingAvailability">Load Dates</span>
@@ -24,13 +51,13 @@
       <div class="mb-4 text-error" x-show="error" x-text="error"></div>
       <div class="mb-4 text-sm text-emerald-700" x-show="statusMessage" x-text="statusMessage"></div>
       <div class="mb-4 text-sm text-gray-600" x-show="!memberVerified">
-        Enter your email and load your dates to manage your availability.
+        <span x-text="isAdmin ? 'Choose a user and load dates to manage availability.' : 'Enter your email and load your dates to manage your availability.'"></span>
       </div>
 
       <div x-show="loadingServices" class="text-sm text-gray-600">Loading upcoming services&hellip;</div>
       <div x-show="!loadingServices && !services.length" class="text-sm text-gray-600">No upcoming services yet.</div>
 
-      <form x-show="memberVerified && !loadingServices && services.length" @submit.prevent="saveAvailability()" class="flex flex-col gap-4">
+      <form x-show="memberVerified && !loadingServices && services.length" @submit.prevent="saveAvailability()" class="flex flex-col gap-4 min-h-0 flex-1">
         <div class="flex justify-between gap-4">
           <p class="text-muted">Checked services mark the Sundays you are unavailable.</p>
           <div class="flex justify-end items-center">
@@ -42,7 +69,7 @@
             </button>
           </div>
         </div>
-        <div class="border rounded divide-y max-h-96 overflow-y-auto">
+        <div class="border rounded divide-y flex-1 min-h-0 overflow-y-auto">
           <template x-for="svc in services" :key="svc.id || svc.date">
             <label class="flex items-start gap-3 px-3 py-3 hover:bg-blue-50">
               <input type="checkbox" class="mt-1 rounded border-gray-300" :value="svc.id"
@@ -57,7 +84,7 @@
           @click="clearSelections()" :disabled="saving">Clear all</button>
       </form>
     </div>
-    <div x-cloak x-show="isAdmin" class="mt-6 bg-white rounded-lg shadow p-5 space-y-4">
+    <div x-cloak x-show="isAdmin && activeAdminTab === 'share'" class="bg-white rounded-b-lg rounded-tr-lg shadow border border-gray-300 p-5 flex-1 min-h-0 flex flex-col overflow-hidden">
       <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 class="text-lg font-semibold text-blue-900">Share the availability link</h2>
@@ -102,7 +129,7 @@
         </div>
       </div>
 
-      <div class="border-t pt-4 space-y-3">
+      <div class="border-t pt-4 flex-1 min-h-0 overflow-hidden flex flex-col gap-3">
         <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h3 class="text-base font-semibold text-gray-900">Email recipients</h3>
@@ -148,7 +175,7 @@
           </div>
           <div class="flex items-center text-rose-600" x-show="recipientError" x-text="recipientError"></div>
         </div>
-        <div class="border rounded max-h-64 overflow-y-auto divide-y" x-show="filteredRecipients.length">
+        <div class="border rounded flex-1 min-h-0 overflow-y-auto divide-y" x-show="filteredRecipients.length">
           <template x-for="member in filteredRecipients" :key="member.email">
             <label class="flex items-start gap-3 px-3 py-2 text-sm">
               <input type="checkbox" class="mt-1" :value="member.email" x-model="selectedRecipientEmails">
@@ -160,7 +187,7 @@
             </label>
           </template>
         </div>
-        <div class="text-muted" x-show="!filteredRecipients.length && !recipientLoading">
+        <div class="text-muted shrink-0" x-show="!filteredRecipients.length && !recipientLoading">
           No members found for this team.
         </div>
       </div>
