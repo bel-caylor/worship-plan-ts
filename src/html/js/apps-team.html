@@ -1,10 +1,14 @@
 <script>
+  const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
+    ? window.APP_CTX.activeTeamTypes
+    : ['Worship'];
   const TEAM_ROLE_PRESETS = {
     Worship: ['Leader', 'Guitar', 'Bass', 'Other', 'Keyboard', 'Drums', 'Vocal', 'Projection', 'Sound', 'Communion', 'Offering'],
     Kids: ['Preschool Teacher', 'Toddler Teacher', 'Preschool Helper', 'Toddler Helper', 'Kids Teacher', 'Kids Helper'],
     Hospitality: ['Greeter', 'Security']
   };
-  const TEAM_TYPE_PRIORITY = ['Worship'];
+  const TEAM_TYPE_PRIORITY = ACTIVE_TEAM_TYPES.slice();
+  const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
   const WEEKLY_COLUMN_LABELS = ['1st Sunday', '2nd Sunday', '3rd Sunday', '4th Sunday', '5th Sunday'];
 
   function teamApp() {
@@ -115,6 +119,10 @@
         return String(value || '').trim().toLowerCase();
       },
 
+      isActiveTeamType(value) {
+        return ACTIVE_TEAM_TYPE_SET.has(this.normalize(value));
+      },
+
       canonicalRoleKey(value) {
         let base = this.normalize(value);
         if (!base) return '';
@@ -154,7 +162,9 @@
         (Array.isArray(this.roles) ? this.roles : []).forEach(row => {
           this.splitList(row?.teamRaw || '').forEach(add);
         });
-        return Array.from(lookup.values()).sort((a, b) => a.localeCompare(b));
+        return Array.from(lookup.values())
+          .filter(team => this.isActiveTeamType(team))
+          .sort((a, b) => a.localeCompare(b));
       },
 
       buildRoleString() {
@@ -232,7 +242,7 @@
         try {
           const res = await callRpc('listRoles', null);
           this.roles = Array.isArray(res?.items) ? res.items : [];
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams : [];
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : [];
           this.memberLookup = this.buildMemberLookup(this.roles);
 
           const permMap = new Map();
@@ -284,7 +294,9 @@
           const res = await callRpc('listWeeklyTeams', null);
           const items = Array.isArray(res?.items) ? res.items : [];
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.defaults);
-          this.weeklyTeams = items.map(item => this.normalizeWeeklyTeam(item));
+          this.weeklyTeams = items
+            .map(item => this.normalizeWeeklyTeam(item))
+            .filter(item => this.isActiveTeamType(item?.team));
           if (this.selectedWeeklyTeamId) {
             this.selectWeeklyTeam(this.selectedWeeklyTeamId);
           }
@@ -874,8 +886,9 @@
             }))
             .filter(entry => entry.roleName);
           normalized.sort((a, b) => a.order - b.order);
-          if (normalized.length) {
-            result[String(teamType || '').trim()] = normalized;
+          const label = String(teamType || '').trim();
+          if (normalized.length && this.isActiveTeamType(label)) {
+            result[label] = normalized;
           }
         });
         return result;
@@ -884,7 +897,7 @@
       weeklyTeamsByType(type) {
         const key = this.normalize(type);
         return (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : [])
-          .filter(item => this.normalize(item?.team) === key)
+          .filter(item => this.normalize(item?.team) === key && this.isActiveTeamType(item?.team))
           .sort((a, b) => String(a.teamName || '').localeCompare(String(b.teamName || '')));
       },
 
@@ -892,6 +905,7 @@
         const typeKey = this.normalize(teamType);
         const nameKey = this.normalize(teamName);
         return (Array.isArray(this.weeklyTeams) ? this.weeklyTeams : []).find(team =>
+          this.isActiveTeamType(team?.team) &&
           this.normalize(team?.team) === typeKey && this.normalize(team?.teamName) === nameKey
         );
       },
@@ -1351,7 +1365,7 @@
           const idx = TEAM_TYPE_PRIORITY.findIndex(name => name.toLowerCase() === key);
           return idx >= 0 ? idx : TEAM_TYPE_PRIORITY.length;
         };
-        return Array.from(lookup.values()).sort((a, b) => {
+        return Array.from(lookup.values()).filter(value => this.isActiveTeamType(value)).sort((a, b) => {
           const pa = priorityIndex(a);
           const pb = priorityIndex(b);
           if (pa !== pb) return pa - pb;
@@ -1363,6 +1377,7 @@
         const filter = String(this.weeklyTeamFilter || '').trim().toLowerCase();
         const list = Array.isArray(this.weeklyTeams) ? this.weeklyTeams : [];
         return list
+          .filter(item => this.isActiveTeamType(item?.team))
           .filter(item => !filter || String(item.team || '').trim().toLowerCase() === filter)
           .sort((a, b) => {
             const teamA = String(a.team || '').toLowerCase();
@@ -1731,7 +1746,9 @@
           const res = await callRpc('saveWeeklyTeam', payload);
           const items = Array.isArray(res?.items) ? res.items : null;
           if (items) {
-            this.weeklyTeams = items.map(item => this.normalizeWeeklyTeam(item));
+            this.weeklyTeams = items
+              .map(item => this.normalizeWeeklyTeam(item))
+              .filter(item => this.isActiveTeamType(item?.team));
           } else {
             this.upsertWeeklyTeamLocal(draft, this.weeklyTeamBaseline);
           }
@@ -1827,7 +1844,9 @@
           const res = await callRpc('createWeeklyTeam', payload);
           const items = Array.isArray(res?.items) ? res.items : null;
           if (items) {
-            this.weeklyTeams = items.map(item => this.normalizeWeeklyTeam(item));
+            this.weeklyTeams = items
+              .map(item => this.normalizeWeeklyTeam(item))
+              .filter(item => this.isActiveTeamType(item?.team));
           } else {
             this.upsertWeeklyTeamLocal({
               team: payload.team,
@@ -1925,7 +1944,7 @@
           };
           const res = await callRpc('updateRoleEntry', payload);
           this.roles = Array.isArray(res?.items) ? res.items : this.roles;
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams : this.teamOptions;
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : this.teamOptions;
           this.permissionsOptions = (() => {
             const permMap = new Map();
             ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
@@ -2001,7 +2020,7 @@
           };
           const res = await callRpc('addRoleEntry', payload);
           this.roles = Array.isArray(res?.items) ? res.items : this.roles;
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams : this.teamOptions;
+          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : this.teamOptions;
           this.permissionsOptions = (() => {
             const permMap = new Map();
             ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));

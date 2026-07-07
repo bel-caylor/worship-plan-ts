@@ -1,12 +1,15 @@
 <script>
   function scheduleApp() {
+    const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
+      ? window.APP_CTX.activeTeamTypes
+      : ['Worship'];
     const TEAM_ROLE_PRESETS = {
       Worship: ['Leader', 'Guitar', 'Bass', 'Other', 'Keyboard', 'Drums', 'Vocal', 'Projection', 'Sound', 'Communion', 'Offering'],
       Kids: ['Preschool Teacher', 'Toddler Teacher', 'Preschool Helper', 'Toddler Helper', 'Kids Teacher', 'Kids Helper'],
       Hospitality: ['Greeter', 'Security']
     };
-    const TEAM_TYPE_PRIORITY = ['Worship'];
-    const HIDDEN_TEAM_TYPES = new Set(['kids', 'hospitality']);
+    const TEAM_TYPE_PRIORITY = ACTIVE_TEAM_TYPES.slice();
+    const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
 
     return {
       loading: true,
@@ -30,8 +33,8 @@
         return String(value || '').trim().toLowerCase();
       },
 
-      isHiddenTeamType(teamType) {
-        return HIDDEN_TEAM_TYPES.has(this.normalize(teamType));
+      isActiveTeamType(teamType) {
+        return ACTIVE_TEAM_TYPE_SET.has(this.normalize(teamType));
       },
 
       formatScheduleDate(dateStr, options) {
@@ -122,53 +125,6 @@
         return map;
       },
 
-      mergeUnavailableMaps(...sources) {
-        const merged = {};
-        sources.forEach(source => {
-          if (!source || typeof source !== 'object') return;
-          Object.entries(source).forEach(([serviceId, list]) => {
-            const id = String(serviceId || '').trim();
-            if (!id) return;
-            if (!merged[id]) merged[id] = new Set();
-            (Array.isArray(list) ? list : []).forEach(email => {
-              const key = String(email || '').trim().toLowerCase();
-              if (key) merged[id].add(key);
-            });
-          });
-        });
-        return Object.fromEntries(
-          Object.entries(merged).map(([serviceId, set]) => [serviceId, Array.from(set.values())])
-        );
-      },
-
-      async unavailableMapFromMembers(serviceIds, roleItems) {
-        const ids = new Set((Array.isArray(serviceIds) ? serviceIds : []).map(id => String(id || '').trim()).filter(Boolean));
-        if (!ids.size) return {};
-        const emails = Array.from(new Set(
-          (Array.isArray(roleItems) ? roleItems : [])
-            .map(item => String(item?.email || '').trim().toLowerCase())
-            .filter(Boolean)
-        ));
-        if (!emails.length) return {};
-        const responses = await Promise.all(
-          emails.map(email =>
-            callRpc('getMemberAvailability', { email })
-              .then(res => ({ email, unavailable: Array.isArray(res?.unavailable) ? res.unavailable : [] }))
-              .catch(() => ({ email, unavailable: [] }))
-          )
-        );
-        const map = {};
-        responses.forEach(entry => {
-          entry.unavailable.forEach(serviceId => {
-            const id = String(serviceId || '').trim();
-            if (!id || !ids.has(id)) return;
-            if (!map[id]) map[id] = [];
-            map[id].push(entry.email);
-          });
-        });
-        return map;
-      },
-
       memberLabel(email, fallback = '') {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return fallback || '';
@@ -198,35 +154,19 @@
         this.loading = true;
         this.error = '';
         try {
-          const [snapshot, servicesRes, weeklyTeamsRes, rolesRes] = await Promise.all([
-            callRpc('getTeamScheduleSnapshot', { limit: 0 }),
-            callRpc('listServices', { includePast: false, sort: 'asc', limit: 0 }).catch(() => ({ items: [] })),
-            callRpc('listWeeklyTeams', null).catch(() => ({ items: [], defaults: {} })),
-            callRpc('listRoles', null).catch(() => ({ items: [] }))
-          ]);
-          const services = this.normalizeScheduleServices(
-            (Array.isArray(servicesRes?.items) && servicesRes.items.length)
-              ? servicesRes.items
-              : snapshot?.services
-          );
+          const snapshot = await callRpc('getTeamScheduleSnapshot', { limit: 0 });
+          const services = this.normalizeScheduleServices(snapshot?.services);
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
-          const serviceIds = services.map(service => service.id).filter(Boolean);
-          const unavailableRes = serviceIds.length
-            ? await callRpc('getUnavailableByServices', { serviceIds }).catch(() => ({ unavailable: {} }))
-            : { unavailable: {} };
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
-          this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyTeamsRes?.defaults);
-          this.weeklyTeams = (Array.isArray(weeklyTeamsRes?.items) ? weeklyTeamsRes.items : [])
+          this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(snapshot?.weeklyTeamDefaults);
+          this.weeklyTeams = (Array.isArray(snapshot?.weeklyTeams) ? snapshot.weeklyTeams : [])
             .map(item => this.normalizeWeeklyTeam(item))
-            .filter(item => !this.isHiddenTeamType(item.team));
-          const roleItems = Array.isArray(rolesRes?.items) ? rolesRes.items : [];
+            .filter(item => this.isActiveTeamType(item.team));
+          const roleItems = Array.isArray(snapshot?.roles) ? snapshot.roles : [];
           this.memberLookup = this.buildMemberLookup(roleItems);
-          const memberUnavailable = await this.unavailableMapFromMembers(serviceIds, roleItems);
-          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(
-            this.mergeUnavailableMaps(snapshot?.unavailable, unavailableRes?.unavailable, memberUnavailable)
-          );
+          this.scheduleUnavailableMap = this.normalizeScheduleUnavailable(snapshot?.unavailable);
           this.buildScheduleLayouts();
         } catch (e) {
           console.error(e);
@@ -264,7 +204,7 @@
           .map(item => {
             const team = String(item?.team || '').trim();
             const teamName = String(item?.teamName || '').trim();
-            if (!team || !teamName || this.isHiddenTeamType(team)) return null;
+            if (!team || !teamName || !this.isActiveTeamType(team)) return null;
             const roles = Array.isArray(item?.roles)
               ? item.roles
                   .map(role => ({
@@ -407,7 +347,7 @@
         const lookup = new Map();
         const add = (value) => {
           const val = String(value || '').trim();
-          if (!val || this.isHiddenTeamType(val)) return;
+          if (!val || !this.isActiveTeamType(val)) return;
           const key = val.toLowerCase();
           if (!lookup.has(key)) lookup.set(key, val);
         };

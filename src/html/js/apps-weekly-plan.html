@@ -1,6 +1,10 @@
 <script>
   function weeklyPlanApp() {
     const START_AUTH = (typeof window !== 'undefined' && window.__AUTH__) || null;
+    const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
+      ? window.APP_CTX.activeTeamTypes
+      : ['Worship'];
+    const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     return {
       auth: START_AUTH,
       isGuest: !!(window.__GUEST__),
@@ -682,7 +686,7 @@
         this.teamAssignmentsSaveMessage = '';
         try {
           const res = await callRpc('getServiceTeamAssignments', { serviceId: targetId });
-          const list = Array.isArray(res?.teams) ? res.teams : [];
+          const list = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team?.teamType)) : [];
           const normalized = list.map(team => {
             let roleOrder = this.normalizeRoleOrderList(team?.roleOrder);
             if (!roleOrder.length) {
@@ -754,6 +758,7 @@
         const bySimple = {};
         const entries = [];
         Object.entries(raw || {}).forEach(([team, roles]) => {
+          if (!this.isActiveTeamType(team)) return;
           const orderList = this.normalizeRoleOrderList(
             Array.isArray(roles)
               ? roles.map(item => (typeof item === 'string' ? { roleName: item } : item))
@@ -1586,6 +1591,10 @@
         }
         this.teamEmailGeneratedKey = nextKey;
         this.resizeTeamEmailBody();
+      },
+
+      isActiveTeamType(value) {
+        return ACTIVE_TEAM_TYPE_SET.has(String(value || '').trim().toLowerCase());
       },
 
       resetTeamEmailDraft() {

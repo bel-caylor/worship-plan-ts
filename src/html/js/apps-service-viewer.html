@@ -1,5 +1,9 @@
 <script>
   function serviceViewerApp() {
+    const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
+      ? window.APP_CTX.activeTeamTypes
+      : ['Worship'];
+    const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     const seededServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
     const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
 
@@ -350,7 +354,9 @@ return {
             callRpc('getServiceTeamAssignments', { serviceId: target })
           ]);
           this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
-          this.teamAssignments = Array.isArray(teamRes?.teams) ? teamRes.teams : [];
+          this.teamAssignments = Array.isArray(teamRes?.teams)
+            ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
+            : [];
         } catch (err) {
           const msg = err && err.message ? err.message : 'Unable to load service details.';
           this.orderError = msg;
@@ -387,6 +393,10 @@ return {
         const scriptureRef = /(?:[1-3]\s)?[a-z\.]+\s+[\w\s\.]*\d+:\d+/i;
         const looksLikeRef = scriptureRef.test(detail) || /\d+:\d+/.test(detail);
         return label.includes('scripture') || looksLikeRef;
+      },
+
+      isActiveTeamType(value) {
+        return ACTIVE_TEAM_TYPE_SET.has(String(value || '').trim().toLowerCase());
       },
 
       songInfo(detail) {
