@@ -11,9 +11,6 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
-  <script id="rows-json" type="application/json">
-    <?!= JSON.stringify(rowsData).replace(/<\//g, '<\\/') ?>
-  </script>
   <script id="services-json" type="application/json">
     <?!= JSON.stringify((servicesData && servicesData.items) ? servicesData.items : []).replace(/<\//g, '<\\/') ?>
   </script>
@@ -26,13 +23,10 @@
       try { return JSON.parse(text); } catch (_) { return fallback; }
     };
 
-    const rowsEl = document.getElementById('rows-json');
     const servicesEl = document.getElementById('services-json');
     const viewerEl = document.getElementById('viewer-json');
-    const existingRows = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
     const existingServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
     const existingViewer = typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null;
-    window.__ROWS__ = parseJsonFallback(rowsEl && rowsEl.textContent, existingRows);
     window.__SERVICES__ = parseJsonFallback(servicesEl && servicesEl.textContent, existingServices);
     window.__VIEWER__ = parseJsonFallback(viewerEl && viewerEl.textContent, existingViewer);
 
@@ -2269,11 +2263,14 @@ return {
     return {
       loading: true,
       error: '',
+      auth: (typeof window !== 'undefined' && window.__AUTH__) || null,
       rolePresets: TEAM_ROLE_PRESETS,
       scheduleServices: [],
       scheduleServiceLookup: {},
       scheduleUnavailableMap: {},
       scheduleAssignments: {},
+      volunteerRequests: {},
+      volunteerBusy: {},
       scheduleTemplateOverrides: {},
       weeklyTeams: [],
       weeklyTeamDefaults: {},
@@ -2281,6 +2278,9 @@ return {
       memberLookup: {},
 
       init() {
+        document.addEventListener('app-auth-changed', (event) => {
+          this.auth = event?.detail || null;
+        });
         this.refresh();
       },
 
@@ -2380,6 +2380,39 @@ return {
         return map;
       },
 
+      normalizeRoleLabel(value) {
+        const role = String(value || '').trim();
+        if (!role) return '';
+        return /^vocals?$/i.test(role) ? 'Vocal' : role;
+      },
+
+      normalizeVolunteerRequests(items) {
+        const map = {};
+        (Array.isArray(items) ? items : []).forEach(item => {
+          const serviceId = String(item?.serviceId || '').trim();
+          const teamType = String(item?.teamType || '').trim();
+          const roleName = this.normalizeRoleLabel(item?.roleName);
+          if (!serviceId || !teamType || !roleName) return;
+          const key = this.scheduleCellKey(serviceId, teamType, roleName);
+          if (!map[key]) {
+            map[key] = {
+              count: 0,
+              viewerRequested: false,
+              items: []
+            };
+          }
+          map[key].count += 1;
+          map[key].viewerRequested = map[key].viewerRequested || Boolean(item?.isViewer);
+          map[key].items.push({
+            memberEmail: String(item?.memberEmail || '').trim().toLowerCase(),
+            memberName: String(item?.memberName || '').trim(),
+            status: String(item?.status || '').trim(),
+            isViewer: Boolean(item?.isViewer)
+          });
+        });
+        return map;
+      },
+
       memberLabel(email, fallback = '') {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return fallback || '';
@@ -2411,10 +2444,14 @@ return {
         try {
           const snapshot = await callRpc('getTeamScheduleSnapshot', { limit: 0 });
           const services = this.normalizeScheduleServices(snapshot?.services);
+          const volunteerSnapshot = await callRpc('getVolunteerRequestsSnapshot', {
+            serviceIds: services.map(service => service.id)
+          });
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
+          this.volunteerRequests = this.normalizeVolunteerRequests(volunteerSnapshot?.items);
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(snapshot?.weeklyTeamDefaults);
           this.weeklyTeams = (Array.isArray(snapshot?.weeklyTeams) ? snapshot.weeklyTeams : [])
             .map(item => this.normalizeWeeklyTeam(item))
@@ -2428,6 +2465,67 @@ return {
           this.error = (e && e.message) ? e.message : 'Failed to load schedule.';
         } finally {
           this.loading = false;
+        }
+      },
+
+      volunteerRequestForCell(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        return this.volunteerRequests?.[key] || { count: 0, viewerRequested: false, items: [] };
+      },
+
+      viewerTeams() {
+        const teams = this.auth?.teams;
+        return Array.isArray(teams)
+          ? teams.map(team => String(team || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+      },
+
+      viewerRole() {
+        return this.normalize(String(this.auth?.role || ''));
+      },
+
+      canCurrentViewerVolunteer(cell, teamType, roleName) {
+        if (!this.auth?.isLoggedIn || !this.auth?.capabilities?.canVolunteer) return false;
+        if (String(cell?.memberEmail || '').trim()) return false;
+        if (this.isMemberUnavailable(this.auth?.email, cell?.serviceId)) return false;
+        const teamKey = this.normalize(teamType);
+        const roleKey = this.normalize(this.normalizeRoleLabel(roleName));
+        if (!teamKey || !roleKey) return false;
+        if (!this.viewerTeams().includes(teamKey)) return false;
+        if (this.viewerRole() !== roleKey) return false;
+        return true;
+      },
+
+      volunteerButtonLabel(serviceId, teamType, roleName) {
+        return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested ? 'Requested' : 'Volunteer';
+      },
+
+      volunteerCountLabel(serviceId, teamType, roleName) {
+        const count = Number(this.volunteerRequestForCell(serviceId, teamType, roleName).count || 0);
+        if (!count) return '';
+        return `${count} volunteer${count === 1 ? '' : 's'}`;
+      },
+
+      async toggleVolunteerRequest(serviceId, teamType, roleName) {
+        const cellKey = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        if (this.volunteerBusy?.[cellKey]) return;
+        const current = this.volunteerRequestForCell(serviceId, teamType, roleName);
+        const requested = !current.viewerRequested;
+        this.volunteerBusy = { ...this.volunteerBusy, [cellKey]: true };
+        try {
+          await callRpc('setViewerVolunteerRequest', {
+            serviceId,
+            teamType,
+            roleName,
+            requested
+          });
+          await this.refresh();
+          notify(requested ? 'Volunteer request sent.' : 'Volunteer request removed.', 'success', 2200);
+        } catch (e) {
+          console.error(e);
+          notify((e && e.message) ? e.message : 'Unable to update volunteer request.', 'error', 3600);
+        } finally {
+          this.volunteerBusy = { ...this.volunteerBusy, [cellKey]: false };
         }
       },
 
@@ -8664,9 +8762,8 @@ return {
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
   <main class="overflow-hidden flex flex-col flex-1 min-h-0"
     :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
-    <template x-if="route==='services'">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <div x-data="serviceViewerApp()" x-init="init()" class="h-full flex flex-col bg-gray-50">
+    <div class="h-full flex-1 min-h-0 flex flex-col" x-show="route==='services'" x-cloak>
+      <div x-data="serviceViewerApp()" x-init="init()" class="h-full flex flex-col bg-gray-50">
   <!-- Service selector -->
   <div class="border-b bg-blue-800 px-4 py-3 flex items-center gap-3">
     <label class="text-sm text-white sr-only">Service</label>
@@ -8864,12 +8961,10 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
 
-    <template x-if="route==='schedule'">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <div x-data="scheduleApp()" x-init="init()" class="h-full flex flex-col">
+    <div class="h-full flex-1 min-h-0 flex flex-col" x-show="route==='schedule'" x-cloak>
+      <div x-data="scheduleApp()" x-init="init()" class="h-full flex flex-col">
   <div class="flex-1 min-h-0 overflow-auto px-4 pb-4 pt-4 space-y-6">
     <div class="text-muted" x-show="loading">Loading upcoming services...</div>
     <div class="text-red-600" x-show="error" x-text="error"></div>
@@ -8917,9 +9012,23 @@ return {
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                     <td class="align-top min-w-[110px]"
                       :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : '')">
-                      <div class="w-full px-3 py-2 text-sm"
+                      <div class="w-full px-3 py-2 text-sm space-y-2"
                         :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100 text-gray-900' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50 text-gray-500' : 'text-gray-900')">
-                        <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        <div>
+                          <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        </div>
+                        <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
+                          <button
+                            type="button"
+                            class="btn btn--accent-soft btn--xs"
+                            x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                            :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
+                            @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
+                            x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
+                          <div class="text-[11px] text-emerald-700"
+                            x-show="volunteerCountLabel(column.id, layout.teamType, row.label)"
+                            x-text="volunteerCountLabel(column.id, layout.teamType, row.label)"></div>
+                        </div>
                       </div>
                     </td>
                   </template>
@@ -8933,12 +9042,10 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
 
-    <template x-if="route==='schedule-embed'">
-      <div class="h-full flex-1 min-h-0 flex flex-col bg-white">
-        <div x-data="scheduleApp()" x-init="init()" class="h-full flex flex-col">
+    <div class="h-full flex-1 min-h-0 flex flex-col bg-white" x-show="route==='schedule-embed'" x-cloak>
+      <div x-data="scheduleApp()" x-init="init()" class="h-full flex flex-col">
   <div class="flex-1 min-h-0 overflow-auto px-4 pb-4 pt-4 space-y-6">
     <div class="text-muted" x-show="loading">Loading upcoming services...</div>
     <div class="text-red-600" x-show="error" x-text="error"></div>
@@ -8986,9 +9093,23 @@ return {
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                     <td class="align-top min-w-[110px]"
                       :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : '')">
-                      <div class="w-full px-3 py-2 text-sm"
+                      <div class="w-full px-3 py-2 text-sm space-y-2"
                         :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100 text-gray-900' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50 text-gray-500' : 'text-gray-900')">
-                        <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        <div>
+                          <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        </div>
+                        <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
+                          <button
+                            type="button"
+                            class="btn btn--accent-soft btn--xs"
+                            x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                            :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
+                            @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
+                            x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
+                          <div class="text-[11px] text-emerald-700"
+                            x-show="volunteerCountLabel(column.id, layout.teamType, row.label)"
+                            x-text="volunteerCountLabel(column.id, layout.teamType, row.label)"></div>
+                        </div>
                       </div>
                     </td>
                   </template>
@@ -9002,19 +9123,18 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
 
-    <template x-if="route==='songs'">
+    <div class="h-full flex-1 min-h-0" x-show="route==='songs'" x-cloak>
       <div x-data="songsApp('page')" x-init="init()" class="h-full flex flex-col">
   <div x-ref="browserHost" class="flex-1 min-h-0 flex flex-col w-full"></div>
 </div>
 
-    </template>
+    </div>
 
-    <template x-if="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <div x-data="weeklyPlanApp()" x-init="init()"
+    <div class="h-full flex-1 min-h-0 flex flex-col"
+      x-show="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan" x-cloak>
+      <div x-data="weeklyPlanApp()" x-init="init()"
   @use-song.window="applySuggestion(suggestTargetIndex, { name: $event.detail.name }); showSuggestModal=false"
   class="h-full flex flex-col overflow-hidden flex-1 min-h-0">
   <!-- Service toolbar -->
@@ -9675,12 +9795,11 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
 
-    <template x-if="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam">
-      <div class="h-full flex-1 min-h-0">
-        <div x-data="teamApp()" x-init="init()" class="h-full flex flex-col">
+    <div class="h-full flex-1 min-h-0"
+      x-show="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam" x-cloak>
+      <div x-data="teamApp()" x-init="init()" class="h-full flex flex-col">
   <div class="border-b px-4 pt-3 flex items-center gap-3 bg-gray-100 relative">
     <div class="app-tabs app-tabs--segment z-10">
       <button type="button"
@@ -10292,12 +10411,10 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
 
-    <template x-if="route==='availability'">
-      <div class="h-full flex-1 min-h-0">
-        <div x-data="availabilityApp()" x-init="init()" class="h-full min-h-0 bg-gray-50 overflow-hidden flex flex-col">
+    <div class="h-full flex-1 min-h-0" x-show="route==='availability'" x-cloak>
+      <div x-data="availabilityApp()" x-init="init()" class="h-full min-h-0 bg-gray-50 overflow-hidden flex flex-col">
   <div class="max-w-3xl w-full mx-auto p-6 pb-6 flex-1 min-h-0 flex flex-col">
     <div x-cloak x-show="isAdmin" class="mb-0">
       <div class="inline-flex items-end gap-1">
@@ -10494,8 +10611,7 @@ return {
   </div>
 </div>
 
-      </div>
-    </template>
+    </div>
   </main>
 
 

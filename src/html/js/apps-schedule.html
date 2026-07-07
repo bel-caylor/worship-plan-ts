@@ -14,11 +14,14 @@
     return {
       loading: true,
       error: '',
+      auth: (typeof window !== 'undefined' && window.__AUTH__) || null,
       rolePresets: TEAM_ROLE_PRESETS,
       scheduleServices: [],
       scheduleServiceLookup: {},
       scheduleUnavailableMap: {},
       scheduleAssignments: {},
+      volunteerRequests: {},
+      volunteerBusy: {},
       scheduleTemplateOverrides: {},
       weeklyTeams: [],
       weeklyTeamDefaults: {},
@@ -26,6 +29,9 @@
       memberLookup: {},
 
       init() {
+        document.addEventListener('app-auth-changed', (event) => {
+          this.auth = event?.detail || null;
+        });
         this.refresh();
       },
 
@@ -125,6 +131,39 @@
         return map;
       },
 
+      normalizeRoleLabel(value) {
+        const role = String(value || '').trim();
+        if (!role) return '';
+        return /^vocals?$/i.test(role) ? 'Vocal' : role;
+      },
+
+      normalizeVolunteerRequests(items) {
+        const map = {};
+        (Array.isArray(items) ? items : []).forEach(item => {
+          const serviceId = String(item?.serviceId || '').trim();
+          const teamType = String(item?.teamType || '').trim();
+          const roleName = this.normalizeRoleLabel(item?.roleName);
+          if (!serviceId || !teamType || !roleName) return;
+          const key = this.scheduleCellKey(serviceId, teamType, roleName);
+          if (!map[key]) {
+            map[key] = {
+              count: 0,
+              viewerRequested: false,
+              items: []
+            };
+          }
+          map[key].count += 1;
+          map[key].viewerRequested = map[key].viewerRequested || Boolean(item?.isViewer);
+          map[key].items.push({
+            memberEmail: String(item?.memberEmail || '').trim().toLowerCase(),
+            memberName: String(item?.memberName || '').trim(),
+            status: String(item?.status || '').trim(),
+            isViewer: Boolean(item?.isViewer)
+          });
+        });
+        return map;
+      },
+
       memberLabel(email, fallback = '') {
         const key = String(email || '').trim().toLowerCase();
         if (!key) return fallback || '';
@@ -156,10 +195,14 @@
         try {
           const snapshot = await callRpc('getTeamScheduleSnapshot', { limit: 0 });
           const services = this.normalizeScheduleServices(snapshot?.services);
+          const volunteerSnapshot = await callRpc('getVolunteerRequestsSnapshot', {
+            serviceIds: services.map(service => service.id)
+          });
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);
           this.scheduleAssignments = this.normalizeScheduleAssignments(snapshot?.assignments);
+          this.volunteerRequests = this.normalizeVolunteerRequests(volunteerSnapshot?.items);
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(snapshot?.weeklyTeamDefaults);
           this.weeklyTeams = (Array.isArray(snapshot?.weeklyTeams) ? snapshot.weeklyTeams : [])
             .map(item => this.normalizeWeeklyTeam(item))
@@ -173,6 +216,67 @@
           this.error = (e && e.message) ? e.message : 'Failed to load schedule.';
         } finally {
           this.loading = false;
+        }
+      },
+
+      volunteerRequestForCell(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        return this.volunteerRequests?.[key] || { count: 0, viewerRequested: false, items: [] };
+      },
+
+      viewerTeams() {
+        const teams = this.auth?.teams;
+        return Array.isArray(teams)
+          ? teams.map(team => String(team || '').trim().toLowerCase()).filter(Boolean)
+          : [];
+      },
+
+      viewerRole() {
+        return this.normalize(String(this.auth?.role || ''));
+      },
+
+      canCurrentViewerVolunteer(cell, teamType, roleName) {
+        if (!this.auth?.isLoggedIn || !this.auth?.capabilities?.canVolunteer) return false;
+        if (String(cell?.memberEmail || '').trim()) return false;
+        if (this.isMemberUnavailable(this.auth?.email, cell?.serviceId)) return false;
+        const teamKey = this.normalize(teamType);
+        const roleKey = this.normalize(this.normalizeRoleLabel(roleName));
+        if (!teamKey || !roleKey) return false;
+        if (!this.viewerTeams().includes(teamKey)) return false;
+        if (this.viewerRole() !== roleKey) return false;
+        return true;
+      },
+
+      volunteerButtonLabel(serviceId, teamType, roleName) {
+        return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested ? 'Requested' : 'Volunteer';
+      },
+
+      volunteerCountLabel(serviceId, teamType, roleName) {
+        const count = Number(this.volunteerRequestForCell(serviceId, teamType, roleName).count || 0);
+        if (!count) return '';
+        return `${count} volunteer${count === 1 ? '' : 's'}`;
+      },
+
+      async toggleVolunteerRequest(serviceId, teamType, roleName) {
+        const cellKey = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        if (this.volunteerBusy?.[cellKey]) return;
+        const current = this.volunteerRequestForCell(serviceId, teamType, roleName);
+        const requested = !current.viewerRequested;
+        this.volunteerBusy = { ...this.volunteerBusy, [cellKey]: true };
+        try {
+          await callRpc('setViewerVolunteerRequest', {
+            serviceId,
+            teamType,
+            roleName,
+            requested
+          });
+          await this.refresh();
+          notify(requested ? 'Volunteer request sent.' : 'Volunteer request removed.', 'success', 2200);
+        } catch (e) {
+          console.error(e);
+          notify((e && e.message) ? e.message : 'Unable to update volunteer request.', 'error', 3600);
+        } finally {
+          this.volunteerBusy = { ...this.volunteerBusy, [cellKey]: false };
         }
       },
 

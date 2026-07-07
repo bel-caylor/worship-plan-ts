@@ -46,9 +46,23 @@
                   <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                     <td class="align-top min-w-[110px]"
                       :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : '')">
-                      <div class="w-full px-3 py-2 text-sm"
+                      <div class="w-full px-3 py-2 text-sm space-y-2"
                         :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100 text-gray-900' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50 text-gray-500' : 'text-gray-900')">
-                        <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        <div>
+                          <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                        </div>
+                        <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
+                          <button
+                            type="button"
+                            class="btn btn--accent-soft btn--xs"
+                            x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                            :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
+                            @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
+                            x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
+                          <div class="text-[11px] text-emerald-700"
+                            x-show="volunteerCountLabel(column.id, layout.teamType, row.label)"
+                            x-text="volunteerCountLabel(column.id, layout.teamType, row.label)"></div>
+                        </div>
                       </div>
                     </td>
                   </template>

@@ -99,4 +99,16 @@ export const SERVICE_TEAM_ASSIGNMENTS_COL = {
   notes: 'Notes'
 } as const;
 
+export const VOLUNTEER_REQUESTS_SHEET = 'VolunteerRequests';
+export const VOLUNTEER_REQUESTS_COL = {
+  serviceId: 'ServiceID',
+  teamType: 'Team',
+  roleName: 'Role',
+  memberEmail: 'MemberEmail',
+  memberName: 'MemberName',
+  status: 'Status',
+  requestedAt: 'RequestedAt',
+  notes: 'Notes'
+} as const;
+
 export const GOOGLE_CLIENT_ID_PROPERTY_KEY = 'GOOGLE_CLIENT_ID';

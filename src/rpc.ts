@@ -10,6 +10,7 @@ import { getTeamScheduleSnapshot, getServiceTeamAssignments, getUnavailableBySer
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
 import { sendAvailabilityEmail, sendServiceTeamEmail } from './features/messaging';
 import { summarizePassageWithSongs } from './features/scripture';
+import { getVolunteerRequestsSnapshot, setViewerVolunteerRequest } from './features/volunteer-requests';
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
@@ -81,6 +82,10 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getMemberAvailability(payload as any);
       case 'saveMemberAvailability':
         return saveMemberAvailability(payload as any);
+      case 'getVolunteerRequestsSnapshot':
+        return getVolunteerRequestsSnapshot(payload as any);
+      case 'setViewerVolunteerRequest':
+        return setViewerVolunteerRequest(payload as any);
       case 'sendAvailabilityEmail':
         return sendAvailabilityEmail(payload as any);
       case 'sendServiceTeamEmail':

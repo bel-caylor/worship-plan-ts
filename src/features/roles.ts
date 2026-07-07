@@ -21,15 +21,19 @@ type ViewerCapabilities = {
   canViewTeam: boolean;
   canManageTeams: boolean;
   canAdminAvailability: boolean;
+  canVolunteer: boolean;
 };
 
-type ViewerProfile = {
+export type ViewerProfile = {
   email: string;
   permissions: string;
   first: string;
   last: string;
   isAdmin: boolean;
   isLoggedIn: boolean;
+  role: string;
+  teams: string[];
+  teamRaw: string;
   capabilities: ViewerCapabilities;
 };
 
@@ -68,7 +72,8 @@ const emptyCapabilities: ViewerCapabilities = {
   canEditSongs: false,
   canViewTeam: false,
   canManageTeams: false,
-  canAdminAvailability: false
+  canAdminAvailability: false,
+  canVolunteer: false
 };
 
 function computeCapabilities(permission: string | undefined | null) {
@@ -81,9 +86,53 @@ function computeCapabilities(permission: string | undefined | null) {
     canEditSongs: isAdmin || isEditor,
     canViewTeam: isAdmin || isEditor,
     canManageTeams: isAdmin,
-    canAdminAvailability: isAdmin || isEditor
+    canAdminAvailability: isAdmin || isEditor,
+    canVolunteer: isAdmin || isEditor || normalized === 'subscriber'
   };
   return { capabilities, isAdmin };
+}
+
+export function findRoleRecordByEmail(email: string): RolesListItem | null {
+  const target = normalizeEmail(email);
+  if (!target) return null;
+
+  const sh = getSheetByName(ROLES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) {
+    return null;
+  }
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idxEmail = col(ROLES_COL.email);
+  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
+  const idxPerms = col(ROLES_COL.permissions);
+  const idxFirst = col(ROLES_COL.first);
+  const idxLast = col(ROLES_COL.last);
+  const idxTeam = col(ROLES_COL.team);
+  const idxRole = col(ROLES_COL.role);
+  const idxSpanish = col(ROLES_COL.spanish);
+
+  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  for (const row of body) {
+    const rowEmail = normalizeEmail(row[idxEmail]);
+    if (rowEmail !== target) continue;
+    const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
+    const teams = teamRaw ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean) : [];
+    return {
+      email: rowEmail,
+      permissions: idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '',
+      first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
+      last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
+      teams,
+      teamRaw,
+      role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
+      spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
+    };
+  }
+
+  return null;
 }
 
 function acquireRolesLock(maxAttempts = 4, waitMs = 5000) {
@@ -159,6 +208,9 @@ export function getViewerProfile(): ViewerProfile {
     last: '',
     isAdmin: false,
     isLoggedIn: !!viewerEmail,
+    role: '',
+    teams: [],
+    teamRaw: '',
     capabilities: { ...emptyCapabilities }
   };
 
@@ -166,41 +218,25 @@ export function getViewerProfile(): ViewerProfile {
     return emptyProfile;
   }
 
-  const sh = getSheetByName(ROLES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) {
-    return emptyProfile;
-  }
+  const roleRecord = findRoleRecordByEmail(viewerEmail);
+  if (!roleRecord) return emptyProfile;
 
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const idxEmail = col(ROLES_COL.email);
-  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
-  const idxPerms = col(ROLES_COL.permissions);
-  const idxFirst = col(ROLES_COL.first);
-  const idxLast = col(ROLES_COL.last);
-
-  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  for (const row of body) {
-    const rowEmail = normalizeEmail(row[idxEmail]);
-    if (rowEmail !== viewerEmail) continue;
-    const permissions = idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '';
-    const first = idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '';
-    const last = idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '';
-    const { capabilities, isAdmin } = computeCapabilities(permissions);
-    return {
-      email: viewerEmail,
-      permissions,
-      first,
-      last,
-      isAdmin,
-      isLoggedIn: true,
-      capabilities
-    };
-  }
-
-  return emptyProfile;
+  const permissions = String(roleRecord.permissions || '').trim();
+  const first = String(roleRecord.first || '').trim();
+  const last = String(roleRecord.last || '').trim();
+  const { capabilities, isAdmin } = computeCapabilities(permissions);
+  return {
+    email: viewerEmail,
+    permissions,
+    first,
+    last,
+    isAdmin,
+    isLoggedIn: true,
+    role: String(roleRecord.role || '').trim(),
+    teams: Array.isArray(roleRecord.teams) ? roleRecord.teams.slice() : [],
+    teamRaw: String(roleRecord.teamRaw || '').trim(),
+    capabilities
+  };
 }
 
 export function getViewerAuthDebug() {
