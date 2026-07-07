@@ -47,19 +47,11 @@
     window.__GUEST__ = guestFromServer;
     window.__GOOGLE_CLIENT_ID__ = googleClientIdFromServer || '';
   </script>
-  <meta name="app-script-base" content="https://script.google.com/macros/s/AKfycbyJjOwVSDYeaiJxAjWSKZePBD8BK9_fmoKDvCB_XcJaTUxnGU6D0YUbf9fsdWnZZjgv/exec">
   <meta name="google-client-id" content="<?!= googleClientId || '' ?>">
   <script>
     (function ensureRpcBase() {
-      if (window.__BASE__ && window.__BASE__ !== (location.origin + location.pathname)) return;
-      if (window.APP_RPC_BASE) {
-        window.__BASE__ = window.APP_RPC_BASE;
-        return;
-      }
-      try {
-        const meta = document.querySelector('meta[name="app-script-base"]');
-        if (meta && meta.content) window.__BASE__ = meta.content;
-      } catch (_) { }
+      if (window.__BASE__) return;
+      if (window.APP_RPC_BASE) window.__BASE__ = window.APP_RPC_BASE;
     })();
   </script>
   <?!= HtmlService.createHtmlOutputFromFile('util').getContent(); ?>
