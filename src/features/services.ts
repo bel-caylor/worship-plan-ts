@@ -1,5 +1,6 @@
 // src/features/services.ts
 import { SERVICES_SHEET, PLANNER_SHEET, SERVICES_COL, ORDER_SHEET, ORDER_COL } from '../constants';
+import { getSpreadsheetVersion, readDocumentCachedJson } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 
 export type AddServiceInput = {
@@ -46,6 +47,7 @@ export type ServiceItem = {
 };
 
 const SERVICES_CACHE_KEY = 'listServices:v1';
+const SERVICE_PEOPLE_CACHE_KEY = 'servicePeople:v1';
 const DEFAULT_SERVICE_TIME = '10:00 AM';
 const DEFAULT_LEADER = 'Darden';
 const DEFAULT_PREACHER = 'Tom';
@@ -755,63 +757,68 @@ export function deleteService(input: { id?: string } | string) {
 }
 
 export function getServicePeople() {
-  const toDisplay = (s: string) => s
-    .trim()
-    .replace(/\s+/g, ' ')
-    .split(' ')
-    .map(w => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
-    .join(' ');
-  const toKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
+  return readDocumentCachedJson<{ leaders: string[]; preachers: string[] }>({
+    key: SERVICE_PEOPLE_CACHE_KEY,
+    ttlSeconds: 300,
+    version: getSpreadsheetVersion([SERVICES_SHEET, PLANNER_SHEET]),
+    loader: () => {
+      const toDisplay = (s: string) => s
+        .trim()
+        .replace(/\s+/g, ' ')
+        .split(' ')
+        .map(w => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+        .join(' ');
+      const toKey = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase();
 
-  const merge = (map: Map<string, string>, vals: any[]) => {
-    for (const v of vals) {
-      const raw = String(v ?? '');
-      const key = toKey(raw);
-      if (!key) continue;
-      if (!map.has(key)) map.set(key, toDisplay(raw));
+      const merge = (map: Map<string, string>, vals: any[]) => {
+        for (const v of vals) {
+          const raw = String(v ?? '');
+          const key = toKey(raw);
+          if (!key) continue;
+          if (!map.has(key)) map.set(key, toDisplay(raw));
+        }
+      };
+
+      const leaders = new Map<string, string>();
+      const preachers = new Map<string, string>();
+
+      try {
+        const sh = getSheetByName(SERVICES_SHEET);
+        const lastRow = sh.getLastRow();
+        const lastCol = sh.getLastColumn();
+        if (lastRow >= 2 && lastCol >= 1) {
+          const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+          const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+          const leaderIdx = normIdx(SERVICES_COL.leader);
+          const preacherIdx = normIdx(SERVICES_COL.preacher);
+          const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+          if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
+          if (preacherIdx >= 0) merge(preachers, body.map(r => r[preacherIdx]));
+        }
+      } catch (_) { /* ignore */ }
+
+      try {
+        const sh = getSheetByName(PLANNER_SHEET);
+        const lastRow = sh.getLastRow();
+        const lastCol = sh.getLastColumn();
+        if (lastRow >= 2 && lastCol >= 1) {
+          const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+          const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+          const leaderIdx = normIdx(SERVICES_COL.leader);
+          const preacherIdx = normIdx(SERVICES_COL.preacher);
+          const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+          if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
+          if (preacherIdx >= 0) merge(preachers, body.map(r => r[preacherIdx]));
+        }
+      } catch (_) { /* ignore */ }
+
+      const sort = (a: string, b: string) => a.localeCompare(b);
+      return {
+        leaders: Array.from(leaders.values()).sort(sort),
+        preachers: Array.from(preachers.values()).sort(sort)
+      };
     }
-  };
-
-  const leaders = new Map<string, string>();
-  const preachers = new Map<string, string>();
-
-  // From Services sheet
-  try {
-    const sh = getSheetByName(SERVICES_SHEET);
-    const lastRow = sh.getLastRow();
-    const lastCol = sh.getLastColumn();
-    if (lastRow >= 2 && lastCol >= 1) {
-      const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-      const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-      const leaderIdx = normIdx(SERVICES_COL.leader);
-      const preacherIdx = normIdx(SERVICES_COL.preacher);
-      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-      if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
-      if (preacherIdx >= 0) merge(preachers, body.map(r => r[preacherIdx]));
-    }
-  } catch (_) { /* ignore */ }
-
-  // From Weekly Planner sheet (if present)
-  try {
-    const sh = getSheetByName(PLANNER_SHEET);
-    const lastRow = sh.getLastRow();
-    const lastCol = sh.getLastColumn();
-    if (lastRow >= 2 && lastCol >= 1) {
-      const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-      const normIdx = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-      const leaderIdx = normIdx(SERVICES_COL.leader);
-      const preacherIdx = normIdx(SERVICES_COL.preacher);
-      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-      if (leaderIdx >= 0) merge(leaders, body.map(r => r[leaderIdx]));
-      if (preacherIdx >= 0) merge(preachers, body.map(r => r[preacherIdx]));
-    }
-  } catch (_) { /* ignore */ }
-
-  const sort = (a: string, b: string) => a.localeCompare(b);
-  return {
-    leaders: Array.from(leaders.values()).sort(sort),
-    preachers: Array.from(preachers.values()).sort(sort)
-  };
+  });
 }
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

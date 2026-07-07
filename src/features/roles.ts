@@ -1,4 +1,5 @@
 import { ROLES_COL, ROLES_SHEET } from '../constants';
+import { getSpreadsheetVersion, readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 import { requestTokenEmail } from '../auth';
 
@@ -51,6 +52,8 @@ type AddRoleInput = {
 };
 
 const TEAM_SPLIT = /[,;|]/;
+const ROLES_CACHE_KEY = 'roles:list:v1';
+const ROLES_CACHE_TTL_SECONDS = 300;
 const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const normalizePermission = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const canonicalizeRoleLabel = (value: unknown) => {
@@ -221,72 +224,78 @@ export function getViewerAuthDebug() {
 }
 
 export function listRoles() {
-  const sh = getSheetByName(ROLES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return { items: [], teams: [] as string[] };
+  return readDocumentCachedJson<{ items: RolesListItem[]; teams: string[] }>({
+    key: ROLES_CACHE_KEY,
+    ttlSeconds: ROLES_CACHE_TTL_SECONDS,
+    version: getSpreadsheetVersion([ROLES_SHEET]),
+    loader: () => {
+      const sh = getSheetByName(ROLES_SHEET);
+      const lastRow = sh.getLastRow();
+      const lastCol = sh.getLastColumn();
+      if (lastRow < 2 || lastCol < 1) return { items: [], teams: [] as string[] };
 
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const idxEmail = col(ROLES_COL.email);
-  const idxPerms = col(ROLES_COL.permissions);
-  const idxFirst = col(ROLES_COL.first);
-  const idxLast = col(ROLES_COL.last);
-  const idxTeam = col(ROLES_COL.team);
-  const idxRole = col(ROLES_COL.role);
-  const idxSpanish = col(ROLES_COL.spanish);
+      const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+      const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+      const idxEmail = col(ROLES_COL.email);
+      const idxPerms = col(ROLES_COL.permissions);
+      const idxFirst = col(ROLES_COL.first);
+      const idxLast = col(ROLES_COL.last);
+      const idxTeam = col(ROLES_COL.team);
+      const idxRole = col(ROLES_COL.role);
+      const idxSpanish = col(ROLES_COL.spanish);
 
-  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  const items: RolesListItem[] = [];
-  const teamSet = new Set<string>();
+      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      const items: RolesListItem[] = [];
+      const teamSet = new Set<string>();
+      const roleFixes: Array<{ row: number; value: string }> = [];
 
-  const roleFixes: Array<{ row: number; value: string }> = [];
-
-  for (let i = 0; i < body.length; i++) {
-    const row = body[i];
-    const email = idxEmail >= 0 ? String(row[idxEmail] ?? '').trim() : '';
-    if (!email) continue;
-    const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
-    const teams = teamRaw
-      ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean)
-      : [];
-    teams.forEach(t => { if (t) teamSet.add(t); });
-    items.push({
-      email,
-      permissions: idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '',
-      first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
-      last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
-      teams,
-      teamRaw,
-      role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
-      spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
-    });
-    if (idxRole >= 0) {
-      const rawRole = String(row[idxRole] ?? '').trim();
-      const canonical = canonicalizeRoleLabel(rawRole);
-      if (rawRole && canonical && rawRole !== canonical) {
-        roleFixes.push({ row: 2 + i, value: canonical });
+      for (let i = 0; i < body.length; i++) {
+        const row = body[i];
+        const email = idxEmail >= 0 ? String(row[idxEmail] ?? '').trim() : '';
+        if (!email) continue;
+        const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
+        const teams = teamRaw
+          ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean)
+          : [];
+        teams.forEach(t => { if (t) teamSet.add(t); });
+        items.push({
+          email,
+          permissions: idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '',
+          first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
+          last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
+          teams,
+          teamRaw,
+          role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
+          spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
+        });
+        if (idxRole >= 0) {
+          const rawRole = String(row[idxRole] ?? '').trim();
+          const canonical = canonicalizeRoleLabel(rawRole);
+          if (rawRole && canonical && rawRole !== canonical) {
+            roleFixes.push({ row: 2 + i, value: canonical });
+          }
+        }
       }
+
+      items.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+
+      if (roleFixes.length && idxRole >= 0) {
+        const lock = acquireRolesLock();
+        try {
+          roleFixes.forEach(fix => {
+            sh.getRange(fix.row, idxRole + 1).setValue(fix.value);
+          });
+        } finally {
+          lock.releaseLock();
+        }
+      }
+
+      return {
+        items,
+        teams: Array.from(teamSet).sort((a, b) => a.localeCompare(b))
+      };
     }
-  }
-
-  items.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
-
-  if (roleFixes.length && idxRole >= 0) {
-    const lock = acquireRolesLock();
-    try {
-      roleFixes.forEach(fix => {
-        sh.getRange(fix.row, idxRole + 1).setValue(fix.value);
-      });
-    } finally {
-      lock.releaseLock();
-    }
-  }
-
-  return {
-    items,
-    teams: Array.from(teamSet).sort((a, b) => a.localeCompare(b))
-  };
+  });
 }
 
 export function updateRoleEntry(input: UpdateRoleInput) {
@@ -349,6 +358,7 @@ export function updateRoleEntry(input: UpdateRoleInput) {
     lock.releaseLock();
   }
 
+  removeDocumentCacheKeys([ROLES_CACHE_KEY]);
   return listRoles();
 }
 
@@ -407,6 +417,7 @@ export function addRoleEntry(input: AddRoleInput) {
     lock.releaseLock();
   }
 
+  removeDocumentCacheKeys([ROLES_CACHE_KEY]);
   return listRoles();
 }
 

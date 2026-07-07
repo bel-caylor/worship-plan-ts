@@ -95,14 +95,18 @@
         scheduleSaving: false,
         scheduleSaveTimer: null,
         schedulePendingSaves: {},
-        scheduleSaveMessage: '',
-        scheduleSaveError: '',
-        scheduleServiceLimit: 0,
+      scheduleSaveMessage: '',
+      scheduleSaveError: '',
+      scheduleServiceLimit: 0,
+      rolesLoadedOnce: false,
+      weeklyTeamsLoadedOnce: false,
+      scheduleLoadedOnce: false,
 
       init() {
         this.computePresetLookup();
         this.resetNewWeeklyTeamForm();
-        this.refresh();
+        this.hydrateTeamCaches();
+        this.refresh({ includeSchedule: this.activeTab === 'schedule' });
       },
 
       computePresetLookup() {
@@ -221,10 +225,60 @@
         });
       },
 
-      async refresh() {
-        await this.loadRoles();
-        await this.loadWeeklyTeams();
-        await this.loadSchedule();
+      readLocalCache(key, maxAgeMs = 300000) {
+        try {
+          const raw = localStorage.getItem(key);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || !parsed.ts || (Date.now() - parsed.ts > maxAgeMs)) return null;
+          return parsed.data ?? null;
+        } catch (_) {
+          return null;
+        }
+      },
+
+      writeLocalCache(key, data) {
+        try {
+          localStorage.setItem(key, JSON.stringify({ ts: Date.now(), data }));
+        } catch (_) { /* ignore */ }
+      },
+
+      hydrateTeamCaches() {
+        const rolesCache = this.readLocalCache('wp.team.roles');
+        if (rolesCache && Array.isArray(rolesCache.items)) {
+          this.roles = rolesCache.items;
+          this.teamOptions = Array.isArray(rolesCache.teams) ? rolesCache.teams.filter(team => this.isActiveTeamType(team)) : [];
+          this.memberLookup = this.buildMemberLookup(this.roles);
+          this.rolesLoadedOnce = true;
+        }
+
+        const weeklyCache = this.readLocalCache('wp.team.weeklyTeams');
+        if (weeklyCache && Array.isArray(weeklyCache.items)) {
+          this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyCache.defaults);
+          this.weeklyTeams = weeklyCache.items
+            .map(item => this.normalizeWeeklyTeam(item))
+            .filter(item => this.isActiveTeamType(item?.team));
+          this.weeklyTeamsLoadedOnce = true;
+          this.rebuildWeeklyTeamLayouts();
+        }
+      },
+
+      setActiveTab(tab) {
+        this.activeTab = tab;
+        if (tab === 'schedule' && !this.scheduleLoadedOnce && !this.scheduleLoading) {
+          this.loadSchedule().catch(err => console.error(err));
+        }
+      },
+
+      async refresh(opts = {}) {
+        const includeSchedule = opts.includeSchedule !== false && this.activeTab === 'schedule';
+        await Promise.all([
+          this.loadRoles(),
+          this.loadWeeklyTeams()
+        ]);
+        if (includeSchedule) {
+          await this.loadSchedule();
+        }
       },
 
       ensurePermissionOption(value) {
@@ -256,6 +310,11 @@
           if (this.selectedEmail) {
             this.select(this.selectedEmail);
           }
+          this.rolesLoadedOnce = true;
+          this.writeLocalCache('wp.team.roles', {
+            items: this.roles,
+            teams: this.teamOptions
+          });
         } catch (e) {
           console.error(e);
           this.error = (e && e.message) ? e.message : 'Failed to load team.';
@@ -306,6 +365,11 @@
           if (!this.weeklyTeamsSaving) {
             this.weeklyTeamsSaveMessage = '';
           }
+          this.weeklyTeamsLoadedOnce = true;
+          this.writeLocalCache('wp.team.weeklyTeams', {
+            items: Array.isArray(res?.items) ? res.items : [],
+            defaults: res?.defaults || {}
+          });
           this.rebuildWeeklyTeamLayouts();
         } catch (e) {
           console.error(e);
@@ -335,6 +399,7 @@
             this.scheduleSaveMessage = '';
           }
           this.scheduleSaveError = '';
+          this.scheduleLoadedOnce = true;
         } catch (e) {
           console.error(e);
           this.scheduleError = (e && e.message) ? e.message : 'Failed to load schedule.';
@@ -583,6 +648,30 @@
         };
       },
 
+      buildScheduleDuplicateFlags(teamType, columns, roles) {
+        const flags = {};
+        (Array.isArray(columns) ? columns : []).forEach(column => {
+          const emailCounts = {};
+          roles.forEach(roleName => {
+            const email = String(this.effectiveScheduleAssignment(column.id, teamType, roleName)?.memberEmail || '')
+              .trim()
+              .toLowerCase();
+            if (!email) return;
+            emailCounts[email] = (emailCounts[email] || 0) + 1;
+          });
+          roles.forEach(roleName => {
+            const key = this.scheduleCellKey(column.id, teamType, roleName);
+            const email = String(this.effectiveScheduleAssignment(column.id, teamType, roleName)?.memberEmail || '')
+              .trim()
+              .toLowerCase();
+            if (email && emailCounts[email] > 1) {
+              flags[key] = true;
+            }
+          });
+        });
+        return flags;
+      },
+
       buildScheduleLayouts() {
         const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
         if (!services.length) {
@@ -599,6 +688,7 @@
             service,
             teamLabel: this.scheduleWeeklyTeamNameForService(teamType, service)
           }));
+          const duplicateFlags = this.buildScheduleDuplicateFlags(teamType, columns, roles);
           const rows = roles.map(roleName => {
             const cells = {};
             columns.forEach(column => {
@@ -610,7 +700,7 @@
               cells
             };
           });
-          layouts.push({ teamType, columns, rows });
+          layouts.push({ teamType, columns, rows, duplicateFlags });
         });
         this.scheduleLayouts = layouts;
       },
@@ -924,8 +1014,10 @@
         });
         layouts.sort((a, b) => String(a.teamType || '').localeCompare(String(b.teamType || '')));
         this.weeklyTeamLayouts = layouts;
-        this.buildScheduleLayouts();
-        this.recomputeScheduleDirty();
+        if (this.scheduleLoadedOnce || this.scheduleLoading || this.scheduleServices.length || Object.keys(this.scheduleAssignmentMap || {}).length) {
+          this.buildScheduleLayouts();
+          this.recomputeScheduleDirty();
+        }
       },
 
       buildWeeklyTeamLayout(teamType) {

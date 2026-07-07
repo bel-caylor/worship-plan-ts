@@ -549,6 +549,30 @@
           .join(', ');
       },
 
+      buildScheduleDuplicateFlags(teamType, columns, roles) {
+        const flags = {};
+        (Array.isArray(columns) ? columns : []).forEach(column => {
+          const emailCounts = {};
+          roles.forEach(roleName => {
+            const email = String(this.effectiveScheduleAssignment(column.id, teamType, roleName)?.memberEmail || '')
+              .trim()
+              .toLowerCase();
+            if (!email) return;
+            emailCounts[email] = (emailCounts[email] || 0) + 1;
+          });
+          roles.forEach(roleName => {
+            const key = this.scheduleCellKey(column.id, teamType, roleName);
+            const email = String(this.effectiveScheduleAssignment(column.id, teamType, roleName)?.memberEmail || '')
+              .trim()
+              .toLowerCase();
+            if (email && emailCounts[email] > 1) {
+              flags[key] = true;
+            }
+          });
+        });
+        return flags;
+      },
+
       buildScheduleLayouts() {
         const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
         if (!services.length) {
@@ -564,6 +588,7 @@
             service,
             teamLabel: this.scheduleWeeklyTeamNameForService(teamType, service)
           }));
+          const duplicateFlags = this.buildScheduleDuplicateFlags(teamType, columns, roles);
           const rows = roles.map(roleName => {
             const cells = {};
             columns.forEach(column => {
@@ -575,7 +600,7 @@
               cells
             };
           });
-          layouts.push({ teamType, columns, rows });
+          layouts.push({ teamType, columns, rows, duplicateFlags });
         });
         this.scheduleLayouts = layouts;
       }

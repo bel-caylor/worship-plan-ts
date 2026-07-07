@@ -6,6 +6,7 @@ import {
   WEEKLY_TEAM_ROLE_DEFAULTS_SHEET,
   WEEKLY_TEAM_ROLE_DEFAULTS_COL
 } from '../constants';
+import { getSpreadsheetVersion, readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 
 type WeeklyTeamRole = {
@@ -64,6 +65,8 @@ type CreateWeeklyTeamInput = {
 };
 
 const norm = (value: unknown): string => String(value ?? '').trim();
+const WEEKLY_TEAMS_CACHE_KEY = 'weeklyTeams:list:v1';
+const WEEKLY_TEAMS_CACHE_TTL_SECONDS = 300;
 const normKey = (team: unknown, teamName: unknown): string =>
   `${norm(team).toLowerCase()}::${norm(teamName).toLowerCase()}`;
 
@@ -218,64 +221,75 @@ function readWeeklyTeamRolesSheet(): WeeklyTeamRoleSheetRow[] {
 }
 
 export function listWeeklyTeams() {
-  const baseRows = readWeeklyTeamsSheet();
-  const roleRows = readWeeklyTeamRolesSheet();
-  const defaultRows = readWeeklyTeamRoleDefaults();
+  return readDocumentCachedJson<{ items: WeeklyTeamRecord[]; defaults: Record<string, { roleName: string; order: number }[]> }>({
+    key: WEEKLY_TEAMS_CACHE_KEY,
+    ttlSeconds: WEEKLY_TEAMS_CACHE_TTL_SECONDS,
+    version: getSpreadsheetVersion([
+      WEEKLY_TEAMS_SHEET,
+      WEEKLY_TEAM_ROLES_SHEET,
+      WEEKLY_TEAM_ROLE_DEFAULTS_SHEET
+    ]),
+    loader: () => {
+      const baseRows = readWeeklyTeamsSheet();
+      const roleRows = readWeeklyTeamRolesSheet();
+      const defaultRows = readWeeklyTeamRoleDefaults();
 
-  const map = new Map<string, WeeklyTeamRecord>();
-  baseRows.forEach(row => {
-    map.set(row.key, {
-      team: row.team,
-      teamName: row.teamName,
-      description: row.description,
-      roles: []
-    });
-  });
+      const map = new Map<string, WeeklyTeamRecord>();
+      baseRows.forEach(row => {
+        map.set(row.key, {
+          team: row.team,
+          teamName: row.teamName,
+          description: row.description,
+          roles: []
+        });
+      });
 
-  roleRows.forEach(row => {
-    const existing = map.get(row.key) || {
-      team: row.team,
-      teamName: row.teamName,
-      description: '',
-      roles: []
-    };
-    existing.roles.push({
-      roleType: row.roleType,
-      roleName: row.roleName,
-      memberEmail: row.memberEmail,
-      memberName: row.memberName
-    });
-    map.set(row.key, existing);
-  });
+      roleRows.forEach(row => {
+        const existing = map.get(row.key) || {
+          team: row.team,
+          teamName: row.teamName,
+          description: '',
+          roles: []
+        };
+        existing.roles.push({
+          roleType: row.roleType,
+          roleName: row.roleName,
+          memberEmail: row.memberEmail,
+          memberName: row.memberName
+        });
+        map.set(row.key, existing);
+      });
 
-  const items = Array.from(map.values()).sort((a, b) => {
-    const teamCompare = a.team.localeCompare(b.team);
-    if (teamCompare !== 0) return teamCompare;
-    return a.teamName.localeCompare(b.teamName);
-  });
+      const items = Array.from(map.values()).sort((a, b) => {
+        const teamCompare = a.team.localeCompare(b.team);
+        if (teamCompare !== 0) return teamCompare;
+        return a.teamName.localeCompare(b.teamName);
+      });
 
-  const defaultsMap = new Map<string, WeeklyTeamRoleDefault[]>();
-  defaultRows.forEach(row => {
-    const key = norm(row.team).toLowerCase();
-    if (!key) return;
-    if (!defaultsMap.has(key)) defaultsMap.set(key, []);
-    defaultsMap.get(key)!.push(row);
-  });
-  const defaultsObj: Record<string, { roleName: string; order: number }[]> = {};
-  defaultsMap.forEach((list, key) => {
-    list.sort((a, b) => {
-      if (a.order !== b.order) return a.order - b.order;
-      return a.roleName.localeCompare(b.roleName);
-    });
-    if (!list.length) return;
-    const canonicalTeam = list[0].team;
-    defaultsObj[canonicalTeam] = list.map(entry => ({
-      roleName: entry.roleName,
-      order: entry.order
-    }));
-  });
+      const defaultsMap = new Map<string, WeeklyTeamRoleDefault[]>();
+      defaultRows.forEach(row => {
+        const key = norm(row.team).toLowerCase();
+        if (!key) return;
+        if (!defaultsMap.has(key)) defaultsMap.set(key, []);
+        defaultsMap.get(key)!.push(row);
+      });
+      const defaultsObj: Record<string, { roleName: string; order: number }[]> = {};
+      defaultsMap.forEach((list) => {
+        list.sort((a, b) => {
+          if (a.order !== b.order) return a.order - b.order;
+          return a.roleName.localeCompare(b.roleName);
+        });
+        if (!list.length) return;
+        const canonicalTeam = list[0].team;
+        defaultsObj[canonicalTeam] = list.map(entry => ({
+          roleName: entry.roleName,
+          order: entry.order
+        }));
+      });
 
-  return { items, defaults: defaultsObj };
+      return { items, defaults: defaultsObj };
+    }
+  });
 }
 
 export function saveWeeklyTeamDefaults(input: { team: string; roles: string[] }) {
@@ -318,6 +332,7 @@ export function saveWeeklyTeamDefaults(input: { team: string; roles: string[] })
     lock.releaseLock();
   }
 
+  removeDocumentCacheKeys([WEEKLY_TEAMS_CACHE_KEY]);
   return listWeeklyTeams();
 }
 
@@ -357,6 +372,7 @@ export function createWeeklyTeam(input: CreateWeeklyTeamInput) {
     lock.releaseLock();
   }
 
+  removeDocumentCacheKeys([WEEKLY_TEAMS_CACHE_KEY]);
   return listWeeklyTeams();
 }
 
@@ -452,5 +468,6 @@ export function saveWeeklyTeam(input: SaveWeeklyTeamInput) {
     lock.releaseLock();
   }
 
+  removeDocumentCacheKeys([WEEKLY_TEAMS_CACHE_KEY]);
   return listWeeklyTeams();
 }

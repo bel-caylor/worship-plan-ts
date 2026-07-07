@@ -4,19 +4,19 @@
       <button type="button"
         class="app-tab"
         :class="activeTab==='schedule' ? 'is-active' : ''"
-        @click="activeTab='schedule'">
+        @click="setActiveTab('schedule')">
         Schedule
       </button>
       <button type="button"
         class="app-tab"
         :class="activeTab==='weeklyTeams' ? 'is-active' : ''"
-        @click="activeTab='weeklyTeams'">
+        @click="setActiveTab('weeklyTeams')">
         Weekly Teams
       </button>
       <button type="button"
         class="app-tab"
         :class="activeTab==='roles' ? 'is-active' : ''"
-        @click="activeTab='roles'">
+        @click="setActiveTab('roles')">
         Roles
       </button>
     </div>
@@ -232,10 +232,10 @@
                     <th class="text-left bg-slate-50 align-middle sticky left-0 z-10" x-text="row.label"></th>
                     <template x-for="column in layout.columns" :key="column.id + '-' + row.key">
                       <td class="align-top min-w-[150px]"
-                        :class="!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : ''">
+                        :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50' : '')">
                         <div class="flex flex-col gap-1">
                           <select class="w-full form-control form-control--dense text-sm"
-                            :class="!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50' : ''"
+                            :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'border-rose-300 bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
                             :value="row.cells[column.id]?.memberEmail || ''"
                             :disabled="scheduleSaving"
                             @change="setScheduleAssignment(column.id, layout.teamType, row.label, $event.target.value)">

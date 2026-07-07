@@ -133,6 +133,8 @@
         this.updateTeamEmailDraft({ force: true });
         // Restore previously selected service id if present
         try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || ''; } catch (_) { }
+        this.hydrateExistingServices();
+        this.finishInitialServiceHydration();
 
         (async () => {
           try {
@@ -140,36 +142,20 @@
             if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a, b) => a.localeCompare(b));
             if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a, b) => a.localeCompare(b));
           } catch (e) { /* ignore */ }
+        })();
+        (async () => {
           try {
-            // Use server-injected services immediately, else localStorage cache
-            if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
-              this.existingServices = window.__SERVICES__;
-            } else {
-              let cached = null; try { cached = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
-              if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < 300000)) { // 5 min TTL
-                this.existingServices = cached.items;
-              }
-            }
-            let loadedViaRpc = false;
-            try {
-              const s = await callRpc('listServices', null);
-              if (Array.isArray(s?.items)) {
-                this.existingServices = s.items;
-                loadedViaRpc = true;
-              }
-            } catch (_) {
-              // Guest mode or RPC unavailable: keep injected/cache data
-            }
-            if (!Array.isArray(this.existingServices) || !this.existingServices.length) {
-              this.newService();
-            } else if (this.selectedServiceId && !this.detailsDirty) {
-              const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
-              if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
-            }
-            if (loadedViaRpc) {
+            const s = await callRpc('listServices', null);
+            if (Array.isArray(s?.items)) {
+              this.existingServices = s.items;
               try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+              this.finishInitialServiceHydration();
             }
-          } catch (_) { /* ignore */ }
+          } catch (_) {
+            // Guest mode or RPC unavailable: keep injected/cache data
+          } finally {
+            this.loadingServices = false;
+          }
           this.ensureDefaults();
           // Normalize any "Custom" labels in dropdowns (in case of encoding artifacts)
           this.$nextTick(() => {
@@ -192,7 +178,7 @@
               }
             } catch (_) { }
           });
-        })().finally(() => { this.loadingServices = false; });
+        })();
         try {
           window.addEventListener('embedded-songs-ready', (evt) => {
             const inst = evt && evt.detail && evt.detail.instance;
@@ -202,6 +188,31 @@
             }
           });
         } catch (_) { /* ignore */ }
+      },
+
+      hydrateExistingServices() {
+        try {
+          if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
+            this.existingServices = window.__SERVICES__;
+            return;
+          }
+          let cached = null;
+          try { cached = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
+          if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < 300000)) {
+            this.existingServices = cached.items;
+          }
+        } catch (_) { /* ignore */ }
+      },
+
+      finishInitialServiceHydration() {
+        if (!Array.isArray(this.existingServices) || !this.existingServices.length) {
+          this.newService();
+          return;
+        }
+        if (this.selectedServiceId && !this.detailsDirty) {
+          const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
+          if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
+        }
       },
 
       ensureSuggestStore() {
