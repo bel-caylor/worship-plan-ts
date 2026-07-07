@@ -1,4 +1,3 @@
-import { getSongsWithLinksForView } from './features/songs';
 import { listServices } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { getViewerProfile } from './features/roles';
@@ -27,7 +26,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
 
   // HTML app
   const tpl = HtmlService.createTemplateFromFile('index');
-  tpl.rowsData = getSongsWithLinksForView();
+  tpl.rowsData = [];
   try { tpl.servicesData = listServices(); } catch (_) { tpl.servicesData = { items: [] }; }
   tpl.guestMode = guestMode;
   tpl.viewerProfile = viewerProfile;

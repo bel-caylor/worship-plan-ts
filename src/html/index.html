@@ -11,9 +11,6 @@
   <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 
-  <script id="rows-json" type="application/json">
-    <?!= JSON.stringify(rowsData).replace(/<\//g, '<\\/') ?>
-  </script>
   <script id="services-json" type="application/json">
     <?!= JSON.stringify((servicesData && servicesData.items) ? servicesData.items : []).replace(/<\//g, '<\\/') ?>
   </script>
@@ -26,13 +23,10 @@
       try { return JSON.parse(text); } catch (_) { return fallback; }
     };
 
-    const rowsEl = document.getElementById('rows-json');
     const servicesEl = document.getElementById('services-json');
     const viewerEl = document.getElementById('viewer-json');
-    const existingRows = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
     const existingServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
     const existingViewer = typeof window.__VIEWER__ === 'object' ? window.__VIEWER__ : null;
-    window.__ROWS__ = parseJsonFallback(rowsEl && rowsEl.textContent, existingRows);
     window.__SERVICES__ = parseJsonFallback(servicesEl && servicesEl.textContent, existingServices);
     window.__VIEWER__ = parseJsonFallback(viewerEl && viewerEl.textContent, existingViewer);
 
@@ -92,45 +86,35 @@
   <!-- Views stay mounted; tabs toggle visibility to preserve state -->
   <main class="overflow-hidden flex flex-col flex-1 min-h-0"
     :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
-    <template x-if="route==='services'">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0 flex flex-col" x-show="route==='services'" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('service-viewer').getContent(); ?>
+    </div>
 
-    <template x-if="route==='schedule'">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0 flex flex-col" x-show="route==='schedule'" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
+    </div>
 
-    <template x-if="route==='schedule-embed'">
-      <div class="h-full flex-1 min-h-0 flex flex-col bg-white">
-        <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0 flex flex-col bg-white" x-show="route==='schedule-embed'" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('schedule').getContent(); ?>
+    </div>
 
-    <template x-if="route==='songs'">
+    <div class="h-full flex-1 min-h-0" x-show="route==='songs'" x-cloak>
       <?!= HtmlService.createHtmlOutputFromFile('songs').getContent(); ?>
-    </template>
+    </div>
 
-    <template x-if="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
-        <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0 flex flex-col"
+      x-show="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
+    </div>
 
-    <template x-if="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam">
-      <div class="h-full flex-1 min-h-0">
-        <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0"
+      x-show="route==='team' && auth && auth.capabilities && auth.capabilities.canViewTeam" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('team').getContent(); ?>
+    </div>
 
-    <template x-if="route==='availability'">
-      <div class="h-full flex-1 min-h-0">
-        <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
-      </div>
-    </template>
+    <div class="h-full flex-1 min-h-0" x-show="route==='availability'" x-cloak>
+      <?!= HtmlService.createHtmlOutputFromFile('availability').getContent(); ?>
+    </div>
   </main>
 
 
