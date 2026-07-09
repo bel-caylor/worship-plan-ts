@@ -27,6 +27,12 @@ const canonicalRole = (value: unknown) => {
   if (!role) return '';
   return /^vocals?$/i.test(role) ? 'Vocal' : role;
 };
+const splitRoleList = (value: unknown) =>
+  String(value ?? '')
+    .split(/[,;|]/)
+    .map(part => canonicalRole(part))
+    .map(part => norm(part))
+    .filter(Boolean);
 const roleMatchKey = (value: unknown) =>
   normLower(canonicalRole(value))
     .replace(/[^a-z0-9]+/g, '')
@@ -102,16 +108,17 @@ function viewerCanVolunteerForSlot(
   roleName: string
 ) {
   if (!viewer?.isLoggedIn || !viewer?.capabilities?.canVolunteer) return false;
-  const viewerRole = normLower(canonicalRole(viewer.role));
+  const viewerRoles = splitRoleList(viewer.role);
+  const viewerRoleSet = new Set(viewerRoles.map(normLower));
+  const viewerRoleMatchSet = new Set(viewerRoles.map(roleMatchKey).filter(Boolean));
   const slotRole = normLower(canonicalRole(roleName));
-  if (!viewerRole || !slotRole) return false;
+  if (!viewerRoleSet.size || !slotRole) return false;
   const teamKey = normLower(teamType);
   const teams = Array.isArray(viewer.teams) ? viewer.teams.map(normLower).filter(Boolean) : [];
   if (!teamKey || !teams.includes(teamKey)) return false;
-  if (viewerRole === slotRole) return true;
-  const viewerFamily = roleMatchKey(viewer.role);
+  if (viewerRoleSet.has(slotRole)) return true;
   const slotFamily = roleMatchKey(roleName);
-  return !!viewerFamily && viewerFamily === slotFamily;
+  return !!slotFamily && viewerRoleMatchSet.has(slotFamily);
 }
 
 function ensureViewerEligibility(teamType: string, roleName: string) {

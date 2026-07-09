@@ -2307,6 +2307,13 @@ return {
         return String(value || '').trim().toLowerCase();
       },
 
+      splitRoleList(value) {
+        return String(value || '')
+          .split(/[,;|]/)
+          .map(part => part.trim())
+          .filter(Boolean);
+      },
+
       isActiveTeamType(teamType) {
         return ACTIVE_TEAM_TYPE_SET.has(this.normalize(teamType));
       },
@@ -2389,11 +2396,15 @@ return {
           const first = String(row?.first || '').trim();
           const last = String(row?.last || '').trim();
           const label = [first, last].filter(Boolean).join(' ') || email;
+          const roles = this.splitRoleList(row?.role);
           map[email] = {
             email,
             first,
             last,
-            label: `${label} (${email})`.trim()
+            label: `${label} (${email})`.trim(),
+            roles,
+            rolesNormalized: roles.map(role => this.normalize(this.normalizeRoleLabel(role))).filter(Boolean),
+            roleMatchKeys: roles.map(role => this.roleMatchKey(role)).filter(Boolean)
           };
         });
         return map;
@@ -2511,19 +2522,30 @@ return {
         return this.normalize(String(this.auth?.role || ''));
       },
 
+      viewerMemberRecord() {
+        const email = String(this.auth?.email || '').trim().toLowerCase();
+        if (!email) return null;
+        return this.memberLookup?.[email] || null;
+      },
+
       canCurrentViewerVolunteer(cell, teamType, roleName) {
         if (!this.auth?.isLoggedIn || !this.auth?.capabilities?.canVolunteer) return false;
         if (String(cell?.memberEmail || '').trim()) return false;
         if (this.isMemberUnavailable(this.auth?.email, cell?.serviceId)) return false;
         const teamKey = this.normalize(teamType);
         const slotRole = cell?.roleType || roleName;
-        const viewerRole = this.viewerRole();
         const roleKey = this.normalize(this.normalizeRoleLabel(slotRole));
-        const viewerRoleKey = this.normalize(this.normalizeRoleLabel(viewerRole));
+        const slotMatchKey = this.roleMatchKey(slotRole);
+        const viewer = this.viewerMemberRecord();
+        const viewerRolesNormalized = Array.isArray(viewer?.rolesNormalized) ? viewer.rolesNormalized : [];
+        const viewerRoleMatchKeys = Array.isArray(viewer?.roleMatchKeys) ? viewer.roleMatchKeys : [];
+        const fallbackViewerRole = this.viewerRole();
         if (!teamKey || !roleKey) return false;
         if (!this.viewerTeams().includes(teamKey)) return false;
-        if (viewerRoleKey === roleKey) return true;
-        if (this.roleMatchKey(viewerRole) && this.roleMatchKey(viewerRole) === this.roleMatchKey(slotRole)) return true;
+        if (viewerRolesNormalized.includes(roleKey)) return true;
+        if (slotMatchKey && viewerRoleMatchKeys.includes(slotMatchKey)) return true;
+        if (fallbackViewerRole === roleKey) return true;
+        if (slotMatchKey && this.roleMatchKey(fallbackViewerRole) === slotMatchKey) return true;
         return false;
       },
 
@@ -9056,19 +9078,18 @@ return {
                             <span x-text="row.cells[column.id]?.memberName || ''"></span>
                           </template>
                           <template x-if="!row.cells[column.id]?.memberEmail">
-                            <div class="flex flex-col items-start gap-2">
+                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
                               <button
                                 type="button"
                                 class="w-full text-left"
-                                x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
                                 :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                                 :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                                 @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
                                 x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
-                              <span
-                                x-show="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
-                                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
-                            </div>
+                            </template>
+                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </template>
                           </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
@@ -9147,19 +9168,18 @@ return {
                             <span x-text="row.cells[column.id]?.memberName || ''"></span>
                           </template>
                           <template x-if="!row.cells[column.id]?.memberEmail">
-                            <div class="flex flex-col items-start gap-2">
+                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
                               <button
                                 type="button"
                                 class="w-full text-left"
-                                x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
                                 :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                                 :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                                 @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
                                 x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
-                              <span
-                                x-show="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
-                                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
-                            </div>
+                            </template>
+                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </template>
                           </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
