@@ -137,6 +137,14 @@
         return /^vocals?$/i.test(role) ? 'Vocal' : role;
       },
 
+      roleMatchKey(value) {
+        const canonical = this.normalizeRoleLabel(value);
+        if (!canonical) return '';
+        return this.normalize(canonical)
+          .replace(/[^a-z0-9]+/g, '')
+          .replace(/(?:spanish|sp|\d+)$/g, '');
+      },
+
       normalizeVolunteerRequests(items) {
         const map = {};
         (Array.isArray(items) ? items : []).forEach(item => {
@@ -240,11 +248,15 @@
         if (String(cell?.memberEmail || '').trim()) return false;
         if (this.isMemberUnavailable(this.auth?.email, cell?.serviceId)) return false;
         const teamKey = this.normalize(teamType);
-        const roleKey = this.normalize(this.normalizeRoleLabel(roleName));
+        const slotRole = cell?.roleType || roleName;
+        const viewerRole = this.viewerRole();
+        const roleKey = this.normalize(this.normalizeRoleLabel(slotRole));
+        const viewerRoleKey = this.normalize(this.normalizeRoleLabel(viewerRole));
         if (!teamKey || !roleKey) return false;
         if (!this.viewerTeams().includes(teamKey)) return false;
-        if (this.viewerRole() !== roleKey) return false;
-        return true;
+        if (viewerRoleKey === roleKey) return true;
+        if (this.roleMatchKey(viewerRole) && this.roleMatchKey(viewerRole) === this.roleMatchKey(slotRole)) return true;
+        return false;
       },
 
       volunteerButtonLabel(serviceId, teamType, roleName) {

@@ -130,7 +130,7 @@
       }
 
       if (!base) {
-        reject(new Error('RPC endpoint is not configured.'));
+        reject(new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.'));
         return;
       }
 

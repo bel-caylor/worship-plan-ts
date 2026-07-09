@@ -2,7 +2,7 @@ type Env = {
   APPS_SCRIPT_BASE?: string;
 };
 
-const DEFAULT_APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbxWN6rc4JgBBiUzS3QXTAESUK_lDsv7VgX9H6RObAxABS1o8qVQ6MkciUSdBxGnNSoM';
+const DEFAULT_APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbzz9qQW4bjoUH3YlwOgsJ6eu60nKpL_ZdXlWWhyQF4vu680gt-gCTnbTb1ykViGZJfT';
 
 function normalizeAppsScriptBase(value?: string) {
   return String(value || DEFAULT_APPS_SCRIPT_BASE)
@@ -16,6 +16,19 @@ export default {
     const origin = request.headers.get('Origin') || '';
     if (request.method === 'OPTIONS') {
       return new Response('', { headers: cors(origin) });
+    }
+
+    if (request.method !== 'POST') {
+      return new Response(
+        'Worship Plan Proxy is running. Send POST RPC requests from the app to this URL.',
+        {
+          status: 200,
+          headers: {
+            ...cors(origin),
+            'Content-Type': 'text/plain; charset=utf-8'
+          }
+        }
+      );
     }
 
     const body = await request.text();

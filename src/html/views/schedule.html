@@ -53,18 +53,19 @@
                             <span x-text="row.cells[column.id]?.memberName || ''"></span>
                           </template>
                           <template x-if="!row.cells[column.id]?.memberEmail">
-                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                            <div class="flex flex-col items-start gap-2">
                               <button
                                 type="button"
                                 class="w-full text-left"
+                                x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
                                 :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                                 :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                                 @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
                                 x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
-                            </template>
-                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
-                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
-                            </template>
+                              <span
+                                x-show="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </div>
                           </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">

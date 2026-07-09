@@ -27,6 +27,10 @@ const canonicalRole = (value: unknown) => {
   if (!role) return '';
   return /^vocals?$/i.test(role) ? 'Vocal' : role;
 };
+const roleMatchKey = (value: unknown) =>
+  normLower(canonicalRole(value))
+    .replace(/[^a-z0-9]+/g, '')
+    .replace(/(?:spanish|sp|\d+)$/g, '');
 const isoNow = () => new Date().toISOString();
 
 function headerIndex(headers: string[], label: string) {
@@ -100,10 +104,14 @@ function viewerCanVolunteerForSlot(
   if (!viewer?.isLoggedIn || !viewer?.capabilities?.canVolunteer) return false;
   const viewerRole = normLower(canonicalRole(viewer.role));
   const slotRole = normLower(canonicalRole(roleName));
-  if (!viewerRole || viewerRole !== slotRole) return false;
+  if (!viewerRole || !slotRole) return false;
   const teamKey = normLower(teamType);
   const teams = Array.isArray(viewer.teams) ? viewer.teams.map(normLower).filter(Boolean) : [];
-  return !!teamKey && teams.includes(teamKey);
+  if (!teamKey || !teams.includes(teamKey)) return false;
+  if (viewerRole === slotRole) return true;
+  const viewerFamily = roleMatchKey(viewer.role);
+  const slotFamily = roleMatchKey(roleName);
+  return !!viewerFamily && viewerFamily === slotFamily;
 }
 
 function ensureViewerEligibility(teamType: string, roleName: string) {
@@ -176,11 +184,11 @@ export function setViewerVolunteerRequest(input?: {
     throw new Error('Service, team, and role are required.');
   }
 
-  const { viewer, unavailableServiceIds } = ensureViewerEligibility(teamType, roleName);
+  const slot = ensureSlotOpen(serviceId, teamType, roleName);
+  const { viewer, unavailableServiceIds } = ensureViewerEligibility(teamType, slot.roleType || slot.roleName || roleName);
   if (unavailableServiceIds.has(serviceId)) {
     throw new Error('You marked yourself unavailable for this service.');
   }
-  ensureSlotOpen(serviceId, teamType, roleName);
 
   const email = normLower(viewer.email);
   const name = [norm(viewer.first), norm(viewer.last)].filter(Boolean).join(' ') || email;

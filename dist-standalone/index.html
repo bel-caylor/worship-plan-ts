@@ -3,6 +3,7 @@
 
 <head>
   <meta charset="utf-8" />
+  <meta name="app-script-base" content="https://worship-plan-proxy.belinda-caylor.workers.dev">
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
   <title>Worship Planner</title>
@@ -212,7 +213,7 @@
       }
 
       if (!base) {
-        reject(new Error('RPC endpoint is not configured.'));
+        reject(new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.'));
         return;
       }
 
@@ -2404,6 +2405,14 @@ return {
         return /^vocals?$/i.test(role) ? 'Vocal' : role;
       },
 
+      roleMatchKey(value) {
+        const canonical = this.normalizeRoleLabel(value);
+        if (!canonical) return '';
+        return this.normalize(canonical)
+          .replace(/[^a-z0-9]+/g, '')
+          .replace(/(?:spanish|sp|\d+)$/g, '');
+      },
+
       normalizeVolunteerRequests(items) {
         const map = {};
         (Array.isArray(items) ? items : []).forEach(item => {
@@ -2507,11 +2516,15 @@ return {
         if (String(cell?.memberEmail || '').trim()) return false;
         if (this.isMemberUnavailable(this.auth?.email, cell?.serviceId)) return false;
         const teamKey = this.normalize(teamType);
-        const roleKey = this.normalize(this.normalizeRoleLabel(roleName));
+        const slotRole = cell?.roleType || roleName;
+        const viewerRole = this.viewerRole();
+        const roleKey = this.normalize(this.normalizeRoleLabel(slotRole));
+        const viewerRoleKey = this.normalize(this.normalizeRoleLabel(viewerRole));
         if (!teamKey || !roleKey) return false;
         if (!this.viewerTeams().includes(teamKey)) return false;
-        if (this.viewerRole() !== roleKey) return false;
-        return true;
+        if (viewerRoleKey === roleKey) return true;
+        if (this.roleMatchKey(viewerRole) && this.roleMatchKey(viewerRole) === this.roleMatchKey(slotRole)) return true;
+        return false;
       },
 
       volunteerButtonLabel(serviceId, teamType, roleName) {
@@ -9043,18 +9056,19 @@ return {
                             <span x-text="row.cells[column.id]?.memberName || ''"></span>
                           </template>
                           <template x-if="!row.cells[column.id]?.memberEmail">
-                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                            <div class="flex flex-col items-start gap-2">
                               <button
                                 type="button"
                                 class="w-full text-left"
+                                x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
                                 :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                                 :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                                 @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
                                 x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
-                            </template>
-                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
-                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
-                            </template>
+                              <span
+                                x-show="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </div>
                           </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
@@ -9133,18 +9147,19 @@ return {
                             <span x-text="row.cells[column.id]?.memberName || ''"></span>
                           </template>
                           <template x-if="!row.cells[column.id]?.memberEmail">
-                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                            <div class="flex flex-col items-start gap-2">
                               <button
                                 type="button"
                                 class="w-full text-left"
+                                x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
                                 :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                                 :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                                 @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
                                 x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
-                            </template>
-                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
-                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
-                            </template>
+                              <span
+                                x-show="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
+                                class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </div>
                           </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">

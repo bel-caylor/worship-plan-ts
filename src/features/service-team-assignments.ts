@@ -341,7 +341,10 @@ function buildSnapshotAssignments(
         const key = assignmentKey(service.id, teamType, role.roleName);
         const existing = existingByKey.get(key);
         const blocked = unavailableMap?.[service.id];
-        const sourceEmail = norm(existing?.memberEmail || role.memberEmail);
+        const hasExplicitRow = Boolean(existing);
+        const sourceEmail = hasExplicitRow
+          ? norm(existing?.memberEmail)
+          : norm(role.memberEmail);
         const isBlocked = sourceEmail && blocked?.has(normLower(sourceEmail));
         pushAssignment({
           serviceId: service.id,
@@ -351,7 +354,9 @@ function buildSnapshotAssignments(
           roleName: norm(existing?.roleName || role.roleName),
           roleType: norm(existing?.roleType || role.roleType || role.roleName),
           memberEmail: isBlocked ? '' : sourceEmail,
-          memberName: isBlocked ? '' : norm(existing?.memberName || role.memberName),
+          memberName: isBlocked
+            ? ''
+            : (hasExplicitRow ? norm(existing?.memberName) : norm(role.memberName)),
           status: norm(existing?.status || (isBlocked || !sourceEmail ? 'Open' : 'Assigned')),
           notes: norm(existing?.notes)
         });

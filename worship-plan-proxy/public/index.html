@@ -3,30 +3,26 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Hello, World!</title>
+		<title>Worship Plan Proxy</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				max-width: 760px;
+				margin: 40px auto;
+				padding: 0 16px;
+				line-height: 1.5;
+			}
+			code {
+				background: #f3f4f6;
+				padding: 2px 6px;
+				border-radius: 4px;
+			}
+		</style>
 	</head>
 	<body>
-		<h1 id="heading"></h1>
-		<p>This page comes from a static asset stored at `public/index.html` as configured in `wrangler.jsonc`.</p>
-		<button id="button" type="button">Fetch a random UUID</button>
-		<output id="random" for="button"></output>
-		<script>
-			fetch('/message')
-				.then((resp) => resp.text())
-				.then((text) => {
-					const h1 = document.getElementById('heading');
-					h1.textContent = text;
-				});
-
-			const button = document.getElementById("button");
-			button.addEventListener("click", () => {
-				fetch('/random')
-					.then((resp) => resp.text())
-					.then((text) => {
-						const random = document.getElementById('random');
-						random.textContent = text;
-					});
-			});
-		</script>
+		<h1>Worship Plan Proxy</h1>
+		<p>This Worker is an RPC proxy for the standalone Worship Planner app.</p>
+		<p>Use this URL as <code>APPS_SCRIPT_BASE</code> when building the standalone frontend.</p>
+		<p>Browser visits to this page are fine, but the app talks to this Worker with <code>POST</code> requests.</p>
 	</body>
 </html>
