@@ -287,8 +287,8 @@
 
       volunteerButtonClass(serviceId, teamType, roleName) {
         return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested
-          ? 'btn btn--muted btn--xs'
-          : 'btn btn--accent btn--xs';
+          ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+          : 'bg-emerald-600 text-white hover:bg-emerald-700';
       },
 
       volunteerCountLabel(serviceId, teamType, roleName) {

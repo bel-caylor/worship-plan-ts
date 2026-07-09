@@ -6,6 +6,7 @@ const ROOT = process.cwd();
 const DIST = path.join(ROOT, 'dist');
 const OUT_DIR = path.join(ROOT, 'dist-standalone');
 const INDEX_TEMPLATE = path.join(ROOT, 'src', 'html', 'index.html');
+const DEFAULT_STANDALONE_RPC_BASE = 'https://worship-plan-proxy.belinda-caylor.workers.dev';
 
 const INCLUDE_FILES = [
   'styles',
@@ -59,7 +60,7 @@ function main() {
     html = replaceInclude(html, name, content);
   });
 
-  const base = process.env.APPS_SCRIPT_BASE || '';
+  const base = process.env.APPS_SCRIPT_BASE || DEFAULT_STANDALONE_RPC_BASE;
   const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
   if (base) {
     const metaTag = `  <meta name="app-script-base" content="${base}">`;
