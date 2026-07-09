@@ -282,10 +282,16 @@
       },
 
       volunteerButtonLabel(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        if (this.volunteerBusy?.[key]) return 'Assigning...';
         return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested ? 'Requested' : 'Volunteer';
       },
 
       volunteerButtonClass(serviceId, teamType, roleName) {
+        const key = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
+        if (this.volunteerBusy?.[key]) {
+          return 'bg-emerald-300 text-white opacity-80 pointer-events-none';
+        }
         return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested
           ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
           : 'bg-emerald-600 text-white hover:bg-emerald-700';

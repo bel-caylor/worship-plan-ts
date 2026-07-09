@@ -58,10 +58,11 @@
                             class="flex min-h-[56px] w-full flex-col items-center justify-center rounded-md px-3 py-3 text-center text-sm font-semibold transition-colors duration-150 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
                             :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
                             @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
-                            :aria-busy="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'true' : 'false'">
+                            :aria-busy="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'true' : 'false'"
+                            :tabindex="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? '-1' : '0'">
                             <span x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></span>
                             <span class="mt-1 text-[11px] font-medium opacity-90"
-                              x-show="volunteerCountLabel(column.id, layout.teamType, row.label)"
+                              x-show="volunteerCountLabel(column.id, layout.teamType, row.label) && !volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
                               x-text="volunteerCountLabel(column.id, layout.teamType, row.label)"></span>
                           </button>
                           <span
