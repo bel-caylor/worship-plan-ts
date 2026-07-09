@@ -32,7 +32,11 @@ wrangler deploy
 ```
 
 The Worker reads `APPS_SCRIPT_BASE` from a Wrangler secret. If no secret is
-set, it falls back to the default URL in `src/index.ts`.
+set, it falls back to the default URL in `src/index.ts`. The Worker normalizes
+the value, so either of these work:
+
+- `https://script.google.com/macros/s/<DEPLOYMENT_ID>`
+- `https://script.google.com/macros/s/<DEPLOYMENT_ID>/exec`
 
 ## Frontend configuration
 
