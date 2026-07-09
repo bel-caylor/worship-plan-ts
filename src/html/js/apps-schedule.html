@@ -297,6 +297,32 @@
         return `${count} volunteer${count === 1 ? '' : 's'}`;
       },
 
+      applyViewerAssignmentToCell(serviceId, teamType, roleName, result = null) {
+        const key = this.scheduleCellKey(serviceId, teamType, roleName);
+        const current = this.effectiveScheduleAssignment(serviceId, teamType, roleName);
+        const memberEmail = String(result?.memberEmail || this.auth?.email || '').trim().toLowerCase();
+        const memberName = this.formatShortMemberName(
+          String(result?.memberName || this.memberNameByEmail(memberEmail) || '').trim()
+        );
+        this.scheduleAssignments = {
+          ...(this.scheduleAssignments || {}),
+          [key]: {
+            serviceId,
+            teamType: String(teamType || '').trim(),
+            roleName,
+            weeklyTeamName: String(current?.weeklyTeamName || '').trim(),
+            memberEmail,
+            memberName,
+            roleType: String(current?.roleType || roleName).trim()
+          }
+        };
+        this.volunteerRequests = {
+          ...(this.volunteerRequests || {}),
+          [key]: { count: 0, viewerRequested: false, items: [] }
+        };
+        this.buildScheduleLayouts();
+      },
+
       async toggleVolunteerRequest(serviceId, teamType, roleName) {
         const cellKey = this.scheduleCellKey(serviceId, teamType, this.normalizeRoleLabel(roleName));
         if (this.volunteerBusy?.[cellKey]) return;
@@ -304,14 +330,23 @@
         const requested = !current.viewerRequested;
         this.volunteerBusy = { ...this.volunteerBusy, [cellKey]: true };
         try {
-          await callRpc('setViewerVolunteerRequest', {
+          const result = await callRpc('setViewerVolunteerRequest', {
             serviceId,
             teamType,
             roleName,
             requested
           });
-          await this.refresh();
-          notify(requested ? 'Volunteer request sent.' : 'Volunteer request removed.', 'success', 2200);
+          if (requested && result?.assigned) {
+            this.applyViewerAssignmentToCell(serviceId, teamType, roleName, result);
+            notify('Assigned to schedule.', 'success', 2200);
+          } else {
+            this.volunteerRequests = {
+              ...(this.volunteerRequests || {}),
+              [cellKey]: { count: 0, viewerRequested: false, items: [] }
+            };
+            this.buildScheduleLayouts();
+            notify('Volunteer request removed.', 'success', 2200);
+          }
         } catch (e) {
           console.error(e);
           notify((e && e.message) ? e.message : 'Unable to update volunteer request.', 'error', 3600);

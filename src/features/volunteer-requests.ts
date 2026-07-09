@@ -4,7 +4,7 @@ import {
 } from '../constants';
 import { getAvailabilityIndex } from './member-availability';
 import { getViewerProfile, findRoleRecordByEmail } from './roles';
-import { getTeamScheduleSnapshot } from './service-team-assignments';
+import { getTeamScheduleSnapshot, saveServiceTeamAssignments } from './service-team-assignments';
 
 type VolunteerRequestRow = {
   serviceId: string;
@@ -37,7 +37,6 @@ const roleMatchKey = (value: unknown) =>
   normLower(canonicalRole(value))
     .replace(/[^a-z0-9]+/g, '')
     .replace(/(?:spanish|sp|\d+)$/g, '');
-const isoNow = () => new Date().toISOString();
 
 function headerIndex(headers: string[], label: string) {
   const idx = headers.findIndex(h => h.trim().toLowerCase() === label.trim().toLowerCase());
@@ -199,6 +198,23 @@ export function setViewerVolunteerRequest(input?: {
 
   const email = normLower(viewer.email);
   const name = [norm(viewer.first), norm(viewer.last)].filter(Boolean).join(' ') || email;
+  if (requested) {
+    saveServiceTeamAssignments({
+      assignments: [{
+        serviceId,
+        serviceType: norm(slot.serviceType),
+        teamType,
+        weeklyTeamName: norm(slot.weeklyTeamName),
+        roleName: norm(slot.roleName) || roleName,
+        roleType: norm(slot.roleType) || norm(slot.roleName) || roleName,
+        memberEmail: email,
+        memberName: name,
+        status: 'Assigned',
+        notes: norm(slot.notes)
+      }]
+    });
+  }
+
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
   try {
@@ -209,42 +225,19 @@ export function setViewerVolunteerRequest(input?: {
     const idxTeamType = headerIndex(headers, VOLUNTEER_REQUESTS_COL.teamType);
     const idxRoleName = headerIndex(headers, VOLUNTEER_REQUESTS_COL.roleName);
     const idxMemberEmail = headerIndex(headers, VOLUNTEER_REQUESTS_COL.memberEmail);
-    const idxMemberName = headerIndexOptional(headers, VOLUNTEER_REQUESTS_COL.memberName);
-    const idxStatus = headerIndexOptional(headers, VOLUNTEER_REQUESTS_COL.status);
-    const idxRequestedAt = headerIndexOptional(headers, VOLUNTEER_REQUESTS_COL.requestedAt);
-    const idxNotes = headerIndexOptional(headers, VOLUNTEER_REQUESTS_COL.notes);
 
     const existing = readVolunteerRequestRows().find(row =>
       row.memberEmail === email && slotKey(row.serviceId, row.teamType, row.roleName) === slotKey(serviceId, teamType, roleName)
     );
 
-    if (!requested) {
-      if (existing) {
-        sh.deleteRow(existing.rowNumber);
-      }
-      return { requested: false };
-    }
-
     if (existing) {
-      if (idxStatus >= 0) sh.getRange(existing.rowNumber, idxStatus + 1).setValue('Requested');
-      if (idxRequestedAt >= 0) sh.getRange(existing.rowNumber, idxRequestedAt + 1).setValue(isoNow());
-      if (idxMemberName >= 0) sh.getRange(existing.rowNumber, idxMemberName + 1).setValue(name);
-      return { requested: true };
+      sh.deleteRow(existing.rowNumber);
     }
 
-    const rowValues = Array.from({ length: lastCol }, () => '');
-    rowValues[idxServiceId] = serviceId;
-    rowValues[idxTeamType] = teamType;
-    rowValues[idxRoleName] = roleName;
-    rowValues[idxMemberEmail] = email;
-    if (idxMemberName >= 0) rowValues[idxMemberName] = name;
-    if (idxStatus >= 0) rowValues[idxStatus] = 'Requested';
-    if (idxRequestedAt >= 0) rowValues[idxRequestedAt] = isoNow();
-    if (idxNotes >= 0) rowValues[idxNotes] = '';
-
-    const startRow = Math.max(sh.getLastRow(), 1) + 1;
-    sh.getRange(startRow, 1, 1, rowValues.length).setValues([rowValues]);
-    return { requested: true };
+    if (!requested) {
+      return { requested: false, assigned: false };
+    }
+    return { requested: true, assigned: true, memberEmail: email, memberName: name };
   } finally {
     lock.releaseLock();
   }

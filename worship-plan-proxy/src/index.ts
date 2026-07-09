@@ -2,7 +2,7 @@ type Env = {
   APPS_SCRIPT_BASE?: string;
 };
 
-const DEFAULT_APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbzz9qQW4bjoUH3YlwOgsJ6eu60nKpL_ZdXlWWhyQF4vu680gt-gCTnbTb1ykViGZJfT';
+const DEFAULT_APPS_SCRIPT_BASE = 'https://script.google.com/macros/s/AKfycbwRbPzc9NSBpzglqxSw1EVdRzo73r_M0f0G91z3bG30xCsYewOXK0wkioWU-WZBy3lU';
 
 function normalizeAppsScriptBase(value?: string) {
   return String(value || DEFAULT_APPS_SCRIPT_BASE)
