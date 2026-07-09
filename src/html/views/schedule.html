@@ -49,16 +49,25 @@
                       <div class="w-full px-3 py-2 text-sm space-y-2"
                         :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'bg-pink-100 text-gray-900' : (!row.cells[column.id]?.memberEmail ? 'bg-amber-50 text-gray-500' : 'text-gray-900')">
                         <div>
-                          <span x-text="row.cells[column.id]?.memberName || 'Open'"></span>
+                          <template x-if="row.cells[column.id]?.memberEmail">
+                            <span x-text="row.cells[column.id]?.memberName || ''"></span>
+                          </template>
+                          <template x-if="!row.cells[column.id]?.memberEmail">
+                            <template x-if="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                              <button
+                                type="button"
+                                class="w-full text-left"
+                                :class="volunteerButtonClass(column.id, layout.teamType, row.label)"
+                                :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
+                                @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
+                                x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
+                            </template>
+                            <template x-if="!canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)">
+                              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-800">Open</span>
+                            </template>
+                          </template>
                         </div>
                         <div class="flex flex-col items-start gap-1" x-show="!row.cells[column.id]?.memberEmail">
-                          <button
-                            type="button"
-                            class="btn btn--accent-soft btn--xs"
-                            x-show="canCurrentViewerVolunteer(row.cells[column.id], layout.teamType, row.label)"
-                            :disabled="volunteerBusy?.[scheduleCellKey(column.id, layout.teamType, row.label)]"
-                            @click="toggleVolunteerRequest(column.id, layout.teamType, row.label)"
-                            x-text="volunteerButtonLabel(column.id, layout.teamType, row.label)"></button>
                           <div class="text-[11px] text-emerald-700"
                             x-show="volunteerCountLabel(column.id, layout.teamType, row.label)"
                             x-text="volunteerCountLabel(column.id, layout.teamType, row.label)"></div>

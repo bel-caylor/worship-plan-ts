@@ -251,6 +251,12 @@
         return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested ? 'Requested' : 'Volunteer';
       },
 
+      volunteerButtonClass(serviceId, teamType, roleName) {
+        return this.volunteerRequestForCell(serviceId, teamType, roleName).viewerRequested
+          ? 'btn btn--muted btn--xs'
+          : 'btn btn--accent btn--xs';
+      },
+
       volunteerCountLabel(serviceId, teamType, roleName) {
         const count = Number(this.volunteerRequestForCell(serviceId, teamType, roleName).count || 0);
         if (!count) return '';
