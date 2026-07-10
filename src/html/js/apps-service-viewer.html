@@ -196,6 +196,7 @@ return {
       songsVersion: seededSongs.length ? 1 : 0,
       songsLoading: false,
       songMedia: {},
+      scriptureCache: {},
       selectedServiceId: '',
       loadingServices: true,
       loadingDetails: false,
@@ -296,15 +297,30 @@ return {
         }
       },
 
-      async fetchScripture(reference, state) {
-        if (!reference || !state) return;
+      async fetchScripture(reference, state, seedText = '') {
+        const ref = String(reference || '').trim();
+        if (!ref || !state) return;
         state.loading = true;
+        state.error = '';
         try {
-          const res = await callRpc('esvPassage', { reference });
-          state.passage = res?.text || res?.passage || res?.html || '';
+          const cached = this.scriptureCache[ref];
+          const res = cached || await callRpc('getScriptureVersions', { reference: ref });
+          if (!cached) {
+            this.scriptureCache = { ...this.scriptureCache, [ref]: res || {} };
+          }
+          state.passages = {
+            esv: String(res?.esv?.text || seedText || '').trim(),
+            lbla: String(res?.lbla?.text || '').trim()
+          };
+          const errors = [res?.esv?.error, res?.lbla?.error].filter(Boolean);
+          state.error = errors.length ? errors.join(' | ') : '';
         } catch (err) {
           console.error('Failed to fetch scripture', err);
-          state.passage = '';
+          state.passages = {
+            esv: String(seedText || '').trim(),
+            lbla: ''
+          };
+          state.error = err && err.message ? err.message : 'Failed to fetch scripture';
         } finally {
           state.loading = false;
         }

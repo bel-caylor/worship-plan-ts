@@ -230,6 +230,13 @@
               <template x-if="!isGuest">
                 <button class="btn btn--outline btn--xs" @click="addOrderRow()">+ Add Row</button>
               </template>
+              <template x-if="!isGuest">
+                <button class="btn btn--accent btn--xs" :disabled="exportingOrderDoc || !selectedServiceId"
+                  @click="exportOrderDocx()">
+                  <span x-show="!exportingOrderDoc">Export DOCX</span>
+                  <span x-show="exportingOrderDoc">Exporting...</span>
+                </button>
+              </template>
             </div>
           </div>
           <div class="relative flex-1 min-h-0 overflow-auto">

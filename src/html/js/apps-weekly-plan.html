@@ -61,6 +61,7 @@
       detailsDirty: false,
       // order autosave state
       savingOrder: false,
+      exportingOrderDoc: false,
       saveOrderTimer: null,
       saveOrderError: '',
       savedAt: 0,
@@ -2542,6 +2543,32 @@
           this.saveOrderError = (e && e.message) ? e.message : 'Failed to save order';
         } finally {
           this.savingOrder = false;
+        }
+      },
+
+      async exportOrderDocx() {
+        if (this.isGuest) return;
+        if (!this.selectedServiceId) {
+          notify('Select or save a service first.', 'info');
+          return;
+        }
+        this.exportingOrderDoc = true;
+        try {
+          if (this.detailsDirty) await this.persistDetails();
+          if (this.orderRows?.length) await this.persistOrder();
+          const res = await callRpc('exportOrderOfWorshipDoc', { serviceId: this.selectedServiceId });
+          const url = String(res?.url || '').trim();
+          const name = String(res?.name || 'Order of Worship.docx').trim();
+          notify(`Created ${name}.`, 'success');
+          if (url) {
+            try { window.open(url, '_blank', 'noopener'); } catch (_) { /* ignore */ }
+          }
+        } catch (e) {
+          console.error(e);
+          const msg = (e && e.message) ? e.message : 'Unable to export the Order of Worship document';
+          notify(msg, 'error');
+        } finally {
+          this.exportingOrderDoc = false;
         }
       }
     }

@@ -139,12 +139,24 @@
                   </div>
                 </template>
                 <template x-if="isScriptureItem(item)">
-                  <div class="space-y-2" x-data="{ ref: item.detail, passage: item.scriptureText, loading: false }"
-                    x-init="fetchScripture(ref, $data)">
+                  <div class="space-y-3"
+                    x-data="{ ref: item.detail, passages: { esv: item.scriptureText || '', lbla: '' }, loading: false, error: '' }"
+                    x-init="fetchScripture(ref, $data, item.scriptureText || '')">
                     <div class="font-semibold text-gray-800" x-text="ref || 'Scripture'"></div>
                     <div class="text-muted" x-show="loading">Fetching scripture...</div>
-                    <div class="text-gray-700 whitespace-pre-line" x-show="!loading"
-                      x-text="passage || 'Scripture text coming soon.'"></div>
+                    <div class="text-xs text-amber-700" x-show="error" x-text="error"></div>
+                    <div class="grid gap-3 lg:grid-cols-2" x-show="!loading">
+                      <div class="rounded border bg-white p-3">
+                        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">ESV</div>
+                        <div class="text-gray-700 whitespace-pre-line"
+                          x-text="passages.esv || 'Scripture text coming soon.'"></div>
+                      </div>
+                      <div class="rounded border bg-white p-3">
+                        <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-700">LBLA</div>
+                        <div class="text-gray-700 whitespace-pre-line"
+                          x-text="passages.lbla || 'LBLA text coming soon.'"></div>
+                      </div>
+                    </div>
                   </div>
                 </template>
               </div>

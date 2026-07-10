@@ -41,6 +41,8 @@ export const ORDER_COL = {
   notes: 'Notes'
 } as const;
 
+export const ORDER_OF_WORSHIP_EXPORT_FOLDER_URL = 'https://drive.google.com/drive/folders/13cYAQ22ntObng64BPcGJf7_R6uSvVZBn';
+
 export type Row = Record<string, unknown>;
 
 export const ROLES_SHEET = 'Roles';

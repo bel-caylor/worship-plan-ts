@@ -916,6 +916,7 @@ const escapeHtml = (input?: string) => {
 };
 
 type PassageChunk = { reference: string; text: string; html: string };
+type PassageResult = { reference: string; text: string; html?: string; error?: string };
 
 const fetchPassageChunk = (
   reference: string,
@@ -980,6 +981,86 @@ const formatChunkHtml = (reference: string, html: string, fallbackText: string) 
   return `<div class="scripture-chunk">${refBlock}${body}</div>`;
 };
 
+const decodeHtmlEntities = (input?: string) => {
+  return String(input || '')
+    .replace(/&#(\d+);/g, (_, dec) => {
+      const code = Number(dec);
+      return Number.isFinite(code) ? String.fromCharCode(code) : _;
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => {
+      const code = parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : _;
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, '\'')
+    .replace(/&rsquo;/gi, '\'')
+    .replace(/&lsquo;/gi, '\'')
+    .replace(/&rdquo;/gi, '"')
+    .replace(/&ldquo;/gi, '"')
+    .replace(/&mdash;/gi, '-')
+    .replace(/&ndash;/gi, '-')
+    .replace(/&hellip;/gi, '...');
+};
+
+const stripBibleGatewayHtmlToText = (input?: string) => {
+  let html = String(input || '');
+  if (!html) return '';
+  html = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, '')
+    .replace(/<span\b[^>]*class="[^"]*(?:footnote|crossreference|chapternum|versenum)[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/div>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<li\b[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, '');
+  html = decodeHtmlEntities(html);
+  html = html.replace(/\r\n?/g, '\n');
+  html = html.replace(/[ \t]+\n/g, '\n');
+  html = html.replace(/\n[ \t]+/g, '\n');
+  html = html.replace(/\n{3,}/g, '\n\n');
+  return html.trim();
+};
+
+const extractBibleGatewayPassageHtml = (markup?: string) => {
+  const html = String(markup || '');
+  if (!html) return '';
+  const patterns = [
+    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<div\b[^>]*class="[^"]*passage-meta[^"]*"[^>]*>/i,
+    /<div\b[^>]*class="[^"]*passage-content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<div\b[^>]*class="[^"]*passage-meta[^"]*"[^>]*>/i,
+    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<\/article>/i
+  ];
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match && match[1]) return match[1];
+  }
+  return '';
+};
+
+const fetchBibleGatewayChunk = (reference: string, version: string): PassageChunk => {
+  const normalizedRef = normalizeReferenceSpacing(reference);
+  const url = 'https://www.biblegateway.com/passage/?search=' +
+    encodeURIComponent(normalizedRef) +
+    '&version=' + encodeURIComponent(version) +
+    '&interface=print';
+  const res = UrlFetchApp.fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Google-Apps-Script)' },
+    muteHttpExceptions: true
+  });
+  const status = res.getResponseCode();
+  if (status >= 400) throw new Error(`BibleGateway request failed (${status})`);
+  const markup = res.getContentText();
+  const passageHtml = extractBibleGatewayPassageHtml(markup);
+  const text = stripBibleGatewayHtmlToText(passageHtml);
+  if (!text) throw new Error('Unable to parse BibleGateway passage text');
+  return { reference: normalizedRef, text, html: '' };
+};
+
 export function esvPassage(input: { reference: string, html?: boolean }) {
   const rawReference = String(input?.reference || '').trim();
   const reference = normalizeReferenceSpacing(rawReference);
@@ -1011,4 +1092,35 @@ export function esvPassage(input: { reference: string, html?: boolean }) {
     html = chunks.map(chunk => formatChunkHtml(chunk.reference, chunk.html, chunk.text)).filter(Boolean).join('');
   }
   return { reference, text, html };
+}
+
+export function lblaPassage(input: { reference: string }): PassageResult {
+  const rawReference = String(input?.reference || '').trim();
+  const reference = normalizeReferenceSpacing(rawReference);
+  if (!reference) return { reference, text: '' };
+
+  try {
+    const splitRefs = splitReferenceIntoDistinctBooks(rawReference);
+    const refsToFetch = splitRefs.length ? splitRefs : [reference];
+    const chunks = refsToFetch.map(ref => fetchBibleGatewayChunk(ref, 'LBLA'));
+    if (!splitRefs.length) {
+      const first = chunks[0] || { reference, text: '' };
+      return { reference, text: first.text };
+    }
+    const text = chunks.map(chunk => formatChunkText(chunk.reference, chunk.text)).filter(Boolean).join('\n\n').trim();
+    return { reference, text };
+  } catch (err) {
+    const message = err && (err as any).message ? String((err as any).message) : 'Unable to fetch LBLA passage';
+    return { reference, text: '', error: message };
+  }
+}
+
+export function getScriptureVersions(input: { reference: string }) {
+  const esv = esvPassage({ reference: String(input?.reference || ''), html: false });
+  const lbla = lblaPassage({ reference: String(input?.reference || '') });
+  return {
+    reference: esv.reference || lbla.reference || normalizeReferenceSpacing(String(input?.reference || '')),
+    esv,
+    lbla
+  };
 }

@@ -1,7 +1,8 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, createServicesBatch, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
+import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
 import { getOrder, saveOrder } from './features/order';
+import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
@@ -32,6 +33,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getOrder(String(payload || ''));
       case 'saveOrder':
         return saveOrder(payload as any);
+      case 'exportOrderOfWorshipDoc':
+        return exportOrderOfWorshipDoc(payload as any);
       case 'suggestSongs':
         return suggestSongs(payload as any);
       case 'getSongsForView': return getSongsWithLinksForView();
@@ -48,6 +51,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getServicePeople();
       case 'esvPassage':
         return esvPassage(payload as any);
+      case 'getScriptureVersions':
+        return getScriptureVersions(payload as any);
       case 'listRoles':
         return listRoles();
       case 'updateRoleEntry':
