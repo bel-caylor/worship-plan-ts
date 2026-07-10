@@ -147,6 +147,7 @@
       Notes: String(row?.Notes || ''),
       Lyrics: String(row?.Lyrics || row?.['Lyrics (PD)'] || ''),
       Link: String(row?.Link || row?.link || ''),
+      'Folder URL': String(row?._folderUrl || row?.folderUrl || row?.['Folder URL'] || ''),
       Sp: isFlagOn(row?.Sp ?? row?.sp ?? row?.Spanish ?? ''),
       Archive: isFlagOn(row?.Archive ?? row?.archive ?? row?.ARCHIVE ?? row?.Archived ?? '')
     });
@@ -950,6 +951,7 @@
           Notes: String(form.Notes || '').trim(),
           Lyrics: String(form.Lyrics || ''),
           Link: String(form.Link || '').trim(),
+          'Folder URL': String(form['Folder URL'] || '').trim(),
           Sp: form.Sp ? 'Y' : '',
           Archive: form.Archive ? 'Y' : ''
         };

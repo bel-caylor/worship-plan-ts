@@ -10,6 +10,12 @@
         </button>
         <button type="button"
           class="px-4 py-2 text-sm leading-none rounded-t-lg border border-b-0 transition relative"
+          :class="activeAdminTab === 'manage' ? 'bg-white text-blue-700 border-gray-300 font-semibold -mb-px z-10' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-50'"
+          @click="setAdminTab('manage')">
+          Manage Users
+        </button>
+        <button type="button"
+          class="px-4 py-2 text-sm leading-none rounded-t-lg border border-b-0 transition relative"
           :class="activeAdminTab === 'share' ? 'bg-white text-blue-700 border-gray-300 font-semibold -mb-px z-10' : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-50'"
           @click="setAdminTab('share')">
           Share Link
@@ -17,23 +23,28 @@
       </div>
     </div>
 
-    <div class="bg-white rounded-b-lg rounded-tr-lg shadow border border-gray-300 p-5 flex-1 min-h-0 flex flex-col overflow-hidden" x-show="!isAdmin || activeAdminTab === 'availability'">
-      <h1 class="text-2xl font-semibold mb-1">Your Availability</h1>
-      <p class="text-sm text-gray-600 mb-5">Let us know which upcoming services you are <span class="font-semibold">unavailable</span> to serve.</p>
+    <div class="bg-white rounded-b-lg rounded-tr-lg shadow border border-gray-300 p-5 flex-1 min-h-0 flex flex-col overflow-hidden" x-show="!isAdmin || activeAdminTab === 'availability' || activeAdminTab === 'manage'">
+      <h1 class="text-2xl font-semibold mb-1" x-text="availabilityCardTitle()"></h1>
+      <p class="text-sm text-gray-600 mb-5">
+        <span x-text="availabilityCardIntro()"></span>
+      </p>
 
       <label class="block text-sm text-gray-700 mb-3">
-        <span x-text="isAdmin ? 'Team member' : 'Email address'"></span>
+        <span x-text="availabilityFieldLabel()"></span>
         <div class="mt-1 flex gap-2">
-          <input x-show="!isAdmin" type="email" placeholder="you@example.com"
+          <input x-cloak x-show="!isManageTab() && !viewerLoggedIn()" type="email" placeholder="you@example.com"
             class="flex-1 form-control"
             x-model="email"
             @input="onEmailInput()"
             @blur="prefillAvailability()"
             autocomplete="email" required>
-          <select x-cloak x-show="isAdmin"
+          <div x-cloak x-show="!isManageTab() && viewerLoggedIn()" class="flex-1 form-control bg-gray-50 text-gray-700 flex items-center">
+            <span x-text="viewerEmail()"></span>
+          </div>
+          <select x-cloak x-show="isManageTab()"
             class="flex-1 form-control"
-            x-model="email"
-            @change="onAdminEmailChange()"
+            x-model="managedEmail"
+            @change="onManagedEmailChange()"
             :disabled="adminEmailSelectDisabled()">
             <option value="">Select a user</option>
             <template x-for="member in adminMemberOptions()" :key="member.email">
@@ -42,7 +53,7 @@
           </select>
           <button type="button" class="btn btn--surface btn--lg"
             @click="prefillAvailability(true)" :disabled="loadingAvailability || !emailValid()">
-            <span x-show="!loadingAvailability">Load Dates</span>
+            <span x-show="!loadingAvailability" x-text="isManageTab() ? 'Load Dates' : (viewerLoggedIn() ? 'Reload Dates' : 'Load Dates')"></span>
             <span x-show="loadingAvailability">Loading...</span>
           </button>
         </div>
@@ -51,7 +62,7 @@
       <div class="mb-4 text-error" x-show="error" x-text="error"></div>
       <div class="mb-4 text-sm text-emerald-700" x-show="statusMessage" x-text="statusMessage"></div>
       <div class="mb-4 text-sm text-gray-600" x-show="!memberVerified">
-        <span x-text="isAdmin ? 'Choose a user and load dates to manage availability.' : 'Enter your email and load your dates to manage your availability.'"></span>
+        <span x-text="availabilityHelperText()"></span>
       </div>
 
       <div x-show="loadingServices" class="text-sm text-gray-600">Loading upcoming services&hellip;</div>

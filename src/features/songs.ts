@@ -769,7 +769,7 @@ function makeFolderHyperlink(url: string, label = 'Open Folder') {
   return `=HYPERLINK("${safeUrl}","${safeLabel || 'Open Folder'}")`;
 }
 
-const EDITABLE_SONG_COLUMNS = ['Song','Leader','Season','Usage','Themes','Keywords','Scriptures','Notes','Lyrics','Link','Sp','Archive'];
+const EDITABLE_SONG_COLUMNS = ['Song','Leader','Season','Usage','Themes','Keywords','Scriptures','Notes','Lyrics','Link',FOLDER_LINK_COL,'Sp','Archive'];
 
 type SaveSongInput = {
   originalName?: string;
@@ -833,7 +833,27 @@ export function saveSongEntry(input: SaveSongInput) {
       if (!allowed.has(lower)) continue;
       const colIndex = colMap[key] ?? colMap[lower];
       if (colIndex == null || colIndex < 0) continue;
-      let cellValue: unknown = value ?? '';
+      if (lower === FOLDER_LINK_COL.toLowerCase()) {
+
+        const folderUrl = String(value ?? '').trim();
+
+        const cell = sh.getRange(rowNumber, colIndex + 1);
+
+        if (folderUrl) {
+
+          cell.setFormula(makeFolderHyperlink(folderUrl));
+
+        } else {
+
+          cell.clearContent();
+
+        }
+
+        continue;
+
+      }
+
+      let cellValue: unknown = value ?? '';
       if (typeof cellValue === 'boolean') {
         cellValue = cellValue ? 'Y' : '';
       } else if (typeof cellValue === 'string') {

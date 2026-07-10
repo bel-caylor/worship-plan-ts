@@ -164,6 +164,53 @@
     </div>
   </div>
 
+  <div x-cloak x-show="showScheduleSummaryModal" class="modal-overlay z-40"
+    @keydown.escape.window="closeScheduleSummary()" @click.self="closeScheduleSummary()">
+    <div class="modal-panel max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
+      <div class="border-b px-5 py-4 flex items-center justify-between gap-3">
+        <div>
+          <h3 class="text-lg font-semibold">Assignment Counts</h3>
+          <p class="text-sm text-gray-600">Sorted by assigned dates, lowest first.</p>
+        </div>
+        <button type="button" class="btn btn--text btn--text-muted"
+          @click="closeScheduleSummary()">Close</button>
+      </div>
+      <div class="flex-1 overflow-auto p-5">
+        <div class="text-muted" x-show="scheduleLoading">Loading schedule summary...</div>
+        <div class="text-muted" x-show="!scheduleLoading && !scheduleAssignmentSummary.length">
+          No assignments yet.
+        </div>
+        <div class="border rounded overflow-hidden" x-show="!scheduleLoading && scheduleAssignmentSummary.length">
+          <table class="app-table">
+            <thead class="bg-slate-50 text-gray-700">
+              <tr>
+                <th class="text-left font-medium px-3 py-2">Person</th>
+                <th class="text-left font-medium px-3 py-2 w-36">Dates assigned</th>
+                <th class="text-left font-medium px-3 py-2 w-32">Roles filled</th>
+                <th class="text-left font-medium px-3 py-2">Services</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="entry in scheduleAssignmentSummary" :key="entry.email">
+                <tr class="border-t align-top">
+                  <td class="px-3 py-3">
+                    <div class="font-medium" x-text="entry.name"></div>
+                    <div class="text-xs text-gray-500" x-text="entry.email"></div>
+                    <div class="mt-1 text-xs text-gray-500" x-show="entry.teamTypes.length"
+                      x-text="entry.teamTypes.join(', ')"></div>
+                  </td>
+                  <td class="px-3 py-3 font-semibold text-slate-900" x-text="entry.dateCount"></td>
+                  <td class="px-3 py-3 text-gray-700" x-text="entry.roleCount"></td>
+                  <td class="px-3 py-3 text-sm text-gray-700" x-text="entry.serviceLabels.join(', ')"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='schedule'" x-cloak>
     <div class="border-b bg-gray-50 px-4 py-3 flex flex-wrap items-center gap-3">
       <div class="text-xs text-red-600" x-show="scheduleError" x-text="scheduleError"></div>
@@ -173,6 +220,11 @@
         <span class="text-red-600" x-show="scheduleSaveError" x-text="scheduleSaveError"></span>
         <span class="text-gray-600" x-show="scheduleSaving">Saving schedule...</span>
       </div>
+      <button type="button" class="btn btn--muted btn--sm"
+        :disabled="scheduleLoading"
+        @click="openScheduleSummary()">
+        Assignment counts
+      </button>
       <button type="button" class="btn btn--muted btn--sm"
         :disabled="scheduleSaving"
         @click="refresh()">Refresh</button>

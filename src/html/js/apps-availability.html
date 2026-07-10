@@ -22,7 +22,9 @@
       emailEditorOpen: false,
       activeAdminTab: 'availability',
       isAdmin: false,
-      viewerProfile: null,
+      viewerProfile: (typeof window !== 'undefined' && window.__AUTH__) || null,
+      autoLoadedViewerEmail: '',
+      managedEmail: '',
       recipientLoading: false,
       recipientError: '',
       recipientTeams: [{ value: 'all', label: 'All members' }],
@@ -36,12 +38,13 @@
 
       init() {
         this.prepareEmailTemplate();
-        this.applyViewerProfile((typeof window !== 'undefined' && window.__AUTH__) || null);
+        this.syncViewerProfile();
         document.addEventListener('app-auth-changed', (event) => {
           this.applyViewerProfile(event?.detail || null);
         });
         this.loadViewerProfile();
         this.fetchServices();
+        setTimeout(() => this.syncViewerProfile(), 0);
         try {
           const params = new URLSearchParams(location.search || '');
           const emailParam = params.get('email');
@@ -52,13 +55,33 @@
         } catch (_) { /* ignore */ }
       },
 
+      currentGlobalAuth() {
+        return (typeof window !== 'undefined' && window.__AUTH__) || null;
+      },
+
+      syncViewerProfile() {
+        this.applyViewerProfile(this.currentGlobalAuth());
+      },
+
       applyViewerProfile(profile) {
-        const next = profile && typeof profile === 'object' ? profile : null;
+        const previousViewerEmail = this.viewerEmail();
+        const next = profile && typeof profile === 'object'
+          ? profile
+          : (this.currentGlobalAuth() && typeof this.currentGlobalAuth() === 'object' ? this.currentGlobalAuth() : null);
         this.viewerProfile = next;
         const canAdminAvailability = Boolean(next?.capabilities?.canAdminAvailability);
         const isAdmin = Boolean(next?.isAdmin || canAdminAvailability);
         const becameAdmin = isAdmin && !this.isAdmin;
         this.isAdmin = isAdmin;
+        const nextViewerEmail = this.viewerEmail();
+        if (nextViewerEmail) {
+          if (!this.email || this.normalizedEmail(this.email) === previousViewerEmail) {
+            this.email = nextViewerEmail;
+          }
+          if (!this.isManageTab()) {
+            this.maybeAutoLoadSignedInUser();
+          }
+        }
         if (!isAdmin) {
           this.activeAdminTab = 'availability';
         }
@@ -68,24 +91,96 @@
       },
 
       setAdminTab(tab) {
-        this.activeAdminTab = tab === 'share' ? 'share' : 'availability';
+        this.activeAdminTab = tab === 'share' ? 'share' : (tab === 'manage' ? 'manage' : 'availability');
+        this.error = '';
+        this.statusMessage = '';
+        if (this.isManageTab()) {
+          this.resetLoadedAvailability();
+          this.managedEmail = '';
+        } else {
+          this.resetLoadedAvailability();
+          if (this.viewerEmail()) {
+            this.email = this.viewerEmail();
+            this.maybeAutoLoadSignedInUser(true);
+          }
+        }
       },
 
       async loadViewerProfile() {
         try {
           const profile = await callRpc('getViewerProfile', null);
-          const fallbackProfile = (typeof window !== 'undefined' && window.__AUTH__) || null;
+          const fallbackProfile = this.currentGlobalAuth();
           const profileCanAdmin = Boolean(profile?.isAdmin || profile?.capabilities?.canAdminAvailability);
           const fallbackCanAdmin = Boolean(fallbackProfile?.isAdmin || fallbackProfile?.capabilities?.canAdminAvailability);
           const hasProfileIdentity = Boolean(profile?.email || profile?.isLoggedIn);
           const effectiveProfile = fallbackCanAdmin && !profileCanAdmin
             ? fallbackProfile
-            : (hasProfileIdentity || profileCanAdmin ? profile : fallbackProfile);
+            : ((hasProfileIdentity || profileCanAdmin) ? Object.assign({}, fallbackProfile || {}, profile || {}) : fallbackProfile);
           this.applyViewerProfile(effectiveProfile);
+          this.maybeAutoLoadSignedInUser();
         } catch (e) {
           console.error(e);
-          this.applyViewerProfile((typeof window !== 'undefined' && window.__AUTH__) || null);
+          this.applyViewerProfile(this.currentGlobalAuth());
+          this.maybeAutoLoadSignedInUser();
         }
+      },
+
+      isManageTab() {
+        return this.isAdmin && this.activeAdminTab === 'manage';
+      },
+
+      viewerEmail() {
+        const email = this.viewerProfile?.email || this.currentGlobalAuth()?.email || '';
+        return this.normalizedEmail(email);
+      },
+
+      viewerLoggedIn() {
+        const globalAuth = this.currentGlobalAuth();
+        return Boolean((this.viewerProfile?.isLoggedIn || globalAuth?.isLoggedIn) && this.viewerEmail());
+      },
+
+      currentTargetEmail() {
+        return this.isManageTab()
+          ? this.normalizedEmail(this.managedEmail)
+          : this.normalizedEmail(this.email);
+      },
+
+      availabilityCardTitle() {
+        return this.isManageTab() ? 'Manage Availability' : 'Your Availability';
+      },
+
+      availabilityCardIntro() {
+        return this.isManageTab()
+          ? "Load a team member's excluded dates and update the services they cannot serve."
+          : 'Let us know which upcoming services you are unavailable to serve.';
+      },
+
+      availabilityFieldLabel() {
+        if (this.isManageTab()) return 'Team member';
+        if (this.viewerLoggedIn()) return 'Signed in as';
+        return 'Email address';
+      },
+
+      availabilityHelperText() {
+        if (this.isManageTab()) return 'Choose a user and load dates to manage availability.';
+        if (this.viewerLoggedIn()) return 'Your saved dates load automatically when you are signed in.';
+        return 'Enter your email and load your dates to manage your availability.';
+      },
+
+      resetLoadedAvailability() {
+        this.selectedServiceIds = [];
+        this.memberVerified = false;
+        this.verifiedEmail = '';
+        this.prefilledFor = '';
+      },
+
+      maybeAutoLoadSignedInUser(force = false) {
+        const viewerEmail = this.viewerEmail();
+        if (!viewerEmail || this.isManageTab()) return;
+        this.email = viewerEmail;
+        if (!force && this.autoLoadedViewerEmail === viewerEmail) return;
+        this.autoLoadedViewerEmail = viewerEmail;
+        this.prefillAvailability(true, 'personal');
       },
 
       adminMemberOptions() {
@@ -312,18 +407,16 @@
       },
 
       emailValid() {
-        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(this.email || '').trim());
+        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(this.currentTargetEmail());
       },
 
-      normalizedEmail() {
-        return String(this.email || '').trim().toLowerCase();
+      normalizedEmail(value) {
+        return String(typeof value === 'undefined' ? this.email : value || '').trim().toLowerCase();
       },
 
       onEmailInput() {
-        if (this.normalizedEmail() !== this.prefilledFor) {
-          this.memberVerified = false;
-          this.verifiedEmail = '';
-          this.selectedServiceIds = [];
+        if (this.currentTargetEmail() !== this.prefilledFor) {
+          this.resetLoadedAvailability();
           this.statusMessage = '';
         }
         if (!this.emailValid()) {
@@ -331,17 +424,17 @@
         }
       },
 
-      onAdminEmailChange() {
+      onManagedEmailChange() {
         this.onEmailInput();
         if (this.emailValid()) {
-          this.prefillAvailability(true);
+          this.prefillAvailability(true, 'manage');
         } else {
           this.error = '';
         }
       },
 
       async verifyMemberEmail(force = false) {
-        const email = this.normalizedEmail();
+        const email = this.currentTargetEmail();
         if (!email) {
           this.memberVerified = false;
           this.verifiedEmail = '';
@@ -406,9 +499,11 @@
       },
 
       async prefillAvailability(force = false) {
-        const email = this.normalizedEmail();
+        const email = this.currentTargetEmail();
         if (!email) {
-          this.error = 'Enter your email to load saved dates.';
+          this.error = this.isManageTab()
+            ? 'Choose a user to load saved dates.'
+            : 'Enter your email to load saved dates.';
           return;
         }
         if (!force && email === this.prefilledFor && this.memberVerified) return;
@@ -426,7 +521,7 @@
           this.selectedServiceIds = Array.isArray(res?.unavailable) ? res.unavailable.slice() : [];
           this.prefilledFor = email;
           this.statusMessage = this.selectedServiceIds.length
-            ? 'Loaded your saved unavailable dates.'
+            ? (this.isManageTab() ? 'Loaded saved unavailable dates for this team member.' : 'Loaded your saved unavailable dates.')
             : 'No saved dates yet. Check every service you cannot serve.';
         } catch (e) {
           console.error(e);
@@ -441,13 +536,15 @@
       },
 
       async saveAvailability() {
-        const email = this.normalizedEmail();
+        const email = this.currentTargetEmail();
         if (!email) {
-          this.error = 'Email is required.';
+          this.error = this.isManageTab() ? 'Team member is required.' : 'Email is required.';
           return;
         }
         if (!this.memberVerified || email !== this.verifiedEmail) {
-          this.error = 'Load dates for your email before saving.';
+          this.error = this.isManageTab()
+            ? 'Load dates for this team member before saving.'
+            : 'Load dates for your email before saving.';
           return;
         }
         this.saving = true;
@@ -458,7 +555,9 @@
             email,
             unavailableServiceIds: this.selectedServiceIds
           });
-          this.statusMessage = 'Availability saved. Thank you!';
+          this.statusMessage = this.isManageTab()
+            ? 'Availability saved for this team member.'
+            : 'Availability saved. Thank you!';
           this.prefilledFor = email;
         } catch (e) {
           console.error(e);

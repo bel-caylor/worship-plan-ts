@@ -81,6 +81,7 @@
         roleDefaultsDraft: [],
         roleDefaultsSaving: false,
         roleDefaultsError: '',
+        showScheduleSummaryModal: false,
         scheduleLoading: false,
         scheduleError: '',
         scheduleServices: [],
@@ -90,6 +91,7 @@
         scheduleAssignmentMap: {},
         scheduleTemplateOverrides: {},
         scheduleLayouts: [],
+        scheduleAssignmentSummary: [],
         scheduleDirtyKeys: {},
         scheduleDirty: false,
         scheduleSaving: false,
@@ -676,6 +678,7 @@
         const services = Array.isArray(this.scheduleServices) ? this.scheduleServices : [];
         if (!services.length) {
           this.scheduleLayouts = [];
+          this.scheduleAssignmentSummary = [];
           return;
         }
         const teamTypes = this.weeklyTeamTypes();
@@ -703,6 +706,69 @@
           layouts.push({ teamType, columns, rows, duplicateFlags });
         });
         this.scheduleLayouts = layouts;
+        this.scheduleAssignmentSummary = this.buildScheduleAssignmentSummary(layouts);
+      },
+
+      buildScheduleAssignmentSummary(layoutsInput = null) {
+        const layouts = Array.isArray(layoutsInput) ? layoutsInput : (Array.isArray(this.scheduleLayouts) ? this.scheduleLayouts : []);
+        const summary = new Map();
+        layouts.forEach(layout => {
+          const teamType = String(layout?.teamType || '').trim();
+          (Array.isArray(layout?.columns) ? layout.columns : []).forEach(column => {
+            const serviceId = String(column?.id || '').trim();
+            if (!serviceId) return;
+            const serviceLabel = String(column?.service?.label || column?.service?.shortLabel || serviceId).trim();
+            (Array.isArray(layout?.rows) ? layout.rows : []).forEach(row => {
+              const assignment = row?.cells?.[serviceId] || null;
+              const memberEmail = String(assignment?.memberEmail || '').trim();
+              if (!memberEmail) return;
+              const emailKey = memberEmail.toLowerCase();
+              if (!summary.has(emailKey)) {
+                summary.set(emailKey, {
+                  email: memberEmail,
+                  name: this.memberNameByEmail(memberEmail) || memberEmail,
+                  dateCount: 0,
+                  roleCount: 0,
+                  serviceIds: new Set(),
+                  serviceLabels: new Map(),
+                  teamTypes: new Set()
+                });
+              }
+              const entry = summary.get(emailKey);
+              entry.roleCount += 1;
+              if (!entry.serviceIds.has(serviceId)) {
+                entry.serviceIds.add(serviceId);
+                entry.serviceLabels.set(serviceId, serviceLabel);
+                entry.dateCount += 1;
+              }
+              if (teamType) entry.teamTypes.add(teamType);
+            });
+          });
+        });
+        return Array.from(summary.values())
+          .map(entry => ({
+            email: entry.email,
+            name: entry.name,
+            dateCount: entry.dateCount,
+            roleCount: entry.roleCount,
+            teamTypes: Array.from(entry.teamTypes).sort((a, b) => a.localeCompare(b)),
+            serviceLabels: Array.from(entry.serviceIds)
+              .map(serviceId => entry.serviceLabels.get(serviceId))
+              .filter(Boolean)
+          }))
+          .sort((a, b) =>
+            (a.dateCount - b.dateCount) ||
+            (a.roleCount - b.roleCount) ||
+            a.name.localeCompare(b.name)
+          );
+      },
+
+      openScheduleSummary() {
+        this.showScheduleSummaryModal = true;
+      },
+
+      closeScheduleSummary() {
+        this.showScheduleSummaryModal = false;
       },
 
       recomputeScheduleDirty() {
