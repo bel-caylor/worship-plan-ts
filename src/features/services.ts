@@ -1011,8 +1011,12 @@ const stripBibleGatewayHtmlToText = (input?: string) => {
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]>/gi, '')
     .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, '')
     .replace(/<span\b[^>]*class="[^"]*(?:footnote|crossreference|chapternum|versenum)[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '')
+    .replace(/<span\b[^>]*class='[^']*(?:footnote|crossreference|chapternum|versenum)[^']*'[^>]*>[\s\S]*?<\/span>/gi, '')
+    .replace(/<a\b[^>]*class="[^"]*full-chap-link[^"]*"[^>]*>[\s\S]*?<\/a>/gi, '')
+    .replace(/<a\b[^>]*class='[^']*full-chap-link[^']*'[^>]*>[\s\S]*?<\/a>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<\/div>/gi, '\n')
@@ -1033,7 +1037,11 @@ const extractBibleGatewayPassageHtml = (markup?: string) => {
   const patterns = [
     /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<div\b[^>]*class="[^"]*passage-meta[^"]*"[^>]*>/i,
     /<div\b[^>]*class="[^"]*passage-content[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>\s*<div\b[^>]*class="[^"]*passage-meta[^"]*"[^>]*>/i,
-    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<\/article>/i
+    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<\/article>/i,
+    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<a\b[^>]*class="[^"]*full-chap-link[^"]*"[^>]*>/i,
+    /<div\b[^>]*class='[^']*passage-text[^']*'[^>]*>([\s\S]*?)<a\b[^>]*class='[^']*full-chap-link[^']*'[^>]*>/i,
+    /<div\b[^>]*class="[^"]*passage-text[^"]*"[^>]*>([\s\S]*?)<div\b[^>]*class="[^"]*crossrefs[^"]*"[^>]*>/i,
+    /<div\b[^>]*class='[^']*passage-text[^']*'[^>]*>([\s\S]*?)<div\b[^>]*class='[^']*crossrefs[^']*'[^>]*>/i
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
