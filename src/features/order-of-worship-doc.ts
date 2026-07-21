@@ -213,8 +213,20 @@ function getLblaPassageText(reference: string) {
   if (!match?.[1]) return '';
 
   let content = match[1];
+  content = content
+    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*$/i, '')
+    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*$/i, '')
+    .replace(/<h[1-6]\b[^>]*>\s*(?:Footnotes|Cross references)\s*<\/h[1-6]>[\s\S]*$/i, '')
+    .replace(/<div\b[^>]*id="(?:footnotes?|crossrefs?)"[^>]*>[\s\S]*$/i, '')
+    .replace(/<div\b[^>]*id='(?:footnotes?|crossrefs?)'[^>]*>[\s\S]*$/i, '');
   content = content.replace(/<h\d[\s\S]*?<\/h\d>/gi, '');
   content = content.replace(/<sup[\s\S]*?<\/sup>/gi, '');
+  content = content.replace(/<div\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
+  content = content.replace(/<div\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/div>/gi, '');
+  content = content.replace(/<ol\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/ol>/gi, '');
+  content = content.replace(/<ol\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/ol>/gi, '');
+  content = content.replace(/<p\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/p>/gi, '');
+  content = content.replace(/<p\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/p>/gi, '');
   content = content.replace(/<span class="chapternum">[\s\S]*?<\/span>/gi, '');
   content = content.replace(/<span class="versenum">[\s\S]*?<\/span>/gi, '');
   content = content.replace(/<br\s*\/?>/gi, '\n');

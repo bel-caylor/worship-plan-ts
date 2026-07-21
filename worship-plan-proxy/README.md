@@ -50,3 +50,31 @@ npm run build:standalone
 The GitHub Pages workflow also reads the `APPS_SCRIPT_BASE` secret; update it
 to the Worker URL, not the Apps Script URL, whenever the Worker hostname
 changes.
+
+## Redeploy checklist
+
+When the Apps Script Web app is redeployed, its deployment URL can change. If
+the Worker still points at the old deployment, the standalone app will usually
+show `Invalid RPC response` or a non-JSON RPC error.
+
+1. In Apps Script, update or create the Web app deployment.
+2. Set `Execute as` to `Me`.
+3. Set `Who has access` to `Anyone`.
+4. Copy the new Apps Script deployment URL:
+   `https://script.google.com/macros/s/<DEPLOYMENT_ID>` or `/exec`
+5. In this folder, update the Wrangler secret:
+
+```powershell
+npx wrangler secret put APPS_SCRIPT_BASE
+```
+
+6. Redeploy the Worker:
+
+```powershell
+npx wrangler deploy
+```
+
+Important:
+- The standalone frontend should point to the Worker URL.
+- The Worker secret `APPS_SCRIPT_BASE` should point to the current Apps Script deployment URL.
+- Missing the `Anyone` access setting on the Apps Script deployment will cause the Worker to receive an HTML Google page instead of JSON.

@@ -1745,10 +1745,12 @@
 
       canEmailServingTeam() {
         const caps = this.auth && this.auth.capabilities;
-        return Boolean(caps && caps.canEditPlan) && !this.isGuest;
+        const usingDevOverride = Boolean(this.auth && this.auth.devOverride);
+        return Boolean(caps && caps.canEditPlan) && !this.isGuest && !usingDevOverride;
       },
 
       teamEmailDisabledReason() {
+        if (this.auth && this.auth.devOverride) return 'Sign in with a real planner account to email the serving team from local.';
         if (!this.canEmailServingTeam()) return 'Only planners can email the serving team.';
         if (!this.selectedServiceId) return 'Select a service before emailing the team.';
         if (this.teamAssignmentsDirty) return 'Save team updates before emailing.';

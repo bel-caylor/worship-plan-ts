@@ -1013,6 +1013,12 @@ const stripBibleGatewayHtmlToText = (input?: string) => {
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<h[1-6]\b[^>]*>[\s\S]*?<\/h[1-6]>/gi, '')
     .replace(/<sup\b[^>]*>[\s\S]*?<\/sup>/gi, '')
+    .replace(/<div\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<div\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/div>/gi, '')
+    .replace(/<ol\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/ol>/gi, '')
+    .replace(/<ol\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/ol>/gi, '')
+    .replace(/<p\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/p>/gi, '')
+    .replace(/<p\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/p>/gi, '')
     .replace(/<span\b[^>]*class="[^"]*(?:footnote|crossreference|chapternum|versenum)[^"]*"[^>]*>[\s\S]*?<\/span>/gi, '')
     .replace(/<span\b[^>]*class='[^']*(?:footnote|crossreference|chapternum|versenum)[^']*'[^>]*>[\s\S]*?<\/span>/gi, '')
     .replace(/<a\b[^>]*class="[^"]*full-chap-link[^"]*"[^>]*>[\s\S]*?<\/a>/gi, '')
@@ -1031,6 +1037,18 @@ const stripBibleGatewayHtmlToText = (input?: string) => {
   return html.trim();
 };
 
+const trimBibleGatewayAncillarySections = (input?: string) => {
+  let html = String(input || '');
+  if (!html) return '';
+  html = html
+    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*$/i, '')
+    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*$/i, '')
+    .replace(/<h[1-6]\b[^>]*>\s*(?:Footnotes|Cross references)\s*<\/h[1-6]>[\s\S]*$/i, '')
+    .replace(/<div\b[^>]*id="(?:footnotes?|crossrefs?)"[^>]*>[\s\S]*$/i, '')
+    .replace(/<div\b[^>]*id='(?:footnotes?|crossrefs?)'[^>]*>[\s\S]*$/i, '');
+  return html.trim();
+};
+
 const extractBibleGatewayPassageHtml = (markup?: string) => {
   const html = String(markup || '');
   if (!html) return '';
@@ -1045,7 +1063,7 @@ const extractBibleGatewayPassageHtml = (markup?: string) => {
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
-    if (match && match[1]) return match[1];
+    if (match && match[1]) return trimBibleGatewayAncillarySections(match[1]);
   }
   return '';
 };

@@ -68,3 +68,19 @@ Standalone frontend option
 4. For local dev, serve `dist-standalone/` (e.g., `npx http-server dist-standalone -p 5173`). Apps Script automatically returns `Access-Control-Allow-Origin: *`, so no extra CORS configuration is required. Use `text/plain` JSON payloads to avoid preflight checks.
 
 Security tip: move toward a bearer token check in `rpc.ts` (stored in Script Properties) if the standalone site is public.
+
+Redeploy checklist
+1. Run `npm run deploy` to rebuild and push the latest Apps Script bundle.
+2. In Apps Script, update or create the Web app deployment.
+3. Set `Execute as` to `Me`.
+4. Set `Who has access` to `Anyone`.
+5. Copy the new deployment URL base: `https://script.google.com/macros/s/<DEPLOYMENT_ID>`.
+6. In `worship-plan-proxy`, run `npx wrangler secret put APPS_SCRIPT_BASE` and paste that Apps Script deployment URL.
+7. Run `npx wrangler deploy`.
+8. Rebuild the standalone site against the Worker URL, not the Apps Script URL:
+   `APPS_SCRIPT_BASE=https://<your-worker>.workers.dev npm run build:standalone`
+
+Troubleshooting
+- `Invalid RPC response` or `Apps Script returned a non-JSON response` usually means the Worker is pointing at an old Apps Script deployment, or the Apps Script Web app was not deployed with `Who has access: Anyone`.
+- The standalone app should use the Worker URL.
+- The Worker secret `APPS_SCRIPT_BASE` should use the current Apps Script deployment URL.
