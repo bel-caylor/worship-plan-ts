@@ -11,11 +11,24 @@ try { menuOnOpen(); } catch (e) { try { Logger.log(e); } catch (_) {} }
 }
 
 export function showMenuNow() {
+authorizeOrderDocExport();
 try { menuShow(); } catch (e) { try { Logger.log(e); } catch (_) {} }
 }
 
 export function setupMenuTrigger() {
 try { menuSetup(); } catch (e) { try { Logger.log(e); } catch (_) {} }
+}
+
+// Run once from the Apps Script editor to prompt for the Drive scope needed by
+// the Order of Worship DOCX export flow.
+export function authorizeOrderDocExport() {
+  const file = DriveApp.createFile(
+    `Order Doc Export Auth ${new Date().toISOString()}.txt`,
+    'Authorization check for Order of Worship DOCX export.'
+  );
+  const id = file.getId();
+  file.setTrashed(true);
+  return { ok: true, fileId: id };
 }
 
 // Expose to GAS global so web app + Run menu can call them
@@ -34,3 +47,4 @@ global.syncSongsFromDrive = syncSongsFromDrive;
 global.onOpen = onOpen;
 global.showMenuNow = showMenuNow;
 global.setupMenuTrigger = setupMenuTrigger;
+global.authorizeOrderDocExport = authorizeOrderDocExport;

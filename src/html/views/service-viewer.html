@@ -92,21 +92,17 @@
                         },
                         get hasDetails() { return songHasDetails(this.info); }
                       }">
-                  <div class="flex items-center justify-between gap-2 mb-1">
-                    <h3 class="text-xl font-semibold text-gray-900" x-show="!isScriptureItem(item)"
+                  <div class="flex flex-wrap items-center gap-2 mb-1">
+                    <h3 class="text-xl font-semibold text-gray-900 mr-2" x-show="!isScriptureItem(item)"
                       x-text="info.title || item.detail || item.itemType"></h3>
-                    <div class="flex gap-2">
+                    <div class="flex flex-wrap items-center gap-2" x-show="info.folderUrl || info.link">
                       <a class="btn btn--outline btn--xs" x-show="info.folderUrl" :href="info.folderUrl" target="_blank"
                         rel="noopener">
                         Open folder
                       </a>
-                      <a class="btn btn--surface btn--xs text-blue-700" x-show="info.link" :href="info.link"
-                        target="_blank" rel="noopener">
-                        Link Audio
-                      </a>
                     </div>
                   </div>
-                    <div class="flex items-start gap-2 text-sm" x-show="!isScriptureItem(item)">
+                    <div class="flex items-center gap-2 text-sm" x-show="!isScriptureItem(item)">
                       <div class="font-medium text-gray-700">Media:</div>
                       <div class="text-gray-500" x-show="media.loading">Loading files...</div>
                       <ul x-show="!media.loading && media.files && media.files.length"
@@ -121,6 +117,10 @@
                           </li>
                         </template>
                       </ul>
+                      <a class="btn btn--surface btn--xs text-blue-700" x-show="info.link" :href="info.link"
+                        target="_blank" rel="noopener">
+                        Link Audio
+                      </a>
                       <div class="text-gray-500" x-show="!media.loading && media.message" x-text="media.message"></div>
                     </div>
                     <div x-show="info.lyrics">

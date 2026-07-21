@@ -398,17 +398,21 @@ return {
       },
 
       isSongItem(item) {
-        const label = String(item?.itemType || '').toLowerCase();
+        const label = String(item?.itemType || '').trim().toLowerCase();
         if (!label) return false;
-        return label.includes('song') || label.includes('worship');
+        return label.includes('song') || label === 'opening song' || label === 'closing song';
       },
 
       isScriptureItem(item) {
-        const label = String(item?.itemType || '').toLowerCase();
-        const detail = String(item?.detail || '').toLowerCase();
+        const label = String(item?.itemType || '').trim().toLowerCase();
+        const detail = String(item?.detail || '').trim().toLowerCase();
         const scriptureRef = /(?:[1-3]\s)?[a-z\.]+\s+[\w\s\.]*\d+:\d+/i;
-        const looksLikeRef = scriptureRef.test(detail) || /\d+:\d+/.test(detail);
-        return label.includes('scripture') || looksLikeRef;
+        const chapterOnlyRef = /(?:[1-3]\s)?[a-z\.]+(?:\s+[a-z\.]+)*\s+\d+$/i;
+        const looksLikeRef =
+          scriptureRef.test(detail) ||
+          /\d+:\d+/.test(detail) ||
+          chapterOnlyRef.test(detail);
+        return label.includes('scripture') || label.includes('call to worship') || looksLikeRef;
       },
 
       isActiveTeamType(value) {

@@ -136,15 +136,15 @@
       <div class="relative">
         <div class="border-b px-2 app-tabs app-tabs--segment z-50 absolute -bottom-[1px]">
           <button type="button" class="app-tab" :class="activeContentTab==='scripture' ? 'is-active' : ''"
-            @click="activeContentTab='scripture'">
+            @click="activateContentTab('scripture')">
             Scripture
           </button>
           <button type="button" class="app-tab" :class="activeContentTab==='order' ? 'is-active' : ''"
-            @click="activeContentTab='order'">
+            @click="activateContentTab('order')">
             Order of Worship
           </button>
           <button type="button" class="app-tab" :class="activeContentTab==='team' ? 'is-active' : ''"
-            @click="activeContentTab='team'">
+            @click="activateContentTab('team')">
             Team
           </button>
         </div>
@@ -232,10 +232,7 @@
               </template>
               <template x-if="!isGuest">
                 <button class="btn btn--accent btn--xs" :disabled="exportingOrderDoc || !selectedServiceId"
-                  @click="exportOrderDocx()">
-                  <span x-show="!exportingOrderDoc">Export DOCX</span>
-                  <span x-show="exportingOrderDoc">Exporting...</span>
-                </button>
+                  @click="handleDocxButton()" x-text="docxButtonLabel()"></button>
               </template>
             </div>
           </div>

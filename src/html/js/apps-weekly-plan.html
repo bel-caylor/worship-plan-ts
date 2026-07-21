@@ -62,6 +62,7 @@
       // order autosave state
       savingOrder: false,
       exportingOrderDoc: false,
+      exportedDocxByService: {},
       saveOrderTimer: null,
       saveOrderError: '',
       savedAt: 0,
@@ -130,6 +131,7 @@
         this.leaderSelect = this.form.leader;
         this.preacherSelect = this.form.preacher;
         this.ensureSuggestStore();
+        this.hydrateDocxExportStore();
         this.loadingServices = true;
         this.updateTeamEmailDraft({ force: true });
         // Restore previously selected service id if present
@@ -203,6 +205,101 @@
             this.existingServices = cached.items;
           }
         } catch (_) { /* ignore */ }
+      },
+
+      hydrateDocxExportStore() {
+        try {
+          const raw = JSON.parse(localStorage.getItem('wp.exportedDocxByService') || '{}');
+          this.exportedDocxByService = raw && typeof raw === 'object' ? raw : {};
+        } catch (_) {
+          this.exportedDocxByService = {};
+        }
+      },
+
+      activateContentTab(tab) {
+        this.activeContentTab = tab;
+        if (tab === 'team') {
+          const needsDraft = !String(this.teamEmailBody || '').trim();
+          this.updateTeamEmailDraft({ force: needsDraft });
+          this.resizeTeamEmailBody();
+        }
+      },
+
+      persistDocxExportStore() {
+        try {
+          localStorage.setItem('wp.exportedDocxByService', JSON.stringify(this.exportedDocxByService || {}));
+        } catch (_) { /* ignore */ }
+      },
+
+      currentDocxExport() {
+        const id = String(this.selectedServiceId || '').trim();
+        if (!id) return null;
+        const entry = this.exportedDocxByService && this.exportedDocxByService[id];
+        if (!entry || typeof entry !== 'object') return null;
+        const url = String(entry.url || '').trim();
+        if (!url) return null;
+        return {
+          url,
+          name: String(entry.name || '').trim(),
+          folderUrl: String(entry.folderUrl || '').trim()
+        };
+      },
+
+      hasExportedDocx() {
+        return !!this.currentDocxExport();
+      },
+
+      docxButtonLabel() {
+        if (this.exportingOrderDoc) return this.hasExportedDocx() ? 'Opening...' : 'Exporting...';
+        return this.hasExportedDocx() ? 'View DOCX' : 'Export DOCX';
+      },
+
+      rememberDocxExport(serviceId, payload) {
+        const id = String(serviceId || '').trim();
+        if (!id) return;
+        const url = String(payload?.url || '').trim();
+        if (!url) return;
+        this.exportedDocxByService = {
+          ...(this.exportedDocxByService || {}),
+          [id]: {
+            url,
+            name: String(payload?.name || '').trim(),
+            folderUrl: String(payload?.folderUrl || '').trim(),
+            updatedAt: Date.now()
+          }
+        };
+        this.persistDocxExportStore();
+      },
+
+      forgetDocxExport(serviceId) {
+        const id = String(serviceId || '').trim();
+        if (!id || !this.exportedDocxByService || !this.exportedDocxByService[id]) return;
+        const next = { ...(this.exportedDocxByService || {}) };
+        delete next[id];
+        this.exportedDocxByService = next;
+        this.persistDocxExportStore();
+      },
+
+      openCurrentDocx() {
+        const entry = this.currentDocxExport();
+        if (!entry?.url) {
+          notify('Export the DOCX first.', 'info');
+          return false;
+        }
+        let opened = null;
+        try {
+          opened = window.open(entry.url, '_blank', 'noopener,noreferrer');
+        } catch (_) { /* ignore */ }
+        notify(opened ? 'Opening DOCX...' : 'DOCX is ready. If a new tab did not open, click the button again or allow pop-ups.', opened ? 'success' : 'info');
+        return !!opened;
+      },
+
+      async handleDocxButton() {
+        if (this.hasExportedDocx()) {
+          this.openCurrentDocx();
+          return;
+        }
+        await this.exportOrderDocx();
       },
 
       finishInitialServiceHydration() {
@@ -415,6 +512,7 @@
           }
           // Clear current form
           this.selectedServiceId = '';
+          this.forgetDocxExport(id);
           this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
           this.orderRows = [];
           this.showOrder = false;
@@ -1400,18 +1498,22 @@
 
       buildOrderHighlightsForEmail() {
         const rows = Array.isArray(this.orderRows) ? this.orderRows : [];
+        const readerHighlightTypes = new Set(['call to worship', '2nd scripture']);
         return rows
           .filter(row => {
-            const type = String(row?.itemType || '').toLowerCase();
+            const type = String(row?.itemType || '').trim().toLowerCase();
             if (!type) return false;
-            return type.includes('song');
+            return type.includes('song') || readerHighlightTypes.has(type);
           })
           .map(row => {
             const type = String(row?.itemType || '').trim() || 'Item';
+            const normalizedType = type.toLowerCase();
             const detail = String(row?.detail || '').trim();
             const leader = String(row?.leader || '').trim();
             const label = detail || type;
-            const leaderText = leader ? ` — ${leader}` : '';
+            const leaderText = leader
+              ? (readerHighlightTypes.has(normalizedType) ? ` - Reader: ${leader}` : ` - ${leader}`)
+              : '';
             return `${type}: ${label}${leaderText}`;
           });
       },
@@ -1598,7 +1700,12 @@
           !String(this.teamEmailBody || '').trim() ||
           this.teamEmailGeneratedKey !== nextKey;
         if (shouldResetBody) {
-          this.teamEmailBody = this.defaultTeamEmailBody();
+          try {
+            this.teamEmailBody = this.defaultTeamEmailBody();
+          } catch (err) {
+            console.error('Unable to build team email body.', err);
+            this.teamEmailBody = 'Hi team,';
+          }
           if (force) this.teamEmailBodyTouched = false;
         }
         this.teamEmailGeneratedKey = nextKey;
@@ -2559,10 +2666,9 @@
           const res = await callRpc('exportOrderOfWorshipDoc', { serviceId: this.selectedServiceId });
           const url = String(res?.url || '').trim();
           const name = String(res?.name || 'Order of Worship.docx').trim();
-          notify(`Created ${name}.`, 'success');
-          if (url) {
-            try { window.open(url, '_blank', 'noopener'); } catch (_) { /* ignore */ }
-          }
+          this.rememberDocxExport(this.selectedServiceId, res || {});
+          notify(`Created ${name}. The button is now View DOCX.`, 'success');
+          if (url) this.openCurrentDocx();
         } catch (e) {
           console.error(e);
           const msg = (e && e.message) ? e.message : 'Unable to export the Order of Worship document';
