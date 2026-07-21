@@ -496,6 +496,7 @@
             </div>
                 <div class="flex flex-wrap items-center gap-2">
                   <button type="button" class="btn btn--accent btn--xs" :disabled="!canSendTeamEmail()"
+                    :title="teamEmailDisabledReason()"
                     @click="sendTeamEmail()">
                     <span x-show="!teamEmailSending">Send Team Email</span>
                     <span x-show="teamEmailSending">Sending...</span>
@@ -505,6 +506,7 @@
                   </p>
                 </div>
                 <div class="text-xs text-emerald-700" x-show="teamEmailStatus" x-text="teamEmailStatus"></div>
+                <div class="text-xs text-rose-600" x-show="!canEmailServingTeam()" x-text="teamEmailDisabledReason()"></div>
                 <div class="text-xs text-rose-600" x-show="teamEmailError" x-text="teamEmailError"></div>
               </div>
 

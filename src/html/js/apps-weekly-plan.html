@@ -1743,8 +1743,22 @@
           .filter(Boolean);
       },
 
+      canEmailServingTeam() {
+        const caps = this.auth && this.auth.capabilities;
+        return Boolean(caps && caps.canEditPlan) && !this.isGuest;
+      },
+
+      teamEmailDisabledReason() {
+        if (!this.canEmailServingTeam()) return 'Only planners can email the serving team.';
+        if (!this.selectedServiceId) return 'Select a service before emailing the team.';
+        if (this.teamAssignmentsDirty) return 'Save team updates before emailing.';
+        if (!this.teamEmailRecipients.length) return 'Assign at least one member with an email address.';
+        if (this.teamEmailSending) return 'Sending email...';
+        return '';
+      },
+
       canSendTeamEmail() {
-        if (this.isGuest) return false;
+        if (!this.canEmailServingTeam()) return false;
         if (!this.selectedServiceId) return false;
         if (this.teamAssignmentsDirty) return false;
         if (!this.teamEmailRecipients.length) return false;
