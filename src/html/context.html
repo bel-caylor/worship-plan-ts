@@ -75,8 +75,28 @@
       ['1 Peter',5],['2 Peter',3],['1 John',5],['2 John',1],['3 John',1],['Jude',1],['Revelation',22]
     ],
     links: {
+      appHome: 'https://bel-caylor.github.io/worship-plan-ts/',
       serviceViewer: 'https://bel-caylor.github.io/worship-plan-ts/#/services',
-      schedule: 'https://bel-caylor.github.io/worship-plan-ts/#/schedule'
+      schedule: 'https://bel-caylor.github.io/worship-plan-ts/#/schedule',
+      availability: 'https://bel-caylor.github.io/worship-plan-ts/#/availability'
+    },
+    teamAdminSetup: {
+      flowTitle: 'Quarterly setup flow',
+      flowSteps: [
+        'Review and update the standard weekly teams first.',
+        'Add the new service dates for the next planning period.',
+        'Share the availability link so team members can mark dates they cannot serve.',
+        'After availability is entered, fill open spots in the schedule tab.'
+      ],
+      tabIntro: {
+        weeklyTeams: 'Start here when setting up a new planning period. Update the standard weekly teams first, then add the next set of service dates.',
+        share: 'After new services are created, share the availability link and email the team so everyone can mark dates they cannot serve.',
+        schedule: 'Use this after availability has been collected. Open spots are highlighted so you can finish assigning people.',
+        roles: 'Use this area to add team members, update roles, and adjust permissions.'
+      },
+      batchCreateHelp: 'We create Sunday services at 10:00 AM. Communion is scheduled on the 1st, 3rd, and 5th Sundays; Offering on the 2nd and 4th.',
+      availabilityEmailDefaultSubject: 'Update your Hope Church Worship Team Availability',
+      availabilityEmailDefaultBody: 'Hi team,\n\nWe just added the next set of service dates. Please record your upcoming availability here:\n{shareLink}\n\nThank you!'
     }
   };
 </script>

@@ -157,6 +157,9 @@
         auth: initialAuth,
         authDebug: (typeof window !== 'undefined' && window.__AUTH_DEBUG__) || { enabled: false },
         allowedRoutes: routesForAuth(initialAuth),
+        showSubscriberNavTabs() {
+          return !Boolean(this.auth && this.auth.isAdmin);
+        },
         signOut() {
           if (typeof window.signOutGoogleAuth === 'function') {
             window.signOutGoogleAuth();

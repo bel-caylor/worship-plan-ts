@@ -203,7 +203,13 @@
         return ACTIVE_TEAM_TYPE_SET.has(String(value || '').trim().toLowerCase());
       },
 
+      configuredAvailabilityShareUrl() {
+        return String(window.APP_CTX?.links?.availability || '').trim();
+      },
+
       availabilityShareUrl() {
+        const configured = this.configuredAvailabilityShareUrl();
+        if (configured) return configured;
         const fallbackBase = `${location.origin}${location.pathname}`;
         const base = this.preferredShareBase() || fallbackBase;
         try {
@@ -221,6 +227,8 @@
       },
 
       preferredShareBase() {
+        const configured = this.configuredAvailabilityShareUrl();
+        if (configured) return configured;
         try {
           const { origin, pathname } = window.location || {};
           const locationBase = origin && pathname ? `${origin}${pathname}` : '';

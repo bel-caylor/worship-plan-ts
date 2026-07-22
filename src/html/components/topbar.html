@@ -10,17 +10,29 @@
     <div class="flex justify-between w-full">
       <!-- Desktop tabs -->
       <nav class="app-tabs app-tabs--underline hidden md:flex">
-        <a href="#/services"
-           class="app-tab"
-           :class="route==='services' ? 'is-active' : ''">
-          Services
-        </a>
+        <template x-if="showSubscriberNavTabs()">
+          <a href="#/services"
+             class="app-tab"
+             :class="route==='services' ? 'is-active' : ''">
+            Services
+          </a>
+        </template>
 
-        <a href="#/schedule"
-           class="app-tab"
-           :class="route==='schedule' ? 'is-active' : ''">
-          Schedule
-        </a>
+        <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
+          <a href="#/team"
+             class="app-tab"
+             :class="route==='team' ? 'is-active' : ''">
+            Team
+          </a>
+        </template>
+
+        <template x-if="showSubscriberNavTabs()">
+          <a href="#/schedule"
+             class="app-tab"
+             :class="route==='schedule' ? 'is-active' : ''">
+            Schedule
+          </a>
+        </template>
   
         <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
           <a href="#/plan"
@@ -36,19 +48,13 @@
           Song List
         </a>
   
-        <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
-          <a href="#/team"
+        <template x-if="showSubscriberNavTabs()">
+          <a href="#/availability"
              class="app-tab"
-             :class="route==='team' ? 'is-active' : ''">
-            Team
+             :class="route==='availability' ? 'is-active' : ''">
+            Availability
           </a>
         </template>
-  
-        <a href="#/availability"
-           class="app-tab"
-           :class="route==='availability' ? 'is-active' : ''">
-          Availability
-        </a>
       </nav>
       <div class="hidden md:flex ml-4 items-center gap-3">
         <div x-show="auth && auth.isLoggedIn" class="text-xs text-gray-600 max-w-[220px] truncate" :title="auth && auth.email ? auth.email : ''" x-text="auth && auth.email ? auth.email : ''"></div>
@@ -69,22 +75,28 @@
         <div class="absolute right-0 mt-2 w-48 bg-white border rounded-md shadow-lg" role="menu"
              x-show="menuOpen" x-transition.origin.top.right @click.outside="menuOpen=false" @keydown.escape.window="menuOpen=false">
           <nav class="py-1">
-            <a href="#/services" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-               :class="route==='services' ? 'font-semibold' : ''" @click="menuOpen=false">Services</a>
-            <a href="#/schedule" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-               :class="route==='schedule' ? 'font-semibold' : ''" @click="menuOpen=false">Schedule</a>
+            <template x-if="showSubscriberNavTabs()">
+              <a href="#/services" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='services' ? 'font-semibold' : ''" @click="menuOpen=false">Services</a>
+            </template>
+            <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
+              <a href="#/team" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='team' ? 'font-semibold' : ''" @click="menuOpen=false">Team</a>
+            </template>
+            <template x-if="showSubscriberNavTabs()">
+              <a href="#/schedule" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='schedule' ? 'font-semibold' : ''" @click="menuOpen=false">Schedule</a>
+            </template>
             <template x-if="auth && auth.capabilities && auth.capabilities.canViewPlan">
               <a href="#/plan" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
                  :class="route==='plan' ? 'font-semibold' : ''" @click="menuOpen=false">Weekly Plan</a>
             </template>
             <a href="#/songs" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
                :class="route==='songs' ? 'font-semibold' : ''" @click="menuOpen=false">Song List</a>
-            <template x-if="auth && auth.capabilities && auth.capabilities.canViewTeam">
-              <a href="#/team" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-                 :class="route==='team' ? 'font-semibold' : ''" @click="menuOpen=false">Team</a>
+            <template x-if="showSubscriberNavTabs()">
+              <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
+                 :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
             </template>
-          <a href="#/availability" class="block px-4 py-2 text-sm text-gray-800 hover:bg-gray-100"
-             :class="route==='availability' ? 'font-semibold' : ''" @click="menuOpen=false">Availability</a>
           <div class="px-4 py-2" x-show="!auth || !auth.isLoggedIn">
             <div data-google-signin></div>
           </div>

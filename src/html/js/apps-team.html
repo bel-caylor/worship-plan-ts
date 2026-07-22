@@ -13,7 +13,7 @@
 
   function teamApp() {
     return {
-      activeTab: 'schedule',
+      activeTab: 'weeklyTeams',
       loading: true,
       error: '',
       roles: [],
@@ -103,11 +103,29 @@
       rolesLoadedOnce: false,
       weeklyTeamsLoadedOnce: false,
       scheduleLoadedOnce: false,
+      shareLink: '',
+      emailSubject: '',
+      emailBody: '',
+      emailEditorOpen: false,
+      recipientTeams: [{ value: 'all', label: 'All members' }],
+      recipientMembers: [],
+      filteredRecipients: [],
+      selectedRecipientTeam: 'all',
+      selectedRecipientEmails: [],
+      emailSending: false,
+      emailSendStatus: '',
+      emailSendError: '',
+      showCreateServicesModal: false,
+      batchStartDate: '',
+      batchWeeks: 12,
+      batchCreateLoading: false,
+      batchCreateError: '',
 
       init() {
         this.computePresetLookup();
         this.resetNewWeeklyTeamForm();
         this.hydrateTeamCaches();
+        this.prepareShareTools();
         this.refresh({ includeSchedule: this.activeTab === 'schedule' });
       },
 
@@ -266,7 +284,11 @@
       },
 
       setActiveTab(tab) {
-        this.activeTab = tab;
+        this.activeTab = tab === 'share'
+          ? 'share'
+          : (tab === 'manageAvailability'
+            ? 'manageAvailability'
+            : (tab === 'schedule' ? 'schedule' : (tab === 'roles' ? 'roles' : 'weeklyTeams')));
         if (tab === 'schedule' && !this.scheduleLoadedOnce && !this.scheduleLoading) {
           this.loadSchedule().catch(err => console.error(err));
         }
@@ -313,6 +335,7 @@
             this.select(this.selectedEmail);
           }
           this.rolesLoadedOnce = true;
+          this.rebuildRecipientMembers();
           this.writeLocalCache('wp.team.roles', {
             items: this.roles,
             teams: this.teamOptions
@@ -346,6 +369,317 @@
           };
         });
         return map;
+      },
+
+      adminSetupCopy() {
+        return window.APP_CTX?.teamAdminSetup || {};
+      },
+
+      setupFlowTitle() {
+        return String(this.adminSetupCopy()?.flowTitle || 'Setup flow');
+      },
+
+      setupFlowSteps() {
+        return Array.isArray(this.adminSetupCopy()?.flowSteps)
+          ? this.adminSetupCopy().flowSteps
+          : [];
+      },
+
+      tabIntro(tab) {
+        return String(this.adminSetupCopy()?.tabIntro?.[tab] || '');
+      },
+
+      batchCreateHelpText() {
+        return String(this.adminSetupCopy()?.batchCreateHelp || '');
+      },
+
+      configuredAvailabilityShareUrl() {
+        return String(window.APP_CTX?.links?.availability || '').trim();
+      },
+
+      preferredShareBase() {
+        const configured = this.configuredAvailabilityShareUrl();
+        if (configured) return configured;
+        try {
+          const { origin, pathname } = window.location || {};
+          const locationBase = origin && pathname ? `${origin}${pathname}` : '';
+          const path = String(pathname || '');
+          if (!window.__BASE__) {
+            return locationBase;
+          }
+          if (/\/dev(\/|$)/.test(path) || /localhost/i.test(String(origin || ''))) {
+            return locationBase;
+          }
+          return window.__BASE__ || locationBase;
+        } catch (_) {
+          return window.__BASE__ || '';
+        }
+      },
+
+      availabilityShareUrl() {
+        const configured = this.configuredAvailabilityShareUrl();
+        if (configured) return configured;
+        const fallbackBase = `${location.origin}${location.pathname}`;
+        const base = this.preferredShareBase() || fallbackBase;
+        try {
+          const url = new URL(base);
+          url.searchParams.set('mode', 'guest');
+          url.searchParams.set('tab', 'availability');
+          if (!url.hash || url.hash === '#') {
+            url.hash = '#/availability';
+          }
+          return url.toString();
+        } catch (_) {
+          const join = base.includes('?') ? '&' : '?';
+          return `${base}${join}mode=guest&tab=availability#/availability`;
+        }
+      },
+
+      prepareShareTools() {
+        this.shareLink = this.availabilityShareUrl();
+        const fallbackSubject = String(this.adminSetupCopy()?.availabilityEmailDefaultSubject || 'Please update your availability');
+        const template = String(this.adminSetupCopy()?.availabilityEmailDefaultBody || '');
+        this.emailSubject = String(this.emailSubject || '').trim() || fallbackSubject;
+        if (!this.emailBody) {
+          this.emailBody = (template || 'Hi team,\n\nPlease record your upcoming availability here:\n{shareLink}\n\nThank you!')
+            .replace('{shareLink}', this.shareLink);
+        }
+      },
+
+      normalizeEmailSubject(value) {
+        return String(value || '').trim() || String(this.adminSetupCopy()?.availabilityEmailDefaultSubject || 'Please update your availability');
+      },
+
+      async copyToClipboard(text, successMsg = 'Copied.') {
+        if (!text) {
+          notify('Nothing to copy.', 'error');
+          return;
+        }
+        try {
+          if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+          } else {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', 'true');
+            textarea.style.position = 'absolute';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            textarea.remove();
+          }
+          notify(successMsg, 'success');
+        } catch (err) {
+          console.error(err);
+          notify('Unable to copy to clipboard.', 'error');
+        }
+      },
+
+      async copyShareLink() {
+        await this.copyToClipboard(this.shareLink || '', 'Share link copied.');
+      },
+
+      async copyEmailSubject() {
+        this.emailSubject = this.normalizeEmailSubject(this.emailSubject);
+        await this.copyToClipboard(this.emailSubject, 'Subject copied.');
+      },
+
+      async copyEmailBody() {
+        await this.copyToClipboard(this.emailBody || '', 'Email text copied.');
+      },
+
+      async copyRecipientEmails() {
+        await this.copyToClipboard(this.selectedRecipientEmails.join(', '), 'Recipient emails copied.');
+      },
+
+      rebuildRecipientMembers() {
+        const members = (Array.isArray(this.roles) ? this.roles : [])
+          .map(row => {
+            const email = String(row?.email || '').trim().toLowerCase();
+            if (!email) return null;
+            const first = String(row?.first || '').trim();
+            const last = String(row?.last || '').trim();
+            const teams = Array.isArray(row?.teams)
+              ? row.teams.filter(team => this.isActiveTeamType(team))
+              : String(row?.teamRaw || '')
+                  .split(/[,;|]/)
+                  .map(v => v.trim())
+                  .filter(team => this.isActiveTeamType(team));
+            if (!teams.length) return null;
+            return {
+              email,
+              name: [first, last].filter(Boolean).join(' '),
+              label: ([first, last].filter(Boolean).join(' ') || email),
+              teams
+            };
+          })
+          .filter(Boolean)
+          .sort((a, b) => (a.label || a.email).localeCompare(b.label || b.email));
+        const teamSet = new Set();
+        members.forEach(member => {
+          (Array.isArray(member.teams) ? member.teams : []).forEach(team => {
+            if (team) teamSet.add(team);
+          });
+        });
+        this.recipientMembers = members;
+        this.recipientTeams = [{ value: 'all', label: 'All members' }];
+        Array.from(teamSet)
+          .sort((a, b) => a.localeCompare(b))
+          .forEach(team => this.recipientTeams.push({ value: team, label: team }));
+        this.applyRecipientFilter(this.selectedRecipientTeam || 'all');
+      },
+
+      applyRecipientFilter(teamValue) {
+        const team = teamValue || 'all';
+        this.selectedRecipientTeam = team;
+        this.filteredRecipients = team === 'all'
+          ? this.recipientMembers.slice()
+          : this.recipientMembers.filter(member => Array.isArray(member.teams) && member.teams.includes(team));
+        this.selectedRecipientEmails = this.filteredRecipients.map(member => member.email);
+      },
+
+      onRecipientTeamChange(value) {
+        this.applyRecipientFilter(value);
+      },
+
+      selectAllRecipients() {
+        this.selectedRecipientEmails = this.filteredRecipients.map(member => member.email);
+      },
+
+      deselectAllRecipients() {
+        this.selectedRecipientEmails = [];
+      },
+
+      async sendAvailabilityEmail() {
+        if (!this.selectedRecipientEmails.length) {
+          notify('Select at least one recipient.', 'error');
+          return;
+        }
+        this.emailSubject = this.normalizeEmailSubject(this.emailSubject);
+        const subject = this.emailSubject;
+        const body = String(this.emailBody || '').trim();
+        if (!body) {
+          this.emailSendError = 'Email text is required.';
+          return;
+        }
+        this.emailSending = true;
+        this.emailSendStatus = '';
+        this.emailSendError = '';
+        try {
+          const res = await callRpc('sendAvailabilityEmail', {
+            subject,
+            body,
+            recipients: this.selectedRecipientEmails
+          });
+          const count = res?.sent ?? this.selectedRecipientEmails.length;
+          this.emailSendStatus = `Email sent to ${count} recipient${count === 1 ? '' : 's'}.`;
+          notify('Availability email sent.', 'success');
+        } catch (e) {
+          console.error(e);
+          this.emailSendError = (e && e.message) ? e.message : 'Unable to send email.';
+        } finally {
+          this.emailSending = false;
+        }
+      },
+
+      todayISO() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      },
+
+      nextSundayISO() {
+        const now = new Date();
+        const day = now.getDay();
+        const add = (7 - day) % 7 || 7;
+        const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + add);
+        const y = next.getFullYear();
+        const m = String(next.getMonth() + 1).padStart(2, '0');
+        const d = String(next.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      },
+
+      async nextServiceDateFromExistingISO() {
+        try {
+          const res = await callRpc('listServices', {
+            includePast: false,
+            sort: 'asc',
+            startDate: this.todayISO(),
+            limit: 200
+          });
+          const items = Array.isArray(res?.items) ? res.items : [];
+          let latest = null;
+          items.forEach(item => {
+            const ds = String(item?.date || '').trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+            const [y, m, d] = ds.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            if (!latest || dt > latest) latest = dt;
+          });
+          if (!latest) return this.nextSundayISO();
+          const next = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() + 7);
+          const y = next.getFullYear();
+          const m = String(next.getMonth() + 1).padStart(2, '0');
+          const d = String(next.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        } catch (_) {
+          return this.nextSundayISO();
+        }
+      },
+
+      async openCreateServicesModal() {
+        this.batchCreateError = '';
+        const next = await this.nextServiceDateFromExistingISO();
+        this.batchStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(this.batchStartDate || '')) ? this.batchStartDate : next;
+        if (!this.batchStartDate) this.batchStartDate = next;
+        if (!this.batchWeeks || this.batchWeeks < 1) this.batchWeeks = 12;
+        this.showCreateServicesModal = true;
+        this.$nextTick(() => {
+          try { this.$refs.batchWeeks?.focus(); } catch (_) {}
+        });
+      },
+
+      closeCreateServicesModal() {
+        if (this.batchCreateLoading) return;
+        this.showCreateServicesModal = false;
+      },
+
+      async submitBatchCreate() {
+        const start = String(this.batchStartDate || '').trim();
+        const weeks = Number(this.batchWeeks) || 0;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) {
+          this.batchCreateError = 'Select a valid start Sunday (YYYY-MM-DD).';
+          return;
+        }
+        if (weeks < 1) {
+          this.batchCreateError = 'Enter how many weeks to create.';
+          return;
+        }
+        this.batchCreateLoading = true;
+        this.batchCreateError = '';
+        try {
+          const res = await callRpc('createServicesBatch', { startDate: start, weeks });
+          const created = Array.isArray(res?.created) ? res.created : [];
+          if (created.length) {
+            notify(`Created ${created.length} new service${created.length === 1 ? '' : 's'}.`, 'success');
+          } else {
+            notify('All requested services already exist.', 'info');
+          }
+          this.showCreateServicesModal = false;
+          if (this.scheduleLoadedOnce || this.activeTab === 'schedule') {
+            await this.loadSchedule();
+          }
+        } catch (e) {
+          console.error(e);
+          const msg = (e && e.message) ? e.message : 'Unable to create services.';
+          this.batchCreateError = msg;
+          notify(msg, 'error');
+        } finally {
+          this.batchCreateLoading = false;
+        }
       },
 
       async loadWeeklyTeams() {
@@ -596,21 +930,12 @@
         };
       },
 
-      isMemberUnavailable(email, serviceId) {
-        const serviceKey = String(serviceId || '').trim();
-        if (!serviceKey) return false;
-        const blocked = this.scheduleUnavailableMap?.[serviceKey];
-        if (!blocked || !blocked.size) return false;
-        const key = String(email || '').trim().toLowerCase();
-        if (!key) return false;
-        return blocked.has(key);
-      },
-
-      effectiveScheduleAssignment(serviceId, teamType, roleName) {
+      resolveScheduleAssignmentFromMap(map, serviceId, teamType, roleName, opts = {}) {
         const key = this.scheduleCellKey(serviceId, teamType, roleName);
-        const explicit = this.scheduleAssignmentMap?.[key];
+        const explicit = map?.[key];
         const service = this.resolveScheduleService(serviceId);
         const fallbackTeamName = this.scheduleWeeklyTeamNameForService(teamType, service);
+        const sourceLabel = opts.sourceLabel || 'saved';
         if (explicit) {
           const memberEmail = String(explicit.memberEmail || '').trim();
           const unavailable = memberEmail && this.isMemberUnavailable(memberEmail, serviceId);
@@ -623,7 +948,7 @@
               memberName: '',
               weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
               roleType: explicit.roleType || roleName,
-              source: 'saved'
+              source: sourceLabel
             };
           }
           const memberName = memberEmail ? (explicit.memberName || this.memberNameByEmail(memberEmail) || '') : '';
@@ -635,7 +960,22 @@
             memberName,
             weeklyTeamName: fallbackTeamName || explicit.weeklyTeamName || '',
             roleType: explicit.roleType || roleName,
-            source: 'saved'
+            source: sourceLabel
+          };
+        }
+        const template = this.lookupWeeklyTemplateAssignment(teamType, serviceId, roleName);
+        if (template) {
+          const memberEmail = String(template.memberEmail || '').trim();
+          const unavailable = memberEmail && this.isMemberUnavailable(memberEmail, serviceId);
+          return {
+            serviceId,
+            teamType,
+            roleName,
+            memberEmail: unavailable ? '' : memberEmail,
+            memberName: unavailable ? '' : (template.memberName || this.memberNameByEmail(memberEmail) || ''),
+            weeklyTeamName: fallbackTeamName || template.weeklyTeamName || '',
+            roleType: template.roleType || roleName,
+            source: 'template'
           };
         }
         return {
@@ -648,6 +988,28 @@
           roleType: roleName,
           source: 'open'
         };
+      },
+
+      isMemberUnavailable(email, serviceId) {
+        const serviceKey = String(serviceId || '').trim();
+        if (!serviceKey) return false;
+        const blocked = this.scheduleUnavailableMap?.[serviceKey];
+        if (!blocked || !blocked.size) return false;
+        const key = String(email || '').trim().toLowerCase();
+        if (!key) return false;
+        return blocked.has(key);
+      },
+
+      effectiveScheduleAssignment(serviceId, teamType, roleName) {
+        return this.resolveScheduleAssignmentFromMap(this.scheduleAssignmentMap, serviceId, teamType, roleName, {
+          sourceLabel: 'saved'
+        });
+      },
+
+      baselineScheduleAssignment(serviceId, teamType, roleName) {
+        return this.resolveScheduleAssignmentFromMap(this.scheduleAssignmentBaseline, serviceId, teamType, roleName, {
+          sourceLabel: 'baseline'
+        });
       },
 
       buildScheduleDuplicateFlags(teamType, columns, roles) {
@@ -786,7 +1148,7 @@
           services.forEach(service => {
             roles.forEach(roleName => {
               const key = this.scheduleCellKey(service.id, teamType, roleName);
-              const baseline = this.scheduleAssignmentBaseline?.[key]?.memberEmail || '';
+              const baseline = this.baselineScheduleAssignment(service.id, teamType, roleName)?.memberEmail || '';
               const current = this.effectiveScheduleAssignment(service.id, teamType, roleName)?.memberEmail || '';
               if (baseline !== current) {
                 dirty[key] = true;
@@ -1835,7 +2197,7 @@
           const exists = filtered.some(opt => String(opt.email || '').trim().toLowerCase() === assignedEmail);
           const isBlocked = blocked && blocked.has(assignedEmail);
           if (!exists && !isBlocked) {
-            const label = role?.memberName || this.memberLabel(assignedEmailRaw) || assignedEmailRaw;
+            const label = role?.memberName || this.memberNameByEmail(assignedEmailRaw) || this.memberLabel(assignedEmailRaw) || assignedEmailRaw;
             filtered = [
               { email: assignedEmailRaw, label: `${label} (not in roster)` },
               ...filtered

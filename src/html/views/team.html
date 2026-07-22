@@ -3,15 +3,28 @@
     <div class="app-tabs app-tabs--segment z-10">
       <button type="button"
         class="app-tab"
-        :class="activeTab==='schedule' ? 'is-active' : ''"
-        @click="setActiveTab('schedule')">
-        Schedule
-      </button>
-      <button type="button"
-        class="app-tab"
         :class="activeTab==='weeklyTeams' ? 'is-active' : ''"
         @click="setActiveTab('weeklyTeams')">
         Weekly Teams
+      </button>
+      <button type="button"
+        class="app-tab"
+        :class="activeTab==='share' ? 'is-active' : ''"
+        @click="setActiveTab('share')">
+        Share Link
+      </button>
+      <button type="button"
+        class="app-tab"
+        x-show="auth && auth.capabilities && auth.capabilities.canAdminAvailability"
+        :class="activeTab==='manageAvailability' ? 'is-active' : ''"
+        @click="setActiveTab('manageAvailability')">
+        Manage Availability
+      </button>
+      <button type="button"
+        class="app-tab"
+        :class="activeTab==='schedule' ? 'is-active' : ''"
+        @click="setActiveTab('schedule')">
+        Schedule
       </button>
       <button type="button"
         class="app-tab"
@@ -164,6 +177,37 @@
     </div>
   </div>
 
+  <div x-cloak x-show="showCreateServicesModal" class="modal-overlay z-40"
+    @keydown.escape.window="closeCreateServicesModal()" @click.self="closeCreateServicesModal()">
+    <div class="modal-panel p-5">
+      <h2 class="text-lg font-semibold mb-2">Add New Services</h2>
+      <p class="text-sm text-gray-600 mb-4" x-text="batchCreateHelpText()"></p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <label class="text-sm text-gray-700">
+          Start Sunday
+          <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="batchStartDate">
+        </label>
+        <label class="text-sm text-gray-700">
+          Weeks to create
+          <input type="number" min="1" max="52" class="mt-1 w-full form-control form-control--dense"
+            x-model.number="batchWeeks" x-ref="batchWeeks">
+        </label>
+      </div>
+      <div class="text-error mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn btn--muted"
+          :disabled="batchCreateLoading"
+          @click="closeCreateServicesModal()">Cancel</button>
+        <button type="button" class="btn btn--primary"
+          :disabled="batchCreateLoading"
+          @click="submitBatchCreate()">
+          <span x-show="!batchCreateLoading">Create Services</span>
+          <span x-show="batchCreateLoading">Creating...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div x-cloak x-show="showScheduleSummaryModal" class="modal-overlay z-40"
     @keydown.escape.window="closeScheduleSummary()" @click.self="closeScheduleSummary()">
     <div class="modal-panel max-w-4xl max-h-[85vh] overflow-hidden flex flex-col">
@@ -212,27 +256,27 @@
   </div>
 
   <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='schedule'" x-cloak>
-    <div class="border-b bg-gray-50 px-4 py-3 flex flex-wrap items-center gap-3">
+    <div class="border-b bg-gray-50 px-4 py-3 flex items-center gap-3">
+      <div class="min-w-0 flex-1 text-sm text-blue-900" x-text="tabIntro('schedule')"></div>
       <div class="text-xs text-red-600" x-show="scheduleError" x-text="scheduleError"></div>
-      <div class="flex-1"></div>
-      <div class="flex items-center gap-3 text-sm">
+      <div class="flex items-center gap-3 text-sm shrink-0 whitespace-nowrap">
         <span class="text-emerald-700" x-show="scheduleSaveMessage" x-text="scheduleSaveMessage"></span>
         <span class="text-red-600" x-show="scheduleSaveError" x-text="scheduleSaveError"></span>
         <span class="text-gray-600" x-show="scheduleSaving">Saving schedule...</span>
+        <button type="button" class="btn btn--muted btn--sm"
+          :disabled="scheduleLoading"
+          @click="openScheduleSummary()">
+          Assignment counts
+        </button>
+        <button type="button" class="btn btn--muted btn--sm"
+          :disabled="scheduleSaving"
+          @click="refresh()">Refresh</button>
+        <button type="button" class="btn btn--primary"
+          :disabled="scheduleSaving || !scheduleDirty"
+          @click="saveSchedule()">
+          Save Schedule
+        </button>
       </div>
-      <button type="button" class="btn btn--muted btn--sm"
-        :disabled="scheduleLoading"
-        @click="openScheduleSummary()">
-        Assignment counts
-      </button>
-      <button type="button" class="btn btn--muted btn--sm"
-        :disabled="scheduleSaving"
-        @click="refresh()">Refresh</button>
-      <button type="button" class="btn btn--primary"
-        :disabled="scheduleSaving || !scheduleDirty"
-        @click="saveSchedule()">
-        Save Schedule
-      </button>
     </div>
     <div class="flex-1 min-h-0 overflow-auto px-4 pb-4 space-y-6">
       <div class="text-muted" x-show="scheduleLoading">Loading upcoming services...</div>
@@ -310,6 +354,169 @@
     </div>
   </div>
 
+  <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='share'" x-cloak>
+    <div class="flex-1 min-h-0 overflow-auto px-4 py-4">
+      <div class="bg-white rounded border border-gray-300 p-5 flex flex-col gap-4">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-blue-900">Share the availability link</h2>
+            <p class="text-sm text-gray-600" x-text="tabIntro('share')"></p>
+          </div>
+          <div class="flex gap-2">
+            <button type="button" class="btn btn--muted"
+              @click="copyShareLink()">Copy Link</button>
+            <button type="button" class="btn btn--primary"
+              @click="emailEditorOpen = !emailEditorOpen">
+              <span x-show="!emailEditorOpen">Show Email Text</span>
+              <span x-show="emailEditorOpen">Hide Email Text</span>
+            </button>
+          </div>
+        </div>
+
+        <div x-show="emailEditorOpen" class="space-y-3 text-sm">
+          <label class="block">
+            <span class="font-medium text-gray-700">Email subject</span>
+            <div class="mt-1">
+              <input type="text" class="w-full form-control" x-model="emailSubject" />
+            </div>
+          </label>
+          <label class="block">
+            <span class="font-medium text-gray-700">Email message</span>
+            <textarea class="mt-1 w-full form-control min-h-[140px]" x-model="emailBody"></textarea>
+          </label>
+          <p class="text-xs text-gray-600">Update the text above, then paste it into your email client if you do not want to send from the app.</p>
+        </div>
+
+        <div class="border-t pt-4 flex flex-col gap-3">
+          <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h3 class="text-base font-semibold text-gray-900">Email recipients</h3>
+              <p class="text-sm text-gray-600">Pick a team, then uncheck anyone you do not want to include.</p>
+            </div>
+            <div class="flex flex-wrap gap-2 text-sm items-center">
+              <span class="text-gray-700" x-text="`Selected: ${selectedRecipientEmails.length}`"></span>
+              <button type="button" class="btn btn--muted"
+                @click="selectAllRecipients()" :disabled="!filteredRecipients.length">
+                Select all
+              </button>
+              <button type="button" class="btn btn--muted"
+                @click="deselectAllRecipients()" :disabled="!selectedRecipientEmails.length">
+                Deselect all
+              </button>
+              <button type="button"
+                class="btn btn--primary"
+                @click="sendAvailabilityEmail()"
+                :disabled="!selectedRecipientEmails.length || emailSending">
+                <span x-show="!emailSending">Send email</span>
+                <span x-show="emailSending">Sending...</span>
+              </button>
+            </div>
+          </div>
+          <div class="text-sm text-emerald-700" x-show="emailSendStatus" x-text="emailSendStatus"></div>
+          <div class="text-error" x-show="emailSendError" x-text="emailSendError"></div>
+
+          <div class="grid gap-4 md:grid-cols-2 text-sm">
+            <label class="block">
+              <span class="font-medium text-gray-700">Team</span>
+              <select class="mt-1 w-full form-control" x-model="selectedRecipientTeam"
+                @change="onRecipientTeamChange($event.target.value)">
+                <template x-for="team in recipientTeams" :key="team.value">
+                  <option :value="team.value" x-text="team.label"></option>
+                </template>
+              </select>
+            </label>
+          </div>
+
+          <div class="border rounded max-h-[420px] overflow-y-auto divide-y" x-show="filteredRecipients.length">
+            <template x-for="member in filteredRecipients" :key="member.email">
+              <label class="flex items-start gap-3 px-3 py-2 text-sm">
+                <input type="checkbox" class="mt-1" :value="member.email" x-model="selectedRecipientEmails">
+                <div class="flex gap-4 items-start">
+                  <div class="font-medium text-gray-900" x-text="member.name || member.email"></div>
+                  <div class="text-hint" x-text="member.email"></div>
+                  <div class="text-xs text-gray-400" x-text="member.teams.join(', ')" x-show="member.teams.length"></div>
+                </div>
+              </label>
+            </template>
+          </div>
+          <div class="text-muted" x-show="!filteredRecipients.length">
+            No members found for this team.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='manageAvailability'" x-cloak
+    x-data="availabilityApp()" x-init="init(); setAdminTab('manage')">
+    <div class="border-b bg-gray-50 px-4 py-3 flex items-center gap-3">
+      <div class="min-w-0 flex-1 text-sm text-blue-900" x-text="availabilityCardIntro()"></div>
+      <div class="text-xs text-red-600" x-show="error" x-text="error"></div>
+      <div class="flex items-center gap-3 text-sm shrink-0 whitespace-nowrap">
+        <span class="text-emerald-700" x-show="statusMessage" x-text="statusMessage"></span>
+      </div>
+    </div>
+    <div class="flex-1 min-h-0 overflow-auto px-4 py-4">
+      <div class="bg-white rounded border border-gray-300 p-5 flex flex-col gap-4 max-w-4xl">
+        <h2 class="text-2xl font-semibold" x-text="availabilityCardTitle()"></h2>
+
+        <label class="block text-sm text-gray-700">
+          <span x-text="availabilityFieldLabel()"></span>
+          <div class="mt-1 flex gap-2">
+            <select class="flex-1 form-control"
+              x-model="managedEmail"
+              @change="onManagedEmailChange()"
+              :disabled="adminEmailSelectDisabled()">
+              <option value="">Select a user</option>
+              <template x-for="member in adminMemberOptions()" :key="member.email">
+                <option :value="member.email" x-text="member.label"></option>
+              </template>
+            </select>
+            <button type="button" class="btn btn--surface btn--lg"
+              @click="prefillAvailability(true)" :disabled="loadingAvailability || !emailValid()">
+              <span x-show="!loadingAvailability">Load Dates</span>
+              <span x-show="loadingAvailability">Loading...</span>
+            </button>
+          </div>
+        </label>
+
+        <div class="text-sm text-gray-600" x-show="!memberVerified">
+          <span x-text="availabilityHelperText()"></span>
+        </div>
+
+        <div x-show="loadingServices" class="text-sm text-gray-600">Loading upcoming services&hellip;</div>
+        <div x-show="!loadingServices && !services.length" class="text-sm text-gray-600">No upcoming services yet.</div>
+
+        <form x-show="memberVerified && !loadingServices && services.length" @submit.prevent="saveAvailability()" class="flex flex-col gap-4 min-h-0 flex-1">
+          <div class="flex justify-between gap-4">
+            <p class="text-muted">Checked services mark the Sundays this person is unavailable.</p>
+            <div class="flex justify-end items-center">
+              <button type="submit"
+                class="btn btn--accent btn--lg"
+                :disabled="saving || !emailValid() || !memberVerified">
+                <span x-show="!saving">Save Availability</span>
+                <span x-show="saving">Saving...</span>
+              </button>
+            </div>
+          </div>
+          <div class="border rounded divide-y min-h-0 overflow-y-auto max-h-[480px]">
+            <template x-for="svc in services" :key="svc.id || svc.date">
+              <label class="flex items-start gap-3 px-3 py-3 hover:bg-blue-50">
+                <input type="checkbox" class="mt-1 rounded border-gray-300" :value="svc.id"
+                  x-model="selectedServiceIds">
+                <div>
+                  <div class="font-semibold" x-text="svc.label"></div>
+                </div>
+              </label>
+            </template>
+          </div>
+          <button type="button" class="self-start btn btn--link"
+            @click="clearSelections()" :disabled="saving">Clear all</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <div class="flex-1 min-h-0 flex" x-show="activeTab==='roles'" x-cloak>
     <!-- Left column: list -->
     <div class="w-[150px] flex-shrink-0 border-r flex flex-col min-h-0">
@@ -350,6 +557,7 @@
 
     <!-- Right column: detail -->
     <div class="flex-1 min-h-0 flex flex-col">
+      <div class="px-6 pt-4 text-sm text-blue-900" x-show="!selected && !loading" x-text="tabIntro('roles')"></div>
       <div class="p-4 text-sm" x-show="selected">
         <div class="flex items-start justify-between">
           <div>
@@ -433,7 +641,7 @@
           <span class="text-sm text-gray-600" x-show="saving">Saving...</span>
         </div>
       </div>
-      <div class="p-6 text-gray-500" x-show="!selected && !loading">
+      <div class="px-6 pt-3 text-gray-500" x-show="!selected && !loading">
         Select a team member to view and edit their roles.
       </div>
     </div>
@@ -441,22 +649,27 @@
 
 
   <div class="flex-1 min-h-0 flex flex-col" x-show="activeTab==='weeklyTeams'" x-cloak>
-    <div class="border-b bg-gray-50 px-4 py-3 flex flex-wrap items-center gap-3">
+    <div class="border-b bg-gray-50 px-4 py-3 flex items-center gap-3">
+      <div class="min-w-0 flex-1 text-sm text-blue-900" x-text="tabIntro('weeklyTeams')"></div>
       <div class="text-xs text-red-600" x-show="weeklyTeamsError" x-text="weeklyTeamsError"></div>
-      <div class="flex-1"></div>
-      <div class="flex items-center gap-3 text-sm">
+      <div class="flex items-center gap-3 text-sm shrink-0 whitespace-nowrap">
         <span class="text-emerald-700" x-show="weeklyTeamsSaveMessage" x-text="weeklyTeamsSaveMessage"></span>
         <span class="text-red-600" x-show="weeklyTeamsSaveError" x-text="weeklyTeamsSaveError"></span>
         <span class="text-gray-600" x-show="weeklyTeamsSaving">Saving weekly teams...</span>
+        <button type="button" class="btn btn--muted btn--sm"
+          :disabled="batchCreateLoading"
+          @click="openCreateServicesModal()">
+          Add New Services
+        </button>
+        <button type="button" class="btn btn--muted btn--sm"
+          :disabled="weeklyTeamsSaving"
+          @click="refresh()">Refresh</button>
+        <button type="button" class="btn btn--primary"
+          :disabled="!hasDirtyWeeklyTeams() || weeklyTeamsSaving"
+          @click="saveDirtyWeeklyTeams()">
+          Save Changes
+        </button>
       </div>
-      <button type="button" class="btn btn--muted btn--sm"
-        :disabled="weeklyTeamsSaving"
-        @click="refresh()">Refresh</button>
-      <button type="button" class="btn btn--primary"
-        :disabled="!hasDirtyWeeklyTeams() || weeklyTeamsSaving"
-        @click="saveDirtyWeeklyTeams()">
-        Save Changes
-      </button>
     </div>
     <div class="flex-1 min-h-0 overflow-auto px-4 pb-4">
       <div class="text-muted" x-show="weeklyTeamsLoading">Loading weekly teams...</div>
@@ -507,7 +720,7 @@
                           :value="role.cells[team.key]?.memberEmail || ''"
                           @change="setWeeklyTeamMember(team.id, role.label, $event.target.value)">
                           <option value="">Unassigned</option>
-                              <template x-for="member in memberOptionsForRoleType(role.label)"
+                              <template x-for="member in memberOptionsForRoleType(role.label, role.cells[team.key])"
                                 :key="member.email + '-' + team.key + '-' + role.key">
                                 <option :value="member.email" x-text="member.display"></option>
                               </template>
