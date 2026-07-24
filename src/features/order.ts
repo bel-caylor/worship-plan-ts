@@ -43,6 +43,7 @@ export function getOrder(serviceId: string) {
     const playback = looksLikeSongSlot(typeIdx >= 0 ? String(r[typeIdx] ?? '') : '')
       ? getSongPerformancePlayback(detail, sid, serviceUrls.get(sid) || '')
       : { youtubeUrl: '', startLabel: '' };
+    const hasManualTimestamp = Number(playback?.startSeconds || 0) > 0;
     items.push({
       order: orderIdx >= 0 ? Number(r[orderIdx] ?? 0) : 0,
       itemType: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
@@ -50,8 +51,8 @@ export function getOrder(serviceId: string) {
       scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
       leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
       notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : '',
-      recordingUrl: playback.youtubeUrl || '',
-      recordingLabel: playback.startLabel ? `Open at ${playback.startLabel}` : (playback.youtubeUrl ? 'Open recording' : '')
+      recordingUrl: hasManualTimestamp ? (playback.youtubeUrl || '') : '',
+      recordingLabel: hasManualTimestamp ? (playback.startLabel ? `Open at ${playback.startLabel}` : 'Open recording') : ''
     });
   }
   items.sort((a, b) => a.order - b.order);
