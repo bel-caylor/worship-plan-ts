@@ -401,6 +401,201 @@
     }
   }
 
+  // Shared media-label formatter so song views interpret Drive filenames consistently.
+  (function (global) {
+    if (global && global.mediaLabelHelper) return;
+
+    const MEDIA_AUDIO_EXTS = new Set(['mp3', 'm4a', 'wav', 'aac', 'flac', 'ogg', 'wma', 'aiff', 'mid', 'midi']);
+    const MEDIA_DOC_RULES = [
+      { label: 'Guitar', patterns: [/gdoc\b/i, /\bguitar\b/i, /(^|[\s_-])g($|[\s_-])/i] },
+      { label: 'Lyrics', patterns: [/wdoc\b/i, /\blyrics?\b/i, /(^|[\s_-])w($|[\s_-])/i] },
+      { label: 'Bass', patterns: [/bdoc\b/i, /\bbass\b/i, /(^|[\s_-])b($|[\s_-])/i] }
+    ];
+    const MEDIA_MONTHS = {
+      jan: 'Jan', feb: 'Feb', mar: 'Mar', apr: 'Apr', may: 'May', jun: 'Jun',
+      jul: 'Jul', aug: 'Aug', sep: 'Sep', oct: 'Oct', nov: 'Nov', dec: 'Dec'
+    };
+
+    function escapeRegex(value) {
+      return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    function normalizeMediaSymbols(str) {
+      return String(str || '')
+        .replace(/[â€™â€˜]/g, "'")
+        .replace(/[â€œâ€]/g, '"')
+        .replace(/[â€â€‘â€“â€”]/g, '-');
+    }
+
+    function removeExtension(name) {
+      return String(name || '').replace(/\.[^.]+$/, '').trim();
+    }
+
+    function trimDelimiters(str) {
+      return String(str || '')
+        .replace(/^[\s._\-+/]+/, '')
+        .replace(/[\s._\-+/]+$/, '')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+    }
+
+    function normalizeResidual(str) {
+      let out = normalizeMediaSymbols(str);
+      out = out.replace(/[_]+/g, ' ');
+      out = out.replace(/[\/]+/g, ' ');
+      out = out.replace(/\(\s*\)/g, ' ');
+      out = out.replace(/\[\s*\]/g, ' ');
+      out = out.replace(/\{\s*\}/g, ' ');
+      out = out.replace(/\s{2,}/g, ' ');
+      return trimDelimiters(out);
+    }
+
+    function stripLanguageMarkers(str) {
+      let out = normalizeMediaSymbols(str);
+      out = out.replace(/\(\s*\+?\s*(spanish|espanol|español|sp)\s*\)/ig, ' ');
+      out = out.replace(/(^|[\s._\-+])\+?(spanish|espanol|español|sp)\b/ig, '$1');
+      return normalizeResidual(out);
+    }
+
+    function stripSongTitle(name, songTitle) {
+      const base = normalizeMediaSymbols(name);
+      const song = normalizeMediaSymbols(String(songTitle || '').trim());
+      if (!song) return normalizeResidual(base);
+      const candidates = Array.from(new Set([
+        normalizeResidual(song),
+        stripLanguageMarkers(song)
+      ].filter(Boolean))).sort((a, b) => b.length - a.length);
+      let working = base;
+      for (const candidate of candidates) {
+        const escaped = escapeRegex(candidate);
+        const pattern = new RegExp(escaped, 'ig');
+        working = working.replace(pattern, ' ');
+      }
+      return normalizeResidual(working);
+    }
+
+    function isAudioFile(file) {
+      const mime = String(file?.mimeType || '').toLowerCase();
+      if (mime.startsWith('audio/')) return true;
+      const ext = (String(file?.name || '').split('.').pop() || '').toLowerCase();
+      return MEDIA_AUDIO_EXTS.has(ext);
+    }
+
+    function isVideoFile(file) {
+      return String(file?.mimeType || '').toLowerCase().startsWith('video/');
+    }
+
+    function detectDocLabel(input) {
+      let working = String(input || '');
+      let label = '';
+      for (const rule of MEDIA_DOC_RULES) {
+        for (const rx of rule.patterns) {
+          if (rx.test(working)) {
+            label = rule.label;
+            working = working.replace(rx, ' ');
+            return { label, working: normalizeResidual(working) };
+          }
+        }
+      }
+      return { label: '', working: normalizeResidual(working) };
+    }
+
+    function extractSpanish(input) {
+      const raw = String(input || '');
+      const parenRx = /\(\s*\+?\s*(spanish|espanol|español|sp)\s*\)/ig;
+      const tokenRx = /(^|[\s._\-+])\+?(spanish|espanol|español|sp)\b/ig;
+      const found = parenRx.test(raw) || tokenRx.test(raw);
+      parenRx.lastIndex = 0;
+      tokenRx.lastIndex = 0;
+      return {
+        hasSpanish: found,
+        working: normalizeResidual(raw.replace(parenRx, ' ').replace(tokenRx, '$1'))
+      };
+    }
+
+    function normalizeCompactDate(token) {
+      const match = /^(\d{1,2})([A-Za-z]{3,9})(\d{2,4})$/.exec(String(token || '').trim());
+      if (!match) return '';
+      const day = Number(match[1]);
+      const month = MEDIA_MONTHS[String(match[2] || '').slice(0, 3).toLowerCase()];
+      let year = Number(match[3]);
+      if (!month || !Number.isFinite(day) || day < 1 || day > 31 || !Number.isFinite(year)) return '';
+      if (match[3].length === 2) year += year >= 70 ? 1900 : 2000;
+      return `${month} ${day}, ${year}`;
+    }
+
+    function normalizeIsoDate(token) {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(token || '').trim());
+      if (!match) return '';
+      const year = Number(match[1]);
+      const monthIndex = Number(match[2]) - 1;
+      const day = Number(match[3]);
+      const month = Object.values(MEDIA_MONTHS)[monthIndex];
+      if (!month || !Number.isFinite(year) || !Number.isFinite(day)) return '';
+      return `${month} ${day}, ${year}`;
+    }
+
+    function extractDateLabel(input) {
+      const patterns = [
+        /\b\d{4}-\d{2}-\d{2}\b/,
+        /\b\d{1,2}[A-Za-z]{3,9}\d{2,4}\b/,
+        /\b[A-Za-z]{3,9}\s?\d{2,4}\b/
+      ];
+      let working = String(input || '');
+      for (const pattern of patterns) {
+        const match = working.match(pattern);
+        if (!match) continue;
+        const raw = String(match[0] || '').trim();
+        let label = normalizeIsoDate(raw) || normalizeCompactDate(raw);
+        if (!label) {
+          const parsed = Date.parse(raw);
+          if (!Number.isNaN(parsed)) {
+            const date = new Date(parsed);
+            label = date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+          } else {
+            label = raw;
+          }
+        }
+        working = normalizeResidual(working.replace(raw, ' '));
+        return { label, working };
+      }
+      return { label: '', working: normalizeResidual(working) };
+    }
+
+    function format(file, songTitle) {
+      const raw = String(file?.name || '').trim();
+      if (!raw) return 'File';
+
+      const base = removeExtension(normalizeMediaSymbols(raw));
+      let working = stripSongTitle(base, songTitle);
+
+      const doc = detectDocLabel(working);
+      working = doc.working;
+
+      const spanish = extractSpanish(working);
+      working = spanish.working;
+
+      const date = extractDateLabel(working);
+      working = date.working;
+
+      const qualifiers = [];
+      if (spanish.hasSpanish) qualifiers.push('Spanish');
+      if (date.label) qualifiers.push(date.label);
+      if (working) qualifiers.push(working);
+
+      if (doc.label) return qualifiers.length ? `${doc.label} (${qualifiers.join(', ')})` : doc.label;
+      if (qualifiers.length) return qualifiers.join(' - ');
+      if (isAudioFile(file)) return 'Audio';
+      if (isVideoFile(file)) return 'Video';
+      return base || raw;
+    }
+
+    global.mediaLabelHelper = {
+      format,
+      isAudioFile
+    };
+  })(window);
+
   (function (global) {
     if (global && typeof global.songPreview === 'function') return;
     function normalizePreview(data) {

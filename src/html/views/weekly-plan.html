@@ -128,6 +128,36 @@
                 class="mt-2 w-full form-control form-control--dense" placeholder="Type preacher name"
                 x-model="form.preacher" @input="queueSaveDetails()" /></template>
           </label>
+          <label class="text-sm min-w-[260px] flex-[2]">YouTube URL
+            <div class="mt-1 flex flex-wrap gap-2">
+              <input type="url" class="w-full form-control form-control--dense flex-[2]"
+                placeholder="https://www.youtube.com/watch?v=..." x-model="form.youtubeUrl" @input="queueSaveDetails()">
+              <button type="button" class="btn btn--outline btn--xs whitespace-nowrap"
+                :disabled="youtubeSuggestLoading || !form.date" @click="suggestYouTubeStreamForService()">
+                <span x-show="!youtubeSuggestLoading">Suggest Stream</span>
+                <span x-show="youtubeSuggestLoading">Suggesting...</span>
+              </button>
+              <a class="btn btn--surface btn--xs whitespace-nowrap" :href="window.APP_CTX?.links?.youtubeStreams || '#'"
+                target="_blank" rel="noopener">
+                Open Streams
+              </a>
+            </div>
+            <div class="mt-2 text-xs text-gray-600" x-show="youtubeSuggestMessage" x-text="youtubeSuggestMessage"></div>
+            <div class="mt-2 space-y-2" x-show="youtubeSuggestCandidates.length">
+              <template x-for="(cand, idx) in youtubeSuggestCandidates" :key="cand.url || idx">
+                <div class="rounded border bg-white px-3 py-2 text-xs text-gray-700">
+                  <div class="font-medium" x-text="cand.title"></div>
+                  <div class="text-gray-500" x-text="cand.reason"></div>
+                  <div class="mt-2 flex flex-wrap gap-2">
+                    <button type="button" class="btn btn--outline btn--xs" @click="useSuggestedYoutubeUrl(cand.url)">
+                      Use this link
+                    </button>
+                    <a class="btn btn--surface btn--xs" :href="cand.url" target="_blank" rel="noopener">Open</a>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </label>
         </div>
       </div>
     </div>
@@ -231,8 +261,13 @@
                 <button class="btn btn--outline btn--xs" @click="addOrderRow()">+ Add Row</button>
               </template>
               <template x-if="!isGuest">
-                <button class="btn btn--accent btn--xs" :disabled="exportingOrderDoc || !selectedServiceId"
-                  @click="handleDocxButton()" x-text="docxButtonLabel()"></button>
+                <div class="flex gap-2">
+                  <button class="btn btn--accent btn--xs" :disabled="exportingOrderDoc || !selectedServiceId"
+                    @click="handleDocxButton()" x-text="docxButtonLabel()"></button>
+                  <button x-show="hasExportedDocx()" x-cloak class="btn btn--outline btn--xs"
+                    :disabled="exportingOrderDoc || !selectedServiceId" @click="republishOrderDocx()"
+                    x-text="republishDocxButtonLabel()"></button>
+                </div>
               </template>
             </div>
           </div>
@@ -320,9 +355,30 @@
                         <div x-show="false"></div>
                       </div>
                     </td>
-                    <td class="border"><input class="form-control form-control--dense w-full" x-model="row.leader"
-                        @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Leader"
-                        :disabled="isGuest" /></td>
+                    <td class="border">
+                      <template x-if="usesOrderLeaderPicker(row.itemType)">
+                        <div>
+                          <select class="form-control form-control--dense w-full" :value="orderLeaderSelectValue(row)"
+                            @change="setOrderRowLeaderChoice(row, $event.target.value)" :disabled="isGuest">
+                            <option value="">Select leader</option>
+                            <template x-for="name in orderLeaderChoicesForRow(row)" :key="'order-leader-'+row.itemType+'-'+name">
+                              <option :value="name" x-text="name"></option>
+                            </template>
+                            <option value="__custom">Custom</option>
+                          </select>
+                          <template x-if="orderLeaderSelectValue(row) === '__custom'">
+                            <input class="mt-2 form-control form-control--dense w-full" x-model="row.leader"
+                              @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Type leader name"
+                              :disabled="isGuest" />
+                          </template>
+                        </div>
+                      </template>
+                      <template x-if="!usesOrderLeaderPicker(row.itemType)">
+                        <input class="form-control form-control--dense w-full" x-model="row.leader"
+                          @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Leader"
+                          :disabled="isGuest" />
+                      </template>
+                    </td>
                     <td class="border"><input class="form-control form-control--dense w-full" x-model="row.notes"
                         @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Notes"
                         :disabled="isGuest" /></td>

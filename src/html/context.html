@@ -14,6 +14,15 @@
     orderItemTypes: [
       'Pre-Service','Welcome','Opening Song','Call to Worship','Song 1','Prayer of Invocation','Song 2','2nd Scripture','Song 3','Prayer of Illumination','Announcements','Children\'s Chat','Sermon','Communion','Communion Song','Closing Song','Benediction','Post Services','Note','Song 4','Offering','Offering Song'
     ],
+    orderLeaderPickerTypes: [
+      'Welcome','Call to Worship','Prayer of Invocation','2nd Scripture','Prayer of Illumination','Sermon','Benediction','Offering'
+    ],
+    orderLeaderRoleFilters: {
+      'Call to Worship': ['Worship Team', 'Leader', 'Guitar 1', 'Bass', 'Keyboard', 'Vocal 1', 'Vocal SP', 'Vocal 2', 'Guitar 2', 'Other'],
+      'Prayer of Invocation': ['Worship Team', 'Leader', 'Guitar 1', 'Bass', 'Keyboard', 'Vocal 1', 'Vocal SP', 'Vocal 2', 'Guitar 2', 'Other'],
+      '2nd Scripture': ['Worship Team', 'Leader', 'Guitar 1', 'Bass', 'Keyboard', 'Vocal 1', 'Vocal SP', 'Vocal 2', 'Guitar 2', 'Other'],
+      'Prayer of Illumination': ['Worship Team', 'Leader', 'Guitar 1', 'Bass', 'Keyboard', 'Vocal 1', 'Vocal SP', 'Vocal 2', 'Guitar 2', 'Other']
+    },
     usageFilterChoices: ['Call to Worship','Song2','Song3'],
     orderTemplates: {
       communion: [
@@ -46,7 +55,7 @@
         { itemType: 'Song 2' },
         { itemType: '2nd Scripture' },
         { itemType: 'Song 3' },
-        { itemType: 'Note' },
+        { itemType: 'Note', detail: 'Please be seated' },
         { itemType: 'Song 4' },
         { itemType: 'Prayer of Illumination' },
         { itemType: 'Announcements' },
@@ -78,7 +87,8 @@
       appHome: 'https://bel-caylor.github.io/worship-plan-ts/',
       serviceViewer: 'https://bel-caylor.github.io/worship-plan-ts/#/services',
       schedule: 'https://bel-caylor.github.io/worship-plan-ts/#/schedule',
-      availability: 'https://bel-caylor.github.io/worship-plan-ts/#/availability'
+      availability: 'https://bel-caylor.github.io/worship-plan-ts/#/availability',
+      youtubeStreams: 'https://www.youtube.com/@hopechurch7113/streams'
     },
     teamAdminSetup: {
       flowTitle: 'Quarterly setup flow',

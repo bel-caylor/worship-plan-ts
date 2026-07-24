@@ -1,11 +1,12 @@
 import { ORDER_OF_WORSHIP_EXPORT_FOLDER_URL, SERVICES_COL, SERVICES_SHEET } from '../constants';
 import { getSheetByName } from '../util/sheets';
 import { getOrder, type OrderItem } from './order';
-import { esvPassage } from './services';
+import { esvPassage, lblaPassage } from './services';
 
 type ExportOrderOfWorshipDocInput = {
   serviceId?: string;
   folderUrl?: string;
+  previousFileId?: string;
 };
 
 type ServiceRecord = {
@@ -37,6 +38,20 @@ type ParagraphOptions = {
   spacingAfter?: number;
 };
 
+type TextRun = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+};
+
+type TableCellSpec = {
+  span?: number;
+  paragraph: {
+    segments: TextRun[];
+    size?: number;
+  };
+};
+
 const ITEM_CALL_TO_WORSHIP = 'call to worship';
 const ITEM_SECOND_SCRIPTURE = '2nd scripture';
 const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
@@ -66,15 +81,69 @@ export function exportOrderOfWorshipDoc(input?: ExportOrderOfWorshipDocInput) {
   const secondReading = buildReadingContent('second', secondScripture, service);
   const docxName = buildDocxFileName(service);
   const docxBlob = buildDocxBlob(service, items, callReading, secondReading);
+  const previousFileId = String(input?.previousFileId || '').trim();
+  trashExistingExports(folder, folderId, docxName, previousFileId);
 
-  docxBlob.setName(nextAvailableFileName(folder, docxName));
+  docxBlob.setName(docxName);
   const saved = folder.createFile(docxBlob);
   return {
     ok: true,
+    fileId: saved.getId(),
     name: saved.getName(),
     url: saved.getUrl(),
     folderUrl: folder.getUrl()
   };
+}
+
+function trashExistingExports(
+  folder: GoogleAppsScript.Drive.Folder,
+  folderId: string,
+  desiredName: string,
+  previousFileId: string
+) {
+  const trashedIds: Record<string, true> = {};
+  if (previousFileId) {
+    trashExistingExportById(previousFileId, folderId);
+    trashedIds[previousFileId] = true;
+  }
+
+  const familyPattern = exportFileNamePattern(desiredName);
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const file = files.next();
+    const fileId = String(file.getId() || '').trim();
+    const fileName = String(file.getName() || '').trim();
+    if (!fileId || trashedIds[fileId]) continue;
+    if (!familyPattern.test(fileName)) continue;
+    file.setTrashed(true);
+  }
+}
+
+function trashExistingExportById(fileId: string, folderId: string) {
+  try {
+    const file = DriveApp.getFileById(fileId);
+    const parents = file.getParents();
+    let inTargetFolder = false;
+    while (parents.hasNext()) {
+      const parent = parents.next();
+      if (String(parent.getId() || '').trim() === folderId) {
+        inTargetFolder = true;
+        break;
+      }
+    }
+    if (!inTargetFolder) throw new Error('Existing export is not in the configured folder.');
+    file.setTrashed(true);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err || '');
+    throw new Error(`Unable to replace the existing DOCX export. ${message}`.trim());
+  }
+}
+
+function exportFileNamePattern(desiredName: string) {
+  const dot = desiredName.lastIndexOf('.');
+  const stem = dot > 0 ? desiredName.slice(0, dot) : desiredName;
+  const ext = dot > 0 ? desiredName.slice(dot) : '';
+  return new RegExp(`^${escapeRegex(stem)}(?: \\(\\d+\\))?${escapeRegex(ext)}$`, 'i');
 }
 
 function resolveFolderUrl(folderUrl?: string) {
@@ -198,82 +267,7 @@ function normalizeReference(value: unknown) {
 function getLblaPassageText(reference: string) {
   const ref = String(reference || '').trim();
   if (!ref) return '';
-  const url = `https://www.biblegateway.com/passage/?search=${encodeURIComponent(ref)}&version=LBLA`;
-  const response = UrlFetchApp.fetch(url, {
-    muteHttpExceptions: true,
-    followRedirects: true,
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; WorshipPlanExporter/1.0)'
-    }
-  });
-  const html = response.getContentText();
-  if (!html) return '';
-
-  const match = html.match(/<div class="passage-text">[\s\S]*?<div class='passage-content[\s\S]*?<div class="version-LBLA[^"]*">([\s\S]*?)<a class="full-chap-link"/i);
-  if (!match?.[1]) return '';
-
-  let content = match[1];
-  content = content
-    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*$/i, '')
-    .replace(/<(?:div|section|ol|ul|p)\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*$/i, '')
-    .replace(/<h[1-6]\b[^>]*>\s*(?:Footnotes|Cross references)\s*<\/h[1-6]>[\s\S]*$/i, '')
-    .replace(/<div\b[^>]*id="(?:footnotes?|crossrefs?)"[^>]*>[\s\S]*$/i, '')
-    .replace(/<div\b[^>]*id='(?:footnotes?|crossrefs?)'[^>]*>[\s\S]*$/i, '');
-  content = content.replace(/<h\d[\s\S]*?<\/h\d>/gi, '');
-  content = content.replace(/<sup[\s\S]*?<\/sup>/gi, '');
-  content = content.replace(/<div\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/div>/gi, '');
-  content = content.replace(/<div\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/div>/gi, '');
-  content = content.replace(/<ol\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/ol>/gi, '');
-  content = content.replace(/<ol\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/ol>/gi, '');
-  content = content.replace(/<p\b[^>]*class="[^"]*(?:footnotes?|crossrefs?|crossreference)[^"]*"[^>]*>[\s\S]*?<\/p>/gi, '');
-  content = content.replace(/<p\b[^>]*class='[^']*(?:footnotes?|crossrefs?|crossreference)[^']*'[^>]*>[\s\S]*?<\/p>/gi, '');
-  content = content.replace(/<span class="chapternum">[\s\S]*?<\/span>/gi, '');
-  content = content.replace(/<span class="versenum">[\s\S]*?<\/span>/gi, '');
-  content = content.replace(/<br\s*\/?>/gi, '\n');
-  content = content.replace(/<\/p>/gi, '\n\n');
-  content = content.replace(/<\/div>/gi, '\n\n');
-  content = content.replace(/<[^>]+>/g, '');
-  content = decodeHtmlEntities(content);
-  return normalizePassageText(content);
-}
-
-function decodeHtmlEntities(value: string) {
-  return String(value || '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, '\'')
-    .replace(/&rsquo;/g, '\'')
-    .replace(/&lsquo;/g, '\'')
-    .replace(/&ldquo;/g, '"')
-    .replace(/&rdquo;/g, '"')
-    .replace(/&ndash;/g, String.fromCharCode(8211))
-    .replace(/&mdash;/g, String.fromCharCode(8212))
-    .replace(/&hellip;/g, '...')
-    .replace(/&aacute;/g, String.fromCharCode(225))
-    .replace(/&eacute;/g, String.fromCharCode(233))
-    .replace(/&iacute;/g, String.fromCharCode(237))
-    .replace(/&oacute;/g, String.fromCharCode(243))
-    .replace(/&uacute;/g, String.fromCharCode(250))
-    .replace(/&Aacute;/g, String.fromCharCode(193))
-    .replace(/&Eacute;/g, String.fromCharCode(201))
-    .replace(/&Iacute;/g, String.fromCharCode(205))
-    .replace(/&Oacute;/g, String.fromCharCode(211))
-    .replace(/&Uacute;/g, String.fromCharCode(218))
-    .replace(/&ntilde;/g, String.fromCharCode(241))
-    .replace(/&Ntilde;/g, String.fromCharCode(209))
-    .replace(/&iexcl;/g, String.fromCharCode(161))
-    .replace(/&iquest;/g, String.fromCharCode(191))
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)));
-}
-
-function normalizePassageText(value: string) {
-  return String(value || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
+  return String(lblaPassage({ reference: ref })?.text || '').trim();
 }
 
 function buildDocxFileName(service: ServiceRecord) {
@@ -308,6 +302,10 @@ function nextAvailableFileName(folder: GoogleAppsScript.Drive.Folder, desiredNam
   return nextName;
 }
 
+function escapeRegex(value: string) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function buildDocxBlob(
   service: ServiceRecord,
   items: OrderItem[],
@@ -332,7 +330,6 @@ function documentXml(
 ) {
   const body = [
     paragraph('Order of Worship', { align: 'center', bold: true, size: 32, spacingAfter: 120 }),
-    paragraph(`${formatLongDate(service.date)}${service.time ? ` | ${service.time}` : ''}`, { align: 'center', size: 22, spacingAfter: 80 }),
     service.leader || service.preacher
       ? paragraph(compactMetaLine(service), { align: 'center', size: 20, spacingAfter: 160 })
       : '',
@@ -363,9 +360,14 @@ function headerXml(text: string) {
 
 function readingPage(service: ServiceRecord, reading: ReadingContent) {
   const parts = [
-    paragraph(formatLongDate(service.date), { align: 'center', bold: true, size: 24, spacingAfter: 160 }),
     paragraph(`${reading.heading}${reading.reader ? ` (${reading.reader})` : ''}`, { bold: true, italic: true, size: 40, spacingAfter: 260 }),
-    paragraph(reading.intro, { size: 32, spacingAfter: 260 })
+    reading.heading === 'Call To Worship'
+      ? paragraphRuns([
+        { text: 'Please stand', bold: true },
+        { text: ' for the reading of our call to worship' },
+        { text: `\nfrom ${reading.reference}` }
+      ], { size: 32, spacingAfter: 260 })
+      : paragraph(reading.intro, { size: 32, spacingAfter: 260 })
   ];
 
   if (reading.firstTranslation === 'ESV') {
@@ -389,12 +391,22 @@ function translationBlock(label: 'ESV' | 'LBLA', text: string) {
 
 function orderTable(items: OrderItem[]) {
   const rows = [
-    ['LIGHTING / SOUND', 'AUDIO INPUT', 'EVENT'],
-    ...items.map(item => ['', tableLeaderFor(item), tableEventFor(item)])
+    [
+      headerCell('ITEM'),
+      headerCell('DETAIL'),
+      headerCell('LEADER/NOTES')
+    ],
+    ...items.map(item => buildOrderRow(item))
   ];
-  const grid = [2400, 2400, 4560];
-  const rowXml = rows.map((row, idx) => {
-    const cells = row.map((text, cidx) => tableCell(text, grid[cidx], idx === 0));
+  const grid = [2800, 2900, 3660];
+  const rowXml = rows.map((row) => {
+    let columnIndex = 0;
+    const cells = row.map((cell) => {
+      const span = Math.max(1, Number(cell.span || 1));
+      const width = grid.slice(columnIndex, columnIndex + span).reduce((sum, value) => sum + value, 0);
+      columnIndex += span;
+      return tableCell(cell, width);
+    });
     return `<w:tr>${cells.join('')}</w:tr>`;
   }).join('');
 
@@ -407,30 +419,82 @@ function orderTable(items: OrderItem[]) {
   ].join('');
 }
 
-function tableCell(text: string, width: number, header: boolean) {
-  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${paragraph(text, { bold: header, size: header ? 20 : 22, spacingAfter: 0 })}</w:tc>`;
+function headerCell(text: string): TableCellSpec {
+  return {
+    paragraph: {
+      segments: [{ text, bold: true }],
+      size: 20
+    }
+  };
+}
+
+function buildOrderRow(item: OrderItem): TableCellSpec[] {
+  return [
+    textCell(tableItemFor(item)),
+    textCell(tableDetailFor(item), { bold: shouldBoldDetail(item) }),
+    leaderNotesCell(item)
+  ];
+}
+
+function textCell(text: string, opts?: { bold?: boolean }): TableCellSpec {
+  return {
+    paragraph: {
+      segments: [{ text: String(text || '').trim(), bold: !!opts?.bold }],
+      size: 22
+    }
+  };
+}
+
+function tableCell(cell: TableCellSpec, width: number) {
+  const span = Math.max(1, Number(cell.span || 1));
+  const gridSpan = span > 1 ? `<w:gridSpan w:val="${span}"/>` : '';
+  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${gridSpan}</w:tcPr>${paragraphRuns(cell.paragraph.segments, { size: cell.paragraph.size || 22, spacingAfter: 0 })}</w:tc>`;
+}
+
+function leaderNotesCell(item: OrderItem): TableCellSpec {
+  const leader = tableLeaderFor(item);
+  const notes = tableNotesFor(item);
+  const segments: TextRun[] = [];
+  if (leader) segments.push({ text: leader, bold: shouldBoldLeader(item) });
+  if (leader && notes) segments.push({ text: ' - ' });
+  if (notes) segments.push({ text: notes });
+  if (!segments.length) segments.push({ text: '' });
+  return {
+    paragraph: {
+      segments,
+      size: 22
+    }
+  };
+}
+
+function tableItemFor(item: OrderItem) {
+  const itemType = String(item.itemType || '').trim();
+  if (normalizeItemType(itemType) === ITEM_CALL_TO_WORSHIP) return 'Call to Worship';
+  if (normalizeItemType(itemType) === ITEM_SECOND_SCRIPTURE) return 'Scripture Reading';
+  return itemType;
+}
+
+function tableDetailFor(item: OrderItem) {
+  return String(item.detail || '').trim();
 }
 
 function tableLeaderFor(item: OrderItem) {
+  return String(item.leader || '').trim();
+}
+
+function tableNotesFor(item: OrderItem) {
+  return String(item.notes || '').trim();
+}
+
+function shouldBoldDetail(item: OrderItem) {
+  const value = normalizeItemType(item.itemType);
+  return value.includes('song') || value.includes('sound');
+}
+
+function shouldBoldLeader(item: OrderItem) {
   const leader = String(item.leader || '').trim();
-  if (leader) return leader;
-  return isSongItem(item.itemType) ? 'Worship Team' : '';
-}
-
-function tableEventFor(item: OrderItem) {
-  const itemType = String(item.itemType || '').trim();
-  const detail = String(item.detail || '').trim();
-  if (!itemType && !detail) return '';
-  if (!detail) return itemType;
-  if (normalizeItemType(itemType) === ITEM_CALL_TO_WORSHIP) return `Call to Worship - ${detail}`;
-  if (normalizeItemType(itemType) === ITEM_SECOND_SCRIPTURE) return `Scripture Reading - ${detail}`;
-  if (isSongItem(itemType)) return detail;
-  return `${itemType} - ${detail}`;
-}
-
-function isSongItem(itemType: unknown) {
-  const value = normalizeItemType(itemType);
-  return value.includes('song') || value === 'opening song' || value === 'closing song';
+  if (leader) return true;
+  return normalizeItemType(item.itemType).includes('leader');
 }
 
 function compactMetaLine(service: ServiceRecord) {
@@ -449,20 +513,30 @@ function formatLongDate(isoDate: string) {
 }
 
 function paragraph(text: string, opts?: ParagraphOptions) {
+  return paragraphRuns([{ text: String(text || ''), bold: opts?.bold, italic: opts?.italic }], opts);
+}
+
+function paragraphRuns(runs: TextRun[], opts?: ParagraphOptions) {
   const align = opts?.align && opts.align !== 'left' ? `<w:jc w:val="${opts.align}"/>` : '';
   const spacing = typeof opts?.spacingAfter === 'number' ? `<w:spacing w:after="${opts.spacingAfter}"/>` : '';
   const paragraphProps = (align || spacing) ? `<w:pPr>${spacing}${align}</w:pPr>` : '';
   const size = opts?.size || 22;
+  const xml = runs.map(run => runXml(run, size)).join('');
+  return `<w:p>${paragraphProps}${xml}</w:p>`;
+}
+
+function runXml(run: TextRun, defaultSize: number) {
+  const text = String(run?.text || '');
+  const lines = text.split('\n');
   const runProps = [
     '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>',
-    opts?.bold ? '<w:b/>' : '',
-    opts?.italic ? '<w:i/>' : '',
-    `<w:sz w:val="${size}"/>`,
-    `<w:szCs w:val="${size}"/>`
+    run?.bold ? '<w:b/>' : '',
+    run?.italic ? '<w:i/>' : '',
+    `<w:sz w:val="${defaultSize}"/>`,
+    `<w:szCs w:val="${defaultSize}"/>`
   ].join('');
-  const lines = String(text || '').split('\n');
   const textXml = lines.map((line, idx) => `${idx ? '<w:br/>' : ''}<w:t xml:space="preserve">${xmlEscape(line)}</w:t>`).join('');
-  return `<w:p>${paragraphProps}<w:r><w:rPr>${runProps}</w:rPr>${textXml}</w:r></w:p>`;
+  return `<w:r><w:rPr>${runProps}</w:rPr>${textXml}</w:r>`;
 }
 
 function pageBreak() {

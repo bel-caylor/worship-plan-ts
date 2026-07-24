@@ -4,6 +4,7 @@ Overview
 - Spreadsheet‑backed worship planning tool built on Google Apps Script.
 - Client UI rendered via HtmlService using Alpine.js.
 - Clean separation between views (markup), apps (Alpine logic), and context (client constants).
+- Deployment steps, the Apps Script to Worker handoff, and the N-1/N1 deployment issue are documented in [DEPLOYMENT-RUNBOOK.md](/C:/Users/belin/Local%20Sites/worship-plan-ts/DEPLOYMENT-RUNBOOK.md).
 
 Repo layout
 - src/html/index.html        – root HTML template; loads head scripts and mounts routed views

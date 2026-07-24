@@ -22,6 +22,7 @@ export type SongMetadataResult = {
   season: string;
   scriptures: string[];
   error?: string;
+  source?: 'ai' | 'heuristic';
 };
 
 const STOP_WORDS = new Set([
@@ -51,8 +52,50 @@ export function aiSongMetadata(input: SongMetadataInput): SongMetadataResult {
   const forcedSeason = String(input?.forcedSeason || '').trim();
   const kScriptures = Math.max(1, Math.min(10, Number(input?.kScriptures ?? 5)));
   const allowKeywords = !!input?.allowKeywords;
+  const heuristics = heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures, allowKeywords });
+  const key = getOpenAiKey();
+  if (!key || !lyrics) return { ...heuristics, source: 'heuristic' };
 
-  return heuristicSongMetadata({ name, lyrics, hints, forcedSeason, kScriptures, allowKeywords });
+  const hintBlock = hints.length ? hints.map(h => `- ${truncateForAi(h, 180)}`).join('\n') : '(none)';
+  const sys = 'You are a worship-planning assistant. Given a song title and lyrics, infer concise worship-planning metadata and return strict JSON only.';
+  const user = `Song title: ${name || '(untitled)'}
+
+Lyrics:
+${truncateForAi(lyrics, 2600)}
+
+Additional hints:
+${hintBlock}
+
+Return a JSON object with this shape:
+{
+  "season": "string",
+  "themes": ["short theme"],
+  "keywords": ["single word or short phrase"],
+  "scriptures": ["Book Chapter:Verse-Verse"]
+}
+
+Rules:
+- Use at most 1 season, 4 themes, 6 keywords, and ${kScriptures} scriptures.
+- Prefer clear worship themes over abstract literary analysis.
+- Scripture references should be relevant to the lyrics, not random proof texts.
+- If a field is uncertain, return an empty string or empty array for that field.
+- Return JSON only.`;
+
+  try {
+    const raw = callOpenAi(sys, user, key);
+    const parsed = safeJsonParse(raw);
+    const ai = normalizeSongMetadataResponse(parsed, kScriptures);
+    return {
+      season: ai.season || heuristics.season,
+      themes: ai.themes.length ? ai.themes : heuristics.themes,
+      keywords: ai.keywords.length ? sanitizeKeywords(ai.keywords, name) : heuristics.keywords,
+      scriptures: ai.scriptures.length ? ai.scriptures : heuristics.scriptures,
+      source: 'ai'
+    };
+  } catch (err) {
+    const message = (err && (err as any).message) ? String((err as any).message) : 'AI metadata request failed';
+    return { ...heuristics, error: message, source: 'heuristic' };
+  }
 }
 
 export function aiScripturesForLyrics(input: {
@@ -304,6 +347,15 @@ function normalizeList(value: unknown): string[] {
       .map(normalizeCase);
   }
   return [];
+}
+
+function normalizeSongMetadataResponse(value: unknown, kScriptures: number) {
+  const obj = value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const season = normalizeSeason(String(obj.season || obj.Season || '').trim());
+  const themes = normalizeList(obj.themes ?? obj.Themes).slice(0, 4);
+  const keywords = normalizeList(obj.keywords ?? obj.Keywords).slice(0, 6);
+  const scriptures = normalizeList(obj.scriptures ?? obj.Scriptures).slice(0, kScriptures);
+  return { season, themes, keywords, scriptures };
 }
 
 function normalizeCase(value: string) {

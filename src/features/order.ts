@@ -2,6 +2,7 @@
 import { ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
 import { updateSongRecency } from './songs';
+import { getSongPerformancePlayback } from './services';
 
 export type OrderItem = {
   order: number;
@@ -10,11 +11,14 @@ export type OrderItem = {
   scriptureText?: string;
   leader?: string;
   notes?: string;
+  recordingUrl?: string;
+  recordingLabel?: string;
 };
 
 export function getOrder(serviceId: string) {
   const sid = String(serviceId || '').trim();
   if (!sid) return { items: [] };
+  const serviceUrls = getServiceYoutubeUrlById();
   const sh = getSheetByName(ORDER_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
@@ -35,17 +39,44 @@ export function getOrder(serviceId: string) {
   for (const r of body) {
     const id = serviceIdx >= 0 ? String(r[serviceIdx] ?? '').trim() : '';
     if (id !== sid) continue;
+    const detail = detailIdx >= 0 ? String(r[detailIdx] ?? '') : '';
+    const playback = looksLikeSongSlot(typeIdx >= 0 ? String(r[typeIdx] ?? '') : '')
+      ? getSongPerformancePlayback(detail, sid, serviceUrls.get(sid) || '')
+      : { youtubeUrl: '', startLabel: '' };
     items.push({
       order: orderIdx >= 0 ? Number(r[orderIdx] ?? 0) : 0,
       itemType: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
-      detail: detailIdx >= 0 ? String(r[detailIdx] ?? '') : '',
+      detail,
       scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
       leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
-      notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : ''
+      notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : '',
+      recordingUrl: playback.youtubeUrl || '',
+      recordingLabel: playback.startLabel ? `Open at ${playback.startLabel}` : (playback.youtubeUrl ? 'Open recording' : '')
     });
   }
   items.sort((a, b) => a.order - b.order);
   return { items };
+}
+
+function getServiceYoutubeUrlById() {
+  const map = new Map<string, string>();
+  try {
+    const sh = getSheetByName('Services');
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) return map;
+    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+    const idIdx = headers.findIndex(h => h.toLowerCase() === 'serviceid');
+    const urlIdx = headers.findIndex(h => h.toLowerCase() === 'youtube url');
+    if (idIdx < 0 || urlIdx < 0) return map;
+    const rows = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+    rows.forEach((row) => {
+      const id = String(row[idIdx] ?? '').trim();
+      const url = String(row[urlIdx] ?? '').trim();
+      if (id && url) map.set(id, url);
+    });
+  } catch (_) {}
+  return map;
 }
 
 export function saveOrder(input: { serviceId: string; items: OrderItem[]; serviceDate?: string }) {

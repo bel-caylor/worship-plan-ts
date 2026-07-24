@@ -19,6 +19,8 @@
       selectedServiceId: '',
       leaderChoices: [],
       preacherChoices: [],
+      orderLeaderPickerTypes: [],
+      orderLeaderRoleFilters: {},
       leaderSelect: '',
       preacherSelect: '',
       books: [],
@@ -92,7 +94,10 @@
       recommendedSongsLoading: false,
       recommendedSongIndex: -1,
       embeddedSongsInstance: null,
-      form: { id: '', date: '', time: '', type: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' },
+      form: { id: '', date: '', time: '', type: '', youtubeUrl: '', leader: '', preacher: '', scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' },
+      youtubeSuggestLoading: false,
+      youtubeSuggestMessage: '',
+      youtubeSuggestCandidates: [],
       showCreateServicesModal: false,
       batchStartDate: '',
       batchWeeks: 12,
@@ -119,6 +124,12 @@
         this.teamEmailLink = this.teamEmailBaseLink();
         this.books = Array.isArray(ctx.bibleBooks) ? ctx.bibleBooks : [];
         this.orderItemTypes = Array.isArray(ctx.orderItemTypes) ? ctx.orderItemTypes : ['Welcome', 'Call To Worship', 'Song', 'Sermon', 'Communion', 'Offering', 'Announcements', 'Benediction'];
+        this.orderLeaderPickerTypes = Array.isArray(ctx.orderLeaderPickerTypes)
+          ? ctx.orderLeaderPickerTypes.slice()
+          : ['Welcome', 'Call to Worship', '2nd Scripture', 'Sermon', 'Benediction', 'Offering'];
+        this.orderLeaderRoleFilters = (ctx.orderLeaderRoleFilters && typeof ctx.orderLeaderRoleFilters === 'object')
+          ? { ...ctx.orderLeaderRoleFilters }
+          : {};
         this.leaderChoices = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices.slice() : ['Darden', 'Belinda', 'Lois'];
         const ctxPreacherChoices = Array.isArray(ctx.preacherChoices) ? ctx.preacherChoices : ctx.sermonChoices;
         this.preacherChoices = Array.isArray(ctxPreacherChoices) ? ctxPreacherChoices.slice() : ['Tom', 'Darden', 'Miguel', 'Alfredo'];
@@ -193,6 +204,50 @@
         } catch (_) { /* ignore */ }
       },
 
+      clearYoutubeSuggestions() {
+        this.youtubeSuggestMessage = '';
+        this.youtubeSuggestCandidates = [];
+      },
+
+      async suggestYouTubeStreamForService() {
+        const date = String(this.form?.date || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          notify('Choose a valid service date first.', 'info');
+          return;
+        }
+        this.youtubeSuggestLoading = true;
+        this.clearYoutubeSuggestions();
+        try {
+          const res = await callRpc('suggestYouTubeStream', { date });
+          const nextUrl = String(res?.url || '').trim();
+          this.youtubeSuggestMessage = String(res?.message || '').trim();
+          this.youtubeSuggestCandidates = Array.isArray(res?.candidates) ? res.candidates : [];
+          if (nextUrl) {
+            this.form.youtubeUrl = nextUrl;
+            if (this.selectedServiceId) {
+              this.queueSaveDetails(true);
+            }
+            notify(this.youtubeSuggestMessage || 'Suggested YouTube stream loaded.', 'success', 2600);
+          } else {
+            notify(this.youtubeSuggestMessage || 'No matching YouTube stream found.', 'info', 3200);
+          }
+        } catch (e) {
+          console.error(e);
+          this.youtubeSuggestMessage = (e && e.message) ? e.message : 'Unable to suggest a YouTube stream.';
+          this.youtubeSuggestCandidates = [];
+          notify(this.youtubeSuggestMessage, 'error', 3600);
+        } finally {
+          this.youtubeSuggestLoading = false;
+        }
+      },
+
+      useSuggestedYoutubeUrl(url) {
+        const next = String(url || '').trim();
+        if (!next) return;
+        this.form.youtubeUrl = next;
+        if (this.selectedServiceId) this.queueSaveDetails(true);
+      },
+
       hydrateExistingServices() {
         try {
           if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
@@ -241,7 +296,8 @@
         return {
           url,
           name: String(entry.name || '').trim(),
-          folderUrl: String(entry.folderUrl || '').trim()
+          folderUrl: String(entry.folderUrl || '').trim(),
+          fileId: String(entry.fileId || '').trim()
         };
       },
 
@@ -250,8 +306,12 @@
       },
 
       docxButtonLabel() {
-        if (this.exportingOrderDoc) return this.hasExportedDocx() ? 'Opening...' : 'Exporting...';
+        if (this.exportingOrderDoc && !this.hasExportedDocx()) return 'Exporting...';
         return this.hasExportedDocx() ? 'View DOCX' : 'Export DOCX';
+      },
+
+      republishDocxButtonLabel() {
+        return this.exportingOrderDoc ? 'Republishing...' : 'Republish';
       },
 
       rememberDocxExport(serviceId, payload) {
@@ -265,6 +325,7 @@
             url,
             name: String(payload?.name || '').trim(),
             folderUrl: String(payload?.folderUrl || '').trim(),
+            fileId: String(payload?.fileId || '').trim(),
             updatedAt: Date.now()
           }
         };
@@ -297,6 +358,14 @@
       async handleDocxButton() {
         if (this.hasExportedDocx()) {
           this.openCurrentDocx();
+          return;
+        }
+        await this.exportOrderDocx();
+      },
+
+      async republishOrderDocx() {
+        if (!this.hasExportedDocx()) {
+          await this.exportOrderDocx();
           return;
         }
         await this.exportOrderDocx();
@@ -478,7 +547,7 @@
         this.selectedServiceId = '';
         const nextDate = this.nextServiceDateFromExistingISO();
         const defType = this.defaultServiceTypeForDateISO(nextDate);
-        this.form = { id: '', date: nextDate, time: (d.time || '10:00 AM'), type: defType, leader: (d.leader || 'Darden'), preacher: (d.preacher || d.sermon || 'Tom'), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
+        this.form = { id: '', date: nextDate, time: (d.time || '10:00 AM'), type: defType, youtubeUrl: '', leader: (d.leader || 'Darden'), preacher: (d.preacher || d.sermon || 'Tom'), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
         this.ensureDefaults();
         this.scripture = { book: 'John', chapter: 3, start: '1', end: '' };
         this.form.scripture = '';
@@ -513,7 +582,7 @@
           // Clear current form
           this.selectedServiceId = '';
           this.forgetDocxExport(id);
-          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
+          this.form = { id: '', date: this.nextSundayISO(), time: (window.APP_CTX?.defaults?.time || '10:00 AM'), type: (window.APP_CTX?.defaults?.serviceType || 'Worship'), youtubeUrl: '', leader: (window.APP_CTX?.defaults?.leader || ''), preacher: (window.APP_CTX?.defaults?.preacher || window.APP_CTX?.defaults?.sermon || ''), scripture: '', theme: '', keywords: '', notes: '', suggestedSongs: '' };
           this.orderRows = [];
           this.showOrder = false;
           this.activeContentTab = 'scripture';
@@ -589,6 +658,7 @@
         this.form.date = svc.date || this.nextSundayISO();
         this.form.time = derivedTime || svc.time || fallbackTime;
         this.form.type = svc.type || fallbackType;
+        this.form.youtubeUrl = svc.youtubeUrl || '';
         this.form.leader = svc.leader || fallbackLeader;
         this.form.preacher = svc.preacher || fallbackPreacher;
         this.form.scripture = svc.scripture || '';
@@ -1830,6 +1900,79 @@
           notes: it.notes || ''
         }));
       },
+      usesOrderLeaderPicker(itemType) {
+        const value = String(itemType || '').trim().toLowerCase();
+        if (!value) return false;
+        return this.orderLeaderPickerTypes.some(type => String(type || '').trim().toLowerCase() === value);
+      },
+      orderLeaderChoicesList() {
+        const combined = [];
+        const seen = new Set();
+        const pushUnique = (value) => {
+          const name = String(value || '').trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          combined.push(name);
+        };
+        (Array.isArray(this.leaderChoices) ? this.leaderChoices : []).forEach(pushUnique);
+        (Array.isArray(this.preacherChoices) ? this.preacherChoices : []).forEach(pushUnique);
+        return combined;
+      },
+      normalizeOrderLeaderRoleFilter(value) {
+        return String(value || '')
+          .trim()
+          .toLowerCase()
+          .replace(/\bone\b/g, '1')
+          .replace(/\btwo\b/g, '2')
+          .replace(/\bspecial\b/g, 'sp')
+          .replace(/[^a-z0-9]+/g, '');
+      },
+      orderLeaderRoleFilterList(itemType) {
+        const key = String(itemType || '').trim();
+        const source = this.orderLeaderRoleFilters && key ? this.orderLeaderRoleFilters[key] : null;
+        return Array.isArray(source)
+          ? source.map(value => String(value || '').trim()).filter(Boolean)
+          : [];
+      },
+      orderLeaderChoicesForRow(row) {
+        const roleFilters = this.orderLeaderRoleFilterList(row?.itemType);
+        if (!roleFilters.length) {
+          return this.orderLeaderChoicesList();
+        }
+        const allowed = new Set(roleFilters.map(value => this.normalizeOrderLeaderRoleFilter(value)).filter(Boolean));
+        const combined = [];
+        const seen = new Set();
+        const pushUnique = (value) => {
+          const name = String(value || '').trim();
+          if (!name) return;
+          const key = name.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          combined.push(name);
+        };
+        (Array.isArray(this.teamAssignments) ? this.teamAssignments : []).forEach(team => {
+          const teamKey = this.normalizeOrderLeaderRoleFilter(team?.teamType || team?.weeklyTeamName || '');
+          const includeAllTeamRoles = teamKey && allowed.has(teamKey);
+          (Array.isArray(team?.roles) ? team.roles : []).forEach(role => {
+            const roleKey = this.normalizeOrderLeaderRoleFilter(role?.roleName || role?.roleType || '');
+            if (!includeAllTeamRoles && !allowed.has(roleKey)) return;
+            pushUnique(role?.memberName || this.memberNameByEmail(role?.memberEmail) || '');
+          });
+        });
+        return combined.length ? combined : this.orderLeaderChoicesList();
+      },
+      orderLeaderSelectValue(row) {
+        const leader = String(row?.leader || '').trim();
+        if (!leader) return '';
+        return this.orderLeaderChoicesForRow(row).includes(leader) ? leader : '__custom';
+      },
+      setOrderRowLeaderChoice(row, value) {
+        if (!row) return;
+        row.leader = value === '__custom' ? '' : String(value || '');
+        this.queueSaveOrder();
+      },
       addOrderRow() {
         const n = this.orderRows.length + 1;
         this.orderRows.push({ order: n, itemType: '', detail: '', leader: '', notes: '' });
@@ -2615,6 +2758,7 @@
             date: this.form.date,
             time: this.form.time,
             type: this.form.type,
+            youtubeUrl: this.form.youtubeUrl,
             leader: this.form.leader,
             preacher: this.form.preacher,
             scripture: this.form.scripture,
@@ -2679,11 +2823,15 @@
         try {
           if (this.detailsDirty) await this.persistDetails();
           if (this.orderRows?.length) await this.persistOrder();
-          const res = await callRpc('exportOrderOfWorshipDoc', { serviceId: this.selectedServiceId });
+          const previousFileId = String(this.currentDocxExport()?.fileId || '').trim();
+          const res = await callRpc('exportOrderOfWorshipDoc', {
+            serviceId: this.selectedServiceId,
+            previousFileId
+          });
           const url = String(res?.url || '').trim();
           const name = String(res?.name || 'Order of Worship.docx').trim();
           this.rememberDocxExport(this.selectedServiceId, res || {});
-          notify(`Created ${name}. The button is now View DOCX.`, 'success');
+          notify(`${previousFileId ? 'Republished' : 'Created'} ${name}. The button is now View DOCX.`, 'success');
           if (url) this.openCurrentDocx();
         } catch (e) {
           console.error(e);

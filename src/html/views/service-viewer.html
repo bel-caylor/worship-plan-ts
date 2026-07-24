@@ -121,6 +121,10 @@
                         target="_blank" rel="noopener">
                         Link Audio
                       </a>
+                      <a class="btn btn--surface btn--xs text-blue-700" x-show="item.recordingUrl"
+                        :href="item.recordingUrl" target="_blank" rel="noopener"
+                        x-text="item.recordingLabel || 'Open recording'">
+                      </a>
                       <div class="text-gray-500" x-show="!media.loading && media.message" x-text="media.message"></div>
                     </div>
                     <div x-show="info.lyrics">

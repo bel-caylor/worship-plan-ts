@@ -1,9 +1,9 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, listServices, saveService, deleteService } from './features/services';
+import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
 import { getOrder, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
-import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry } from './features/songs';
+import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
@@ -38,10 +38,15 @@ export function rpc(input: { method: string; payload: unknown }) {
       case 'suggestSongs':
         return suggestSongs(payload as any);
       case 'getSongsForView': return getSongsWithLinksForView();
+      case 'getSongPerformances': return getSongPerformances(payload as any);
+      case 'saveSongPerformanceTimestamp': return saveSongPerformanceTimestamp(payload as any);
+      case 'suggestYouTubeStream': return suggestYouTubeStream(payload as any);
       case 'getSongFields': return getSongFields(payload as any);
       case 'updateSongUsage': return updateSongRecency(payload as any);
       case 'saveSongEntry':
         return saveSongEntry(payload as any);
+      case 'suggestSongMetadata':
+        return suggestSongMetadata(payload as any);
       case 'aiScripturesForLyrics':
         return aiScripturesForLyrics(payload as any);
       case 'summarizeScriptureThemes':

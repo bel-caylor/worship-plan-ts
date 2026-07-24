@@ -19,6 +19,7 @@ export const SERVICES_COL = {
   date: 'Date',
   time: 'Time',
   type: 'ServiceType',
+  youtubeUrl: 'YouTube URL',
   leader: 'Leader',
   preacher: 'Preacher',
   scripture: 'Scripture',
@@ -27,6 +28,37 @@ export const SERVICES_COL = {
   keywords: 'Keywords',
   notes: 'Notes',
   suggestedSongs: 'Suggested Songs'
+} as const;
+
+export const YOUTUBE_STREAMS_SHEET = 'YouTube Streams';
+export const YOUTUBE_STREAMS_COL = {
+  videoId: 'VideoId',
+  url: 'YouTube URL',
+  title: 'Title',
+  streamDate: 'Stream Date',
+  publishedDate: 'Published Date',
+  channelId: 'Channel Id',
+  channelName: 'Channel Name',
+  matchedServiceId: 'Matched Service ID',
+  status: 'Status',
+  notes: 'Notes',
+  source: 'Source'
+} as const;
+
+export const SONG_PERFORMANCES_SHEET = 'SongPerformances';
+export const SONG_PERFORMANCES_COL = {
+  songId: 'SongId',
+  songName: 'Song Name',
+  serviceId: 'ServiceID',
+  youtubeUrl: 'YouTube URL',
+  videoId: 'VideoId',
+  startSeconds: 'StartSeconds',
+  startLabel: 'StartLabel',
+  matchSource: 'MatchSource',
+  matchConfidence: 'MatchConfidence',
+  matchedLyric: 'MatchedLyric',
+  notes: 'Notes',
+  lastVerified: 'LastVerified'
 } as const;
 
 // Order of Worship sheet configuration

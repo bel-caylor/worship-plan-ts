@@ -771,12 +771,32 @@ function makeFolderHyperlink(url: string, label = 'Open Folder') {
 
 const EDITABLE_SONG_COLUMNS = ['Song','Leader','Season','Usage','Themes','Keywords','Scriptures','Notes','Lyrics','Link',FOLDER_LINK_COL,'Sp','Archive'];
 
-type SaveSongInput = {
-  originalName?: string;
-  data?: Record<string, unknown>;
-};
-
-export function saveSongEntry(input: SaveSongInput) {
+type SaveSongInput = {
+  originalName?: string;
+  data?: Record<string, unknown>;
+};
+
+export function suggestSongMetadata(input: {
+  name?: string;
+  lyrics?: string;
+  season?: string;
+  notes?: string;
+}) {
+  const name = String(input?.name || '').trim();
+  const lyrics = String(input?.lyrics || '').trim();
+  if (!lyrics) throw new Error('Lyrics are required to suggest song metadata.');
+  const hints = [String(input?.season || '').trim(), String(input?.notes || '').trim()].filter(Boolean);
+  return aiSongMetadata({
+    name,
+    lyrics,
+    hints,
+    forcedSeason: String(input?.season || '').trim() || undefined,
+    kScriptures: 5,
+    allowKeywords: true
+  });
+}
+
+export function saveSongEntry(input: SaveSongInput) {
   const data = (input?.data && typeof input.data === 'object') ? (input.data as Record<string, unknown>) : {};
   const songName = String(data['Song'] ?? data['song'] ?? '').trim();
   if (!songName) throw new Error('Song title is required.');

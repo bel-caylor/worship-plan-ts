@@ -329,6 +329,50 @@
                         x-text="mediaMessage || 'No files in folder.'"></div>
                 </div>
 
+                <div class="mt-3">
+                    <button type="button" class="btn btn--outline btn--xs" :disabled="!selected"
+                        @click="togglePerformances()"
+                        x-text="performancesOpen ? 'Hide Past Performances' : 'Show Past Performances'"></button>
+                </div>
+
+                <div class="mt-4" x-show="performancesOpen">
+                    <div class="flex items-center justify-between mb-1 gap-3">
+                        <div class="flex items-center gap-2">
+                            <div class="text-sm font-medium text-gray-700">Past Performances</div>
+                            <button type="button"
+                                class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-gray-300 text-xs text-gray-600 hover:bg-gray-50"
+                                @click="showTimestampHelper = true"
+                                aria-label="How to save a timestamp">
+                                i
+                            </button>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <div class="text-xs text-gray-500" x-show="performanceLoading">Loading...</div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-500" x-show="!performanceLoading && !performanceItems.length"
+                        x-text="performanceMessage || 'No past performances found.'"></div>
+                    <ul class="space-y-2" x-show="!performanceLoading && performanceItems.length">
+                        <template x-for="(item, idx) in performanceItems" :key="item.serviceId || idx">
+                            <li class="flex flex-wrap items-center gap-2 text-sm">
+                                <span class="text-gray-700" x-text="performanceLabel(item)"></span>
+                                <a x-show="hasPerformanceRecording(item)" class="text-blue-700 hover:underline"
+                                    :href="item.youtubeUrl" target="_blank" rel="noopener">
+                                    <span x-text="performanceRecordingLabel(item)"></span>
+                                </a>
+                                <button type="button" x-show="hasPerformanceRecording(item)"
+                                    class="text-blue-700 hover:underline"
+                                    @click="openTimestampModal(item)">
+                                    Save start time
+                                </button>
+                                <span x-show="!hasPerformanceRecording(item)" class="text-xs text-gray-500">
+                                    No recording linked yet
+                                </span>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+
                 <!-- NOTES -->
                 <div class="mt-3" x-show="selected?.Notes">
                     <div class="text-sm font-medium text-gray-700 mb-1">Notes</div>
@@ -355,6 +399,57 @@
     </div>
 </div>
 
+<div x-show="showTimestampModal" x-cloak class="modal-overlay z-50" @click.self="closeTimestampModal()">
+    <div class="modal-panel max-w-lg w-[95vw]">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+            <div>
+                <div class="font-semibold">Save Song Start Time</div>
+                <div class="text-sm text-gray-500" x-text="timestampTargetLabel"></div>
+            </div>
+            <button type="button" class="btn btn--link" @click="closeTimestampModal()">Close</button>
+        </div>
+        <form class="p-4 space-y-4" @submit.prevent="saveTimestampModal()">
+            <div class="text-sm text-gray-600">
+                Paste a YouTube link copied with <span class="font-medium">Copy video URL at current time</span>, or enter a plain timestamp like <span class="font-medium">17:36</span>.
+            </div>
+            <label class="text-sm flex flex-col gap-1">
+                <span class="font-medium text-gray-700">Timestamp or YouTube link</span>
+                <input type="text" class="form-control" x-ref="timestampInput"
+                    x-model="timestampForm.timestampInput"
+                    placeholder="https://www.youtube.com/watch?v=...&t=1056s or 17:36">
+            </label>
+            <div class="text-sm text-red-600" x-show="timestampError" x-text="timestampError"></div>
+            <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn--muted" @click="closeTimestampModal()"
+                    :disabled="timestampSaving">Cancel</button>
+                <button type="submit" class="btn btn--primary" :disabled="timestampSaving">
+                    <span x-show="!timestampSaving">Save start time</span>
+                    <span x-show="timestampSaving">Saving...</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div x-show="showTimestampHelper" x-cloak class="modal-overlay z-50" @click.self="showTimestampHelper = false">
+    <div class="modal-panel max-w-xl w-[95vw]">
+        <div class="px-4 py-3 border-b flex items-center justify-between">
+            <div class="font-semibold">How Timestamp Saving Works</div>
+            <button type="button" class="btn btn--link" @click="showTimestampHelper = false">Close</button>
+        </div>
+        <div class="p-4 space-y-3 text-sm text-gray-700">
+            <p>This saves the start point for one song in one specific service, so the next time someone clicks the recording it opens much closer to where the song begins.</p>
+            <ol class="list-decimal pl-5 space-y-2">
+                <li>Open the recording for the past performance.</li>
+                <li>Pause where the song starts.</li>
+                <li>On YouTube, choose <span class="font-medium">Copy video URL at current time</span>.</li>
+                <li>Back here, click <span class="font-medium">Save start time</span> and paste the link.</li>
+            </ol>
+            <p>You can also type a plain timestamp like <span class="font-medium">2:13</span> or <span class="font-medium">17:36</span>. Once saved, that song performance link will open at that time automatically.</p>
+        </div>
+    </div>
+</div>
+
 <!-- Song editor modal -->
 <div x-show="showSongEditor" x-cloak class="modal-overlay z-50" @click.self="cancelSongEditor()">
     <div class="modal-panel max-w-3xl w-[95vw] max-h-[90vh] overflow-y-auto">
@@ -370,7 +465,26 @@
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Leader(s)</span>
-                    <input type="text" class="form-control" x-model="songForm.Leader" placeholder="Comma separated">
+                    <div class="relative" @click.outside="songLeaderMenuOpen = false">
+                        <button type="button" class="form-control text-left flex items-center justify-between"
+                            @click="songLeaderMenuOpen = !songLeaderMenuOpen">
+                            <span class="truncate" x-text="songLeaderSummary()"></span>
+                            <span class="text-xs text-gray-500">Select</span>
+                        </button>
+                        <div x-show="songLeaderMenuOpen" x-cloak
+                            class="absolute z-20 mt-2 w-full rounded-lg border bg-white shadow-lg p-2 max-h-56 overflow-y-auto">
+                            <template x-if="!leaderOptions.length">
+                                <div class="text-sm text-gray-500 px-2 py-1">No leaders available yet.</div>
+                            </template>
+                            <template x-for="name in leaderOptions" :key="name">
+                                <label class="flex items-center gap-2 px-2 py-1 text-sm cursor-pointer hover:bg-gray-50 rounded">
+                                    <input type="checkbox" :checked="selectedSongLeaderList().includes(name)"
+                                        @change="toggleSongLeader(name)">
+                                    <span x-text="name"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
                 </label>
                 <label class="text-sm flex flex-col gap-1">
                     <span class="font-medium text-gray-700">Season</span>
@@ -392,6 +506,18 @@
                     <span class="font-medium text-gray-700">Scriptures</span>
                     <input type="text" class="form-control" x-model="songForm.Scriptures" placeholder="Comma separated">
                 </label>
+                <div class="text-sm md:col-span-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <button type="button" class="btn btn--outline btn--lg"
+                            @click="suggestSongMetadata()"
+                            :disabled="songEditorAiPending || songEditorSaving">
+                            <span x-show="!songEditorAiPending">Suggest with AI</span>
+                            <span x-show="songEditorAiPending">Suggesting...</span>
+                        </button>
+                        <span class="text-gray-500">Uses the song lyrics to suggest season, themes, keywords, and scriptures.</span>
+                    </div>
+                    <div class="text-gray-600 mt-2" x-show="songEditorAiMessage" x-text="songEditorAiMessage"></div>
+                </div>
                 <label class="text-sm flex flex-col gap-1 md:col-span-2">
                     <span class="font-medium text-gray-700">Link</span>
                     <input type="url" class="form-control" x-model="songForm.Link" placeholder="https://...">

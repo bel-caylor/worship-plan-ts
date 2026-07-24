@@ -160,23 +160,8 @@
     };
 
     const songMediaKey = (detail) => normalizeTitle(detail);
-    const stripSongTitleFromName = (label, title) => {
-      const cleanLabel = String(label || '').trim();
-      if (!cleanLabel) return '';
-      const song = String(title || '').trim();
-      if (!song) return cleanLabel;
-      const escaped = song.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return cleanLabel.replace(new RegExp(escaped, 'ig'), '').replace(/[\s._-]+/g, ' ').trim();
-    };
-
-    const removeExtension = (name) => String(name || '').replace(/\.[^.]+$/, '').trim();
-    const friendlyMediaName = (file, songTitle) => {
-      const raw = String(file?.name || '').trim();
-      if (!raw) return 'File';
-      const withoutExt = removeExtension(raw);
-      const stripped = stripSongTitleFromName(withoutExt, songTitle);
-      return stripped || withoutExt || raw;
-    };
+    const friendlyMediaName = (file, songTitle) =>
+      window.mediaLabelHelper?.format(file, songTitle || '') || String(file?.name || 'File');
 
     const fileIcon = (mimeType) => {
       const type = String(mimeType || '').toLowerCase();

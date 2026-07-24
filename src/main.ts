@@ -2,6 +2,7 @@ import { doGet, doPost, doOptions } from './http';
 import { onOpen as menuOnOpen, showMenuNow as menuShow, setupMenuTrigger as menuSetup } from './menu';
 import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from './features/songs';
 import { buildLeadersFromPlanner } from './features/leaders';
+import { repairServiceDateTimeColumns, syncYouTubeStreamsCatalog, matchServicesFromYouTubeStreams, resetYouTubeStreamsSyncState } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { rpc } from './rpc';
 
@@ -43,6 +44,10 @@ global.linkSongMedia = linkSongMedia;
 global.buildLeadersFromPlanner = buildLeadersFromPlanner;
 global.rebuildSongUsageFromPlanner = rebuildSongUsageFromPlanner;
 global.syncSongsFromDrive = syncSongsFromDrive;
+global.repairServiceDateTimeColumns = repairServiceDateTimeColumns;
+global.syncYouTubeStreamsCatalog = syncYouTubeStreamsCatalog;
+global.resetYouTubeStreamsSyncState = resetYouTubeStreamsSyncState;
+global.matchServicesFromYouTubeStreams = matchServicesFromYouTubeStreams;
 
 global.onOpen = onOpen;
 global.showMenuNow = showMenuNow;
