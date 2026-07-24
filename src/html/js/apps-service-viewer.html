@@ -247,6 +247,12 @@ return {
         return formatSongDate(value);
       },
 
+      recordingButtonLabel() {
+        const svc = this.getSelectedService();
+        const raw = svc?.date || parseDateFromServiceId(svc?.id || '');
+        return this.formatSongDate(raw) || 'Open recording';
+      },
+
       fileIcon(type) {
         return fileIcon(type);
       },
