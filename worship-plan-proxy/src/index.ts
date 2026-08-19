@@ -1,5 +1,6 @@
 type Env = {
   APPS_SCRIPT_BASE?: string;
+  ASSETS?: Fetcher;
 };
 
 function normalizeAppsScriptBase(value?: string) {
@@ -17,6 +18,7 @@ export default {
     }
 
     if (request.method !== 'POST') {
+      if (env.ASSETS) return env.ASSETS.fetch(request);
       return new Response(
         'Worship Plan Proxy is running. Send POST RPC requests from the app to this URL.',
         {
@@ -39,11 +41,20 @@ export default {
       );
     }
 
-    const upstream = await fetch(`${appsScriptBase}/exec`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body
-    });
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${appsScriptBase}/exec`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body
+      });
+    } catch (err) {
+      return jsonError(
+        origin,
+        502,
+        `Unable to reach Apps Script: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
 
     const text = await upstream.text();
     const contentType = upstream.headers.get('Content-Type') || '';
