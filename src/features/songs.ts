@@ -25,8 +25,6 @@ export type SongLyricSample = {
 function normalizeSongTitle(s: string) {
   return String(s || '')
     .toLowerCase()
-    .replace(/\([^)]*\)|\[[^\]]*\]/g, ' ')
-    .replace(/\+sp|\+es/g, ' ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -35,10 +33,12 @@ function normalizeSongTitle(s: string) {
 function toSheetDate(input: string) {
   const s = String(input || '').trim();
   if (!s) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
-    const [yy, mm, dd] = s.split('-').map(Number);
-    return new Date(Date.UTC(yy, mm - 1, dd));
-  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [yy, mm, dd] = s.split('-').map(Number);
+    // A date-only service date must remain a calendar date in the spreadsheet's
+    // time zone.  Noon avoids UTC/midnight conversion surprises around offsets.
+    return new Date(yy, mm - 1, dd, 12, 0, 0);
+  }
   try {
     const d = new Date(s);
     if (!isNaN(d.getTime())) {

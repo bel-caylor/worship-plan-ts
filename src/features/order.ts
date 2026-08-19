@@ -2,7 +2,7 @@
 import { ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
 import { updateSongRecency } from './songs';
-import { getSongPerformancePlayback } from './services';
+import { getLatestSongPerformancePlayback } from './services';
 
 export type OrderItem = {
   order: number;
@@ -18,7 +18,6 @@ export type OrderItem = {
 export function getOrder(serviceId: string) {
   const sid = String(serviceId || '').trim();
   if (!sid) return { items: [] };
-  const serviceUrls = getServiceYoutubeUrlById();
   const sh = getSheetByName(ORDER_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
@@ -41,7 +40,7 @@ export function getOrder(serviceId: string) {
     if (id !== sid) continue;
     const detail = detailIdx >= 0 ? String(r[detailIdx] ?? '') : '';
     const playback = looksLikeSongSlot(typeIdx >= 0 ? String(r[typeIdx] ?? '') : '')
-      ? getSongPerformancePlayback(detail, sid, serviceUrls.get(sid) || '')
+      ? getLatestSongPerformancePlayback(detail)
       : { youtubeUrl: '', startLabel: '' };
     const hasManualTimestamp = Number(playback?.startSeconds || 0) > 0;
     items.push({
@@ -59,31 +58,13 @@ export function getOrder(serviceId: string) {
   return { items };
 }
 
-function getServiceYoutubeUrlById() {
-  const map = new Map<string, string>();
-  try {
-    const sh = getSheetByName('Services');
-    const lastRow = sh.getLastRow();
-    const lastCol = sh.getLastColumn();
-    if (lastRow < 2 || lastCol < 1) return map;
-    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-    const idIdx = headers.findIndex(h => h.toLowerCase() === 'serviceid');
-    const urlIdx = headers.findIndex(h => h.toLowerCase() === 'youtube url');
-    if (idIdx < 0 || urlIdx < 0) return map;
-    const rows = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-    rows.forEach((row) => {
-      const id = String(row[idIdx] ?? '').trim();
-      const url = String(row[urlIdx] ?? '').trim();
-      if (id && url) map.set(id, url);
-    });
-  } catch (_) {}
-  return map;
-}
-
 export function saveOrder(input: { serviceId: string; items: OrderItem[]; serviceDate?: string }) {
   const serviceId = String(input?.serviceId || '').trim();
   const items = Array.isArray(input?.items) ? input.items : [];
-  const serviceDate = normalizeServiceDate(input?.serviceDate);
+  // The service ID is immutable once a service exists, while the client form can
+  // briefly contain a stale date during a service switch.  Use the ID's date so
+  // an autosave cannot stamp songs with another service's date.
+  const serviceDate = dateFromServiceId(serviceId) || normalizeServiceDate(input?.serviceDate);
   if (!serviceId) throw new Error('serviceId required');
   const sh = getSheetByName(ORDER_SHEET);
 
@@ -180,6 +161,11 @@ function normalizeServiceDate(input?: string) {
     }
   } catch (_) { /* ignore */ }
   return raw;
+}
+
+function dateFromServiceId(serviceId: string) {
+  const match = String(serviceId || '').match(/^(\d{4}-\d{2}-\d{2})(?:_|\b)/);
+  return match ? match[1] : '';
 }
 
 function looksLikeSongSlot(label: string) {

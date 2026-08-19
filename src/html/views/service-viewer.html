@@ -121,11 +121,12 @@
                         target="_blank" rel="noopener">
                         Link Audio
                       </a>
-                      <a class="btn btn--surface btn--xs text-blue-700" x-show="item.recordingUrl"
-                        :href="item.recordingUrl" target="_blank" rel="noopener"
-                        x-text="recordingButtonLabel()">
-                      </a>
                       <div class="text-gray-500" x-show="!media.loading && media.message" x-text="media.message"></div>
+                    </div>
+                    <div class="text-sm text-gray-700" x-show="item.recordingUrl && item.recordingLabel">
+                      <span class="font-medium">Past performance:</span>
+                      <a class="text-blue-600 hover:text-blue-800 hover:underline" :href="item.recordingUrl"
+                        target="_blank" rel="noopener" x-text="item.recordingLabel"></a>
                     </div>
                     <div x-show="info.lyrics">
                       <div class="text-hint uppercase">Lyrics</div>

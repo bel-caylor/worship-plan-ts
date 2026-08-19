@@ -331,6 +331,53 @@ export function getSongPerformancePlayback(songName: string, serviceId: string, 
   };
 }
 
+/**
+ * Returns the newest saved timestamp for a song from a completed service.
+ * This is used by the service viewer so an upcoming service can link back to
+ * the most recent recorded performance of that song.
+ */
+export function getLatestSongPerformancePlayback(songName: string) {
+  if (!String(songName || '').trim()) {
+    return { youtubeUrl: '', baseYoutubeUrl: '', startSeconds: 0, startLabel: '' };
+  }
+
+  const services = fetchServicesUnfiltered();
+  const serviceById = new Map<string, ServiceItem>();
+  services.forEach(service => {
+    const id = String(service?.id || '').trim();
+    if (id) serviceById.set(id, service);
+  });
+  const streamUrlByServiceId = getYouTubeStreamUrlByServiceIdMap();
+  const cutoff = todayISO();
+  const latest = Array.from(getSongPerformanceLinkMap(songName).values())
+    .filter(link => link.startSeconds > 0)
+    .map(link => {
+      const service = serviceById.get(link.serviceId);
+      const date = String(service?.date || deriveDateFromServiceId(link.serviceId) || '').trim();
+      return { link, service, date };
+    })
+    .filter(entry => !entry.date || entry.date <= cutoff)
+    .sort((a, b) => {
+      const aService = a.service || ({ id: a.link.serviceId } as ServiceItem);
+      const bService = b.service || ({ id: b.link.serviceId } as ServiceItem);
+      const aKey = serviceSortKey(aService);
+      const bKey = serviceSortKey(bService);
+      return bKey.localeCompare(aKey);
+    })[0];
+
+  if (!latest) return { youtubeUrl: '', baseYoutubeUrl: '', startSeconds: 0, startLabel: '' };
+  const baseYoutubeUrl = String(
+    latest.link.youtubeUrl || latest.service?.youtubeUrl || streamUrlByServiceId.get(latest.link.serviceId) || ''
+  ).trim();
+  const startSeconds = latest.link.startSeconds;
+  return {
+    youtubeUrl: appendYouTubeStartTime(baseYoutubeUrl, startSeconds),
+    baseYoutubeUrl,
+    startSeconds,
+    startLabel: formatSecondsAsTimestamp(startSeconds)
+  };
+}
+
 function extractVideoIdFromYouTubeUrl(url: string) {
   const text = String(url || '').trim();
   if (!text) return '';
@@ -2052,6 +2099,8 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
 
   const idIdx = col(SERVICES_COL.id);
+  const dateIdx = col(SERVICES_COL.date);
+  const timeIdx = col(SERVICES_COL.time);
   const typeIdx = col(SERVICES_COL.type);
   const youtubeUrlIdx = col(SERVICES_COL.youtubeUrl);
   const leaderIdx = col(SERVICES_COL.leader);
@@ -2075,6 +2124,8 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   // Build row data according to headers
   const vals: any[] = Array.from({ length: lastCol }, () => '');
   if (idIdx >= 0) vals[idIdx] = newId;
+  if (dateIdx >= 0) vals[dateIdx] = toSheetDateValue(input.date);
+  if (timeIdx >= 0) vals[timeIdx] = input.time ?? '';
   if (typeIdx >= 0) vals[typeIdx] = input.type ?? '';
   if (youtubeUrlIdx >= 0) vals[youtubeUrlIdx] = input.youtubeUrl ?? '';
   if (leaderIdx >= 0) vals[leaderIdx] = normalizeDisplayName(input.leader ?? '');
@@ -2128,7 +2179,16 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   try {
     if (rowIdx >= 0) {
       // Update the existing row (rowIdx maps to sheet row = 2 + rowIdx)
-      sh.getRange(2 + rowIdx, 1, 1, lastCol).setValues([vals]);
+      // Use the sheet's live width here.  Older workbooks may receive a
+      // schema column during this request; this prevents a stale range width
+      // from receiving a longer row and also preserves any unrecognised data.
+      const writeColumnCount = sh.getLastColumn();
+      const existing = sh.getRange(2 + rowIdx, 1, 1, writeColumnCount).getValues()[0];
+      const rowValues = existing.slice(0, writeColumnCount);
+      for (let index = 0; index < Math.min(vals.length, writeColumnCount); index += 1) {
+        rowValues[index] = vals[index];
+      }
+      sh.getRange(2 + rowIdx, 1, 1, writeColumnCount).setValues([rowValues]);
     } else {
       // Fallback to add if not found
       sh.appendRow(vals);

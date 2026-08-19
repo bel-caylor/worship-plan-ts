@@ -322,9 +322,19 @@
                             <span>Thinking...</span>
                           </div>
                         </template>
-                        <input class="form-control form-control--dense w-full" x-model="row.detail"
-                          @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="e.g., Song title"
-                          :disabled="isGuest" />
+                        <template x-if="/song/i.test(String(row.itemType || ''))">
+                          <button type="button" class="form-control form-control--dense w-full text-left"
+                            :class="{ 'text-slate-400': !String(row.detail || '').trim() }"
+                            :disabled="isGuest" @click.stop="suggestForRow(i)"
+                            :aria-label="String(row.detail || '').trim() ? 'Choose a different song' : 'Choose a song'">
+                            <span x-text="String(row.detail || '').trim() || 'Choose a song…'"></span>
+                          </button>
+                        </template>
+                        <template x-if="!/song/i.test(String(row.itemType || ''))">
+                          <input class="form-control form-control--dense w-full" x-model="row.detail"
+                            @input="queueSaveOrder()" @blur="queueSaveOrder(true)" placeholder="Details"
+                            :disabled="isGuest" />
+                        </template>
                         <button class="btn btn--outline btn--xs" title="Suggest song" aria-label="Suggest song"
                           x-show="!isGuest && /song/i.test(String(row.itemType||''))"
                           :disabled="loadingSuggestion || isGuest" @click.stop="suggestForRow(i)">
