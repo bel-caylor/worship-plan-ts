@@ -8,8 +8,8 @@ export function onOpen() {
     .addItem('Reset YouTube streams sync state', 'resetYouTubeStreamsSyncState')
     .addItem('Match services from YouTube streams', 'matchServicesFromYouTubeStreams')
     .addItem('Sync songs from Drive', 'syncSongsFromDrive')
-    .addItem('Build leader list (from Usage Log)', 'buildLeadersFromPlanner')
-    .addItem('Rebuild song Usage (from all plans)', 'rebuildSongUsageFromPlanner')
+    .addItem('Rebuild song leaders (from Services)', 'buildLeadersFromPlanner')
+    .addItem('Rebuild song Usage (from ServiceItems)', 'rebuildSongUsageFromPlanner')
     .addToUi();
 }
 

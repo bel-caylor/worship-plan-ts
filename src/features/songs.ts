@@ -2,7 +2,7 @@
 import {
   SONG_SHEET, SONG_COL_NAME, FOLDER_LINK_COL, AUDIO_LINKS_COL, MAX_AUDIO_LINKS,
   ROOT_FOLDER_ID, SPANISH_ROOT_ID, SP_COL_NAME, TARGET_LEADER_COL, Row,
-  PLANNER_SHEET, PLANNER_SONG_COLS, ORDER_SHEET, ORDER_COL, SONG_USAGE_ORDER
+  ORDER_SHEET, ORDER_COL, SONG_USAGE_ORDER
 } from '../constants';
 import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
@@ -1189,8 +1189,7 @@ export function rebuildSongUsageFromPlanner() {
     songUsage.get(key)!.add(usage);
   };
 
-  // ServiceItems is the live source used by the web planner.  Include the
-  // legacy Weekly Planner too so a rebuild preserves older history.
+  // ServiceItems is the live source used by the web planner.
   const orderSheet = getSheetByName(ORDER_SHEET);
   const orderLastRow = orderSheet.getLastRow();
   const orderLastCol = orderSheet.getLastColumn();
@@ -1204,30 +1203,6 @@ export function rebuildSongUsageFromPlanner() {
     }
   }
 
-  const planner = getSheetByName(PLANNER_SHEET);
-  const pLastRow = planner.getLastRow();
-  const pLastCol = planner.getLastColumn();
-  const labelMap: Record<string, string> = {
-    'Opening Song': 'Call to Worship',
-    'Song2': 'Song2',
-    'Song3': 'Song3',
-    'Song4/Communion': 'Song4',
-    'Offering/Communion Song': 'Communion',
-    'Closing Song': 'Closing'
-  };
-
-  if (pLastRow >= 2 && pLastCol >= 1) {
-    const pHeaders = planner.getRange(1, 1, 1, pLastCol).getValues()[0].map(v => String(v ?? '').trim());
-    const pIdx = (name: string) => pHeaders.findIndex(h => h.toLowerCase() === name.toLowerCase());
-    const pBody = planner.getRange(2, 1, pLastRow - 1, pLastCol).getValues();
-    for (const row of pBody) {
-      for (const label of PLANNER_SONG_COLS) {
-        const idx = pIdx(label);
-        if (idx >= 0) addUsage(String(row[idx] ?? ''), labelMap[label] || label);
-      }
-    }
-  }
-
   const songsSh = getSheetByName(SONG_SHEET);
   const { headers, colMap } = getHeaders(songsSh);
   ensureColumn(songsSh, headers, colMap, 'Usage');

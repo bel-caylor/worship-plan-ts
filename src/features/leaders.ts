@@ -1,82 +1,75 @@
 // src/features/leaders.ts
 import {
-  TARGET_LEADER_COL, SONG_SHEET, PLANNER_SHEET, PLANNER_LEADER_CANDIDATES,
-  PLANNER_SONG_COLS, SONG_COL_NAME
+  ORDER_COL, ORDER_SHEET, SERVICES_COL, SERVICES_SHEET,
+  SONG_COL_NAME, SONG_SHEET, TARGET_LEADER_COL
 } from '../constants';
-import { getSheetByName, getHeaders, ensureColumn, findHeaderIndex, findManyHeaderIndices } from '../util/sheets';
+import { songUsageForItemType } from './songs';
+import { ensureColumn, findHeaderIndex, getHeaders, getSheetByName } from '../util/sheets';
 
+/** Rebuild the Songs Leader column from the current Services and ServiceItems sheets. */
 export function buildLeadersFromPlanner() {
-    const songsSh = getSheetByName(SONG_SHEET);
-    const plannerSh = getSheetByName(PLANNER_SHEET);
+  const servicesSh = getSheetByName(SERVICES_SHEET);
+  const itemsSh = getSheetByName(ORDER_SHEET);
+  const songsSh = getSheetByName(SONG_SHEET);
 
-    // --- Read planner header/body
-    const pVals = plannerSh.getDataRange().getValues();
-    if (pVals.length < 2) {
-        SpreadsheetApp.getActive().toast('Planner has no data rows.', 'Weekly Planner', 4);
-        return;
+  const serviceValues = servicesSh.getDataRange().getValues();
+  const serviceHeaders = (serviceValues.shift() || []).map(v => String(v ?? '').trim());
+  const serviceIdIdx = findHeaderIndex(serviceHeaders, [SERVICES_COL.id]);
+  const serviceLeaderIdx = findHeaderIndex(serviceHeaders, [SERVICES_COL.leader]);
+  if (serviceIdIdx < 0 || serviceLeaderIdx < 0) {
+    throw new Error(`Services must include "${SERVICES_COL.id}" and "${SERVICES_COL.leader}" columns.`);
+  }
+
+  const serviceLeaders = new Map<string, string>();
+  for (const row of serviceValues) {
+    const id = String(row[serviceIdIdx] ?? '').trim();
+    const leader = String(row[serviceLeaderIdx] ?? '').trim();
+    if (id && leader) serviceLeaders.set(id, leader);
+  }
+
+  const itemValues = itemsSh.getDataRange().getValues();
+  const itemHeaders = (itemValues.shift() || []).map(v => String(v ?? '').trim());
+  const itemServiceIdIdx = findHeaderIndex(itemHeaders, [ORDER_COL.serviceId]);
+  const itemTypeIdx = findHeaderIndex(itemHeaders, [ORDER_COL.itemType]);
+  const itemDetailIdx = findHeaderIndex(itemHeaders, [ORDER_COL.detail]);
+  const itemLeaderIdx = findHeaderIndex(itemHeaders, [ORDER_COL.leader]);
+  if (itemServiceIdIdx < 0 || itemTypeIdx < 0 || itemDetailIdx < 0) {
+    throw new Error(`ServiceItems must include "${ORDER_COL.serviceId}", "${ORDER_COL.itemType}", and "${ORDER_COL.detail}" columns.`);
+  }
+
+  const bySong = new Map<string, Set<string>>();
+  for (const row of itemValues) {
+    if (!songUsageForItemType(String(row[itemTypeIdx] ?? ''))) continue;
+    const song = String(row[itemDetailIdx] ?? '').trim();
+    const serviceId = String(row[itemServiceIdIdx] ?? '').trim();
+    const itemLeader = itemLeaderIdx >= 0 ? String(row[itemLeaderIdx] ?? '').trim() : '';
+    const leader = itemLeader || serviceLeaders.get(serviceId) || '';
+    if (!song || !leader) continue;
+    const key = song.toLowerCase();
+    if (!bySong.has(key)) bySong.set(key, new Set());
+    bySong.get(key)!.add(leader);
+  }
+
+  const { headers, colMap } = getHeaders(songsSh);
+  ensureColumn(songsSh, headers, colMap, TARGET_LEADER_COL);
+  const songIdx = colMap[SONG_COL_NAME];
+  const leaderCol = colMap[TARGET_LEADER_COL];
+  const lastRow = songsSh.getLastRow();
+  if (lastRow < 2) return { updated: 0 };
+
+  const range = songsSh.getRange(2, 1, lastRow - 1, songsSh.getLastColumn());
+  const values = range.getValues();
+  let updated = 0;
+  for (const row of values) {
+    const song = String(row[songIdx] ?? '').trim();
+    const leaders = bySong.get(song.toLowerCase());
+    const value = leaders ? Array.from(leaders).sort((a, b) => a.localeCompare(b)).join(', ') : '';
+    if (String(row[leaderCol] ?? '') !== value) {
+      row[leaderCol] = value;
+      updated++;
     }
-    const pHeaders = pVals.shift()!.map(v => String(v ?? '').trim());
-    const pLeaderIdx = findHeaderIndex(pHeaders, PLANNER_LEADER_CANDIDATES);
-    const pSongIdxs = findManyHeaderIndices(pHeaders, PLANNER_SONG_COLS);
-
-    if (pLeaderIdx < 0) {
-        throw new Error(
-            `Could not find a Leader column on "${PLANNER_SHEET}".\nSaw: ${pHeaders.join(' | ')}\nLooking for any of: ${PLANNER_LEADER_CANDIDATES.join(', ')}`
-        );
-    }
-    if (!pSongIdxs.length) {
-        throw new Error(`None of the song columns were found on "${PLANNER_SHEET}". Looking for: ${PLANNER_SONG_COLS.join(' | ')}`);
-    }
-
-    // --- Aggregate leaders per song (case-insensitive key)
-    const bySong = new Map<string, Set<string>>();
-    for (const row of pVals) {
-        const leader = String(row[pLeaderIdx] ?? '').trim();
-        if (!leader) continue;
-
-        for (const c of pSongIdxs) {
-            const raw = String(row[c] ?? '').trim();
-            if (!raw) continue;
-
-            // Split in case the cell contains multiple titles separated by / or ,
-            const titles = raw.split(/[\/,;|]/).map(s => s.trim()).filter(Boolean);
-            for (const title of titles) {
-                const key = title.toLowerCase();
-                if (!bySong.has(key)) bySong.set(key, new Set());
-                bySong.get(key)!.add(leader);
-            }
-        }
-    }
-
-    // --- Ensure target column exists on Songs
-    const { headers: sHeaders, colMap: sColMap } = getHeaders(songsSh);
-    if (!(TARGET_LEADER_COL in sColMap)) {
-        ensureColumn(songsSh, sHeaders, sColMap, TARGET_LEADER_COL);
-    }
-    const sSongIdx = sColMap[SONG_COL_NAME];
-    const outCol = sColMap[TARGET_LEADER_COL] + 1;
-
-    const lastRow = songsSh.getLastRow();
-    if (lastRow < 2) {
-        SpreadsheetApp.getActive().toast('Songs sheet has no data rows.', 'Worship Planner', 4);
-        return;
-    }
-
-    const body = songsSh.getRange(2, 1, lastRow - 1, songsSh.getLastColumn()).getValues();
-
-    // --- Write the leader list for each song row
-    const lock = LockService.getDocumentLock();
-    lock.waitLock(10000);
-    try {
-        for (let i = 0; i < body.length; i++) {
-            const songTitle = String(body[i][sSongIdx] ?? '').trim();
-            const leaders = songTitle ? bySong.get(songTitle.toLowerCase()) : undefined;
-            const text = leaders ? Array.from(leaders).sort((a, b) => a.localeCompare(b)).join(', ') : '';
-            songsSh.getRange(2 + i, outCol).setValue(text);
-        }
-    } finally {
-        lock.releaseLock();
-    }
-
-    SpreadsheetApp.getActive().toast('Leader list updated from Worship Planner.', 'Worship Planner', 4);
+  }
+  range.setValues(values);
+  SpreadsheetApp.getActive().toast(`Leader list rebuilt from Services and ServiceItems (${updated} updated).`, 'Worship Planner', 4);
+  return { updated };
 }
