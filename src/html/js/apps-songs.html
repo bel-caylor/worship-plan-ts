@@ -167,6 +167,7 @@
           return true;
         });
     };
+    const leaderKey = (val) => String(val ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
     const norm = (s) => String(s || '').toLowerCase();
     const title = (s) => String(s || '').replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
     const usageKey = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -323,18 +324,19 @@
         if ((this.rows || []).some(r => !String(r['Season'] || '').trim())) bucket.set('__uncat__', 'Uncategorized');
         this.seasons = Array.from(bucket.entries()).sort((a,b)=>a[1].localeCompare(b[1])).map(([key,label])=>({key,label}));
 
-        const leaderSet = new Set();
+        // The Songs sheet is historical data, not the leader roster.  In
+        // particular, imported/misaligned rows can put values such as a song
+        // key in its Leader column.  Build this picker exclusively from the
+        // maintained roster in the context pack.
+        const leaderSet = new Map();
         const ctx = (window.APP_CTX || {});
         const seededLeaders = Array.isArray(ctx.leaderChoices) ? ctx.leaderChoices : [];
         seededLeaders.forEach(name => {
           const cleaned = String(name || '').trim();
-          if (cleaned) leaderSet.add(cleaned);
+          const key = leaderKey(cleaned);
+          if (key && !leaderSet.has(key)) leaderSet.set(key, cleaned);
         });
-        for (const r of (this.rows || [])) {
-          const L = Array.isArray(r._leaders) ? r._leaders : [];
-          for (const name of L) leaderSet.add(name);
-        }
-        this.leaderOptions = Array.from(leaderSet).sort((a,b)=>a.localeCompare(b));
+        this.leaderOptions = Array.from(leaderSet.values()).sort((a,b)=>a.localeCompare(b));
 
         const preferred = Array.isArray(ctx.usageFilterChoices) ? ctx.usageFilterChoices : [];
         const seen = new Map();
@@ -354,21 +356,23 @@
       },
 
       mergeLeaderOptions(names = []) {
-        const merged = new Set(Array.isArray(this.leaderOptions) ? this.leaderOptions : []);
+        const merged = new Map();
+        (Array.isArray(this.leaderOptions) ? this.leaderOptions : []).forEach((name) => {
+          const cleaned = String(name || '').trim();
+          const key = leaderKey(cleaned);
+          if (key && !merged.has(key)) merged.set(key, cleaned);
+        });
         (Array.isArray(names) ? names : []).forEach((name) => {
           const cleaned = String(name || '').trim();
-          if (cleaned) merged.add(cleaned);
+          const key = leaderKey(cleaned);
+          if (key && !merged.has(key)) merged.set(key, cleaned);
         });
-        this.leaderOptions = Array.from(merged).sort((a, b) => a.localeCompare(b));
+        this.leaderOptions = Array.from(merged.values()).sort((a, b) => a.localeCompare(b));
       },
 
       async loadSongEditorLeaderOptions() {
         const ctxChoices = Array.isArray(window.APP_CTX?.leaderChoices) ? window.APP_CTX.leaderChoices : [];
         this.mergeLeaderOptions(ctxChoices);
-        try {
-          const res = await callRpc('getServicePeople', null);
-          if (Array.isArray(res?.leaders)) this.mergeLeaderOptions(res.leaders);
-        } catch (_) {}
       },
 
       selectedSongLeaderList() {
@@ -701,7 +705,7 @@
           }
           if (wantLeader) {
             const L = Array.isArray(r._leaders) ? r._leaders : [];
-            if (!L.includes(wantLeader)) return false;
+            if (!L.some(name => leaderKey(name) === leaderKey(wantLeader))) return false;
           }
           if (this.spanishOnly && !this.isSpanish(r)) return false;
           if (!this.showArchived && this.isArchived(r)) return false;
@@ -1175,7 +1179,6 @@
         this.songEditorAiMessage = '';
         this.songEditorAiPending = false;
         this.songForm = nextMode === 'edit' ? makeSongForm(this.selected || {}) : makeSongForm();
-        this.mergeLeaderOptions(this.selectedSongLeaderList());
         this.songLeaderMenuOpen = false;
         this.editorOriginalName = nextMode === 'edit' ? String(this.selected?.Song || '') : '';
         this.showSongEditor = true;

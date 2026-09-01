@@ -1,7 +1,7 @@
 // src/features/order.ts
 import { ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
-import { updateSongRecency } from './songs';
+import { songUsageForItemType, updateSongRecency } from './songs';
 import { getLatestSongPerformancePlayback } from './services';
 
 export type OrderItem = {
@@ -169,11 +169,7 @@ function dateFromServiceId(serviceId: string) {
 }
 
 function looksLikeSongSlot(label: string) {
-  const s = String(label || '').trim().toLowerCase();
-  if (!s) return false;
-  if (s.includes('song')) return true;
-  if (s.includes('worship')) return true;
-  return false;
+  return Boolean(songUsageForItemType(label));
 }
 
 function updateSongsFromOrder(items: OrderItem[], serviceDate?: string) {
@@ -181,10 +177,9 @@ function updateSongsFromOrder(items: OrderItem[], serviceDate?: string) {
   const seen = new Set<string>();
   const date = String(serviceDate || '').trim();
   for (const it of items) {
-    const usageLabel = String(it?.itemType || '').trim();
+    const usageLabel = songUsageForItemType(String(it?.itemType || ''));
     const detail = String(it?.detail || '').trim();
     if (!detail || !usageLabel) continue;
-    if (!looksLikeSongSlot(usageLabel)) continue;
     const leader = String(it?.leader || '').trim();
     const leaderKey = leader.toLowerCase();
     const key = `${detail.toLowerCase()}|${usageLabel.toLowerCase()}|${leaderKey}`;

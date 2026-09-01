@@ -9,7 +9,7 @@ export function onOpen() {
     .addItem('Match services from YouTube streams', 'matchServicesFromYouTubeStreams')
     .addItem('Sync songs from Drive', 'syncSongsFromDrive')
     .addItem('Build leader list (from Usage Log)', 'buildLeadersFromPlanner')
-    .addItem('Rebuild song Usage (from Weekly Planner)', 'rebuildSongUsageFromPlanner')
+    .addItem('Rebuild song Usage (from all plans)', 'rebuildSongUsageFromPlanner')
     .addToUi();
 }
 

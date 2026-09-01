@@ -2412,11 +2412,16 @@
           const leaderValue = String(leaderName || this.form?.leader || '').trim();
           if (leaderValue) payload.leader = leaderValue;
           const res = await callRpc('updateSongUsage', payload);
-          const target = this.normalizeTitle(songName);
+          const targets = new Set([
+            this.normalizeTitle(songName),
+            ...((Array.isArray(res?.lastUsedNames) ? res.lastUsedNames : [])
+              .map(title => this.normalizeTitle(title))
+              .filter(Boolean))
+          ]);
           const applyPatch = (row) => {
             if (!row) return;
             const title = this.normalizeTitle((row && (row.Song || row['song'] || row['Title'])) || '');
-            if (title === target) {
+            if (targets.has(title)) {
               if (res && res.lastUsed) row.Last_Used = res.lastUsed;
               if (res && typeof res.uses === 'number') row.Uses = res.uses;
               if (res && res.years) row.Years_Used = res.years;

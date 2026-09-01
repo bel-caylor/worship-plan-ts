@@ -5,6 +5,7 @@ const path = require('path');
 const ROOT = process.cwd();
 const DIST = path.join(ROOT, 'dist');
 const OUT_DIR = path.join(ROOT, 'dist-standalone');
+const WORKER_PUBLIC_DIR = path.join(ROOT, 'worship-plan-proxy', 'public');
 const INDEX_TEMPLATE = path.join(ROOT, 'src', 'html', 'index.html');
 const DEFAULT_STANDALONE_RPC_BASE = 'https://worship-plan-proxy.belinda-caylor.workers.dev';
 
@@ -98,10 +99,19 @@ function main() {
     console.warn('[standalone] GOOGLE_CLIENT_ID env not set. Google sign-in will be unavailable in the standalone site.');
   }
 
-  fs.rmSync(OUT_DIR, { recursive: true, force: true });
-  fs.mkdirSync(OUT_DIR, { recursive: true });
-  fs.writeFileSync(path.join(OUT_DIR, 'index.html'), html);
-  console.log('Standalone web app written to dist-standalone/index.html');
+  const pwaFiles = ['manifest.webmanifest', 'service-worker.js'];
+  const iconSource = path.join(ROOT, 'src', 'html', 'pwa', 'icons');
+
+  [OUT_DIR, WORKER_PUBLIC_DIR].forEach((outputDir) => {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.writeFileSync(path.join(outputDir, 'index.html'), html);
+    pwaFiles.forEach((file) => {
+      fs.copyFileSync(path.join(ROOT, 'src', 'html', 'pwa', file), path.join(outputDir, file));
+    });
+    fs.cpSync(iconSource, path.join(outputDir, 'icons'), { recursive: true });
+  });
+  console.log('Standalone PWA written to dist-standalone/ and worship-plan-proxy/public/.');
 }
 
 try {

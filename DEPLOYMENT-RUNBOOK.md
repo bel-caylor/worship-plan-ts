@@ -140,6 +140,16 @@ $env:APPS_SCRIPT_BASE = "https://worship-plan-proxy.belinda-caylor.workers.dev"
 npm run build:standalone
 ```
 
+This also refreshes `worship-plan-proxy/public/` with the PWA manifest,
+service worker, and app icon. It must happen before the Worker deployment.
+
+## 6. Install the app
+
+After the Worker deploy completes, open the Worker URL over HTTPS. In Chrome or
+Edge select **Install app**. On an iPad, open it in Safari, tap **Share**, then
+choose **Add to Home Screen**. The PWA caches the application shell for
+offline launch; spreadsheet data and sign-in still require a connection.
+
 Important:
 
 - for the standalone site, `APPS_SCRIPT_BASE` should be the Worker URL
@@ -157,6 +167,7 @@ If you just want the shortest safe checklist:
 6. In `worship-plan-proxy`: `npx wrangler secret put APPS_SCRIPT_BASE`
 7. In `worship-plan-proxy`: `npx wrangler deploy`
 8. From repo root: build standalone using the Worker URL
+9. In `worship-plan-proxy`: run `npx wrangler deploy` again so the PWA assets go live
 
 ## Copy/paste command block
 

@@ -13,6 +13,7 @@ export const TARGET_LEADER_COL = 'Leader';
 export const PLANNER_SHEET = 'Weekly Planner';
 export const PLANNER_LEADER_CANDIDATES = ['Leader'];
 export const PLANNER_SONG_COLS = ['Opening Song','Song2','Song3','Song4/Communion','Offering/Communion Song','Closing Song'];
+export const SONG_USAGE_ORDER = ['Call to Worship', 'Song 1', 'Song2', 'Song3', 'Song4', 'Communion', 'Offering', 'Closing'];
 export const SERVICES_SHEET = 'Services';
 export const SERVICES_COL = {
   id: 'ServiceID',

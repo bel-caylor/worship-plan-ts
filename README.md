@@ -57,13 +57,13 @@ Development conventions
 Build scripts
 - `npm run build` – bundle server, copy HTML, build CSS, wrap CSS
 - `npm run watch` – builds continuously and pushes with clasp
-- `npm run build:standalone` – full build + produce `dist-standalone/index.html` for static hosting
+- `npm run build:standalone` – full build + produce the installable standalone PWA in `dist-standalone/` and `worship-plan-proxy/public/`
 - `npx clasp push -f` – force push if necessary (e.g., after manifest change)
 
 Standalone frontend option
 1. Deploy the Apps Script Web App (Execute as you, access anyone with link) and note the base URL (`https://script.google.com/macros/s/<DEPLOYMENT_ID>`).
-2. Build static assets: `APPS_SCRIPT_BASE=<base url> npm run build:standalone`. This writes a single self-contained `dist-standalone/index.html` (CSS + views inlined). If the env var is omitted, add `<meta name="app-script-base" content="...">` or set `window.APP_RPC_BASE` manually before loading `util.html`.
-3. Host `dist-standalone/index.html` on GitHub Pages / Netlify / etc. The client will:
+2. Build static assets: `APPS_SCRIPT_BASE=<base url> npm run build:standalone`. This writes the self-contained PWA shell (CSS + views inlined) to `dist-standalone/` and the Worker asset directory. If the env var is omitted, add `<meta name="app-script-base" content="...">` or set `window.APP_RPC_BASE` manually before loading `util.html`.
+3. Deploy `worship-plan-proxy/public/` with the Cloudflare Worker. The client will:
    - prefer `google.script.run` when embedded inside Apps Script (unchanged behavior)
    - fall back to `fetch(<base>/exec)` elsewhere (requires the `base` from step 1)
 4. For local dev, serve `dist-standalone/` (e.g., `npx http-server dist-standalone -p 5173`). Apps Script automatically returns `Access-Control-Allow-Origin: *`, so no extra CORS configuration is required. Use `text/plain` JSON payloads to avoid preflight checks.
@@ -80,6 +80,11 @@ Redeploy checklist
 7. Run `npx wrangler deploy`.
 8. Rebuild the standalone site against the Worker URL, not the Apps Script URL:
    `APPS_SCRIPT_BASE=https://<your-worker>.workers.dev npm run build:standalone`
+9. Deploy the Worker after the standalone build: `cd worship-plan-proxy; npx wrangler deploy`.
+
+Install on desktop or tablet
+
+After the Worker deployment, open its HTTPS URL. In Chrome or Edge select **Install app** from the address bar or browser menu. On an iPad, open it in Safari, tap **Share**, then choose **Add to Home Screen**. The app shell is cached for offline launch; sign-in and live planning data still require a connection.
 
 Troubleshooting
 - `Invalid RPC response` or `Apps Script returned a non-JSON response` usually means the Worker is pointing at an old Apps Script deployment, or the Apps Script Web app was not deployed with `Who has access: Anyone`.

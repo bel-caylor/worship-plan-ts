@@ -2,7 +2,7 @@
 import {
   SONG_SHEET, SONG_COL_NAME, FOLDER_LINK_COL, AUDIO_LINKS_COL, MAX_AUDIO_LINKS,
   ROOT_FOLDER_ID, SPANISH_ROOT_ID, SP_COL_NAME, TARGET_LEADER_COL, Row,
-  PLANNER_SHEET, PLANNER_SONG_COLS
+  PLANNER_SHEET, PLANNER_SONG_COLS, ORDER_SHEET, ORDER_COL, SONG_USAGE_ORDER
 } from '../constants';
 import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
@@ -30,6 +30,13 @@ function normalizeSongTitle(s: string) {
     .trim();
 }
 
+/** Returns the normalized English base title only for a bilingual `(+Sp)` row. */
+function englishBaseTitleForBilingualSong(s: string) {
+  const title = String(s || '').trim();
+  if (!/\s*\(\s*\+\s*sp\s*\)\s*$/i.test(title)) return '';
+  return normalizeSongTitle(title.replace(/\s*\(\s*\+\s*sp\s*\)\s*$/i, ''));
+}
+
 function toSheetDate(input: string) {
   const s = String(input || '').trim();
   if (!s) return '';
@@ -48,11 +55,12 @@ function toSheetDate(input: string) {
   return s;
 }
 
-function normalizeUsageLabel(label: string) {
+export function normalizeUsageLabel(label: string) {
   const trimmed = String(label || '').trim();
   if (!trimmed) return '';
   const s = trimmed.toLowerCase();
   if (s.includes('call to worship') || s.includes('opening')) return 'Call to Worship';
+  if (/\bsong\s*1\b/.test(s)) return 'Song 1';
   if (/\bsong\s*2\b/.test(s)) return 'Song2';
   if (/\bsong\s*3\b/.test(s)) return 'Song3';
   if (/\bsong\s*4\b/.test(s)) return 'Song4';
@@ -60,6 +68,12 @@ function normalizeUsageLabel(label: string) {
   if (s.includes('offering')) return 'Offering';
   if (s.includes('closing')) return 'Closing';
   return trimmed;
+}
+
+/** Returns a canonical Usage value only for an order item that can hold a song. */
+export function songUsageForItemType(label: string) {
+  const normalized = normalizeUsageLabel(label);
+  return SONG_USAGE_ORDER.includes(normalized) ? normalized : '';
 }
 
 export function updateSongRecency(input: UpdateSongUsageInput) {
@@ -110,7 +124,8 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
   const dataRange = sh.getRange(2, 1, lastRow - 1, lastCol);
   const values = dataRange.getValues();
 
-  const target = normalizeSongTitle(nameRaw);
+  const target = normalizeSongTitle(nameRaw);
+  const englishBaseTitle = englishBaseTitleForBilingualSong(nameRaw);
   let matchIdx = -1;
   for (let r = 0; r < values.length; r++) {
     const rawName = String(values[r][nameIdx] ?? '').trim();
@@ -121,7 +136,16 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
     }
   }
 
-  if (matchIdx < 0) return { updated: false };
+  if (matchIdx < 0) return { updated: false };
+
+  // A bilingual selection represents the same service use as its English base
+  // title. Spanish-only titles do not carry this marker and remain independent.
+  const pairedMatchIdxs = englishBaseTitle
+    ? values.reduce<number[]>((matches, row, index) => {
+      if (normalizeSongTitle(String(row[nameIdx] ?? '').trim()) === englishBaseTitle) matches.push(index);
+      return matches;
+    }, [])
+    : [];
 
   const absoluteRow = matchIdx + 2;
   const lock = LockService.getDocumentLock();
@@ -131,6 +155,9 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
     if (lastUsedIdx >= 0 && input?.date) {
       const val = toSheetDate(input.date);
       sh.getRange(absoluteRow, lastUsedIdx + 1).setValue(val);
+      for (const pairedMatchIdx of pairedMatchIdxs) {
+        sh.getRange(pairedMatchIdx + 2, lastUsedIdx + 1).setValue(val);
+      }
       lastUsedDate = String(input.date || '');
     }
     let usesCount: number | undefined;
@@ -158,7 +185,7 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
       if (normalized) {
         const existing = String(values[matchIdx][usageIdx] ?? '');
         const entries = existing
-          ? existing.split(',').map(s => s.trim()).filter(Boolean)
+          ? existing.split(',').map(entry => normalizeUsageLabel(entry)).filter(Boolean)
           : [];
         const hasEntry = entries.some(e => e.toLowerCase() === normalized.toLowerCase());
         if (!hasEntry) {
@@ -196,6 +223,7 @@ export function updateSongRecency(input: UpdateSongUsageInput) {
     return {
       updated: true,
       lastUsed: lastUsedDate || input?.date || '',
+      lastUsedNames: [nameRaw, ...pairedMatchIdxs.map(index => String(values[index][nameIdx] ?? '').trim())],
       uses: usesCount,
       usage: usageValue,
       leader: leaderValue
@@ -1151,25 +1179,35 @@ function overlapCount(setA: Set<string>, setB: Set<string>) {
 }
 
 
-export function rebuildSongUsageFromPlanner() {
-  const planner = getSheetByName(PLANNER_SHEET);
-  const pLastRow = planner.getLastRow();
-  const pLastCol = planner.getLastColumn();
-  if (pLastRow < 2 || pLastCol < 1) return { updated: 0 };
-
-  const pHeaders = planner.getRange(1, 1, 1, pLastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const pIdx = (name: string) => pHeaders.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const pColMap: Record<string, number> = {};
-  for (const label of PLANNER_SONG_COLS) {
-    const i = pIdx(label);
-    if (i >= 0) pColMap[label] = i;
-  }
-  if (!Object.keys(pColMap).length) return { updated: 0 };
-
-  const pBody = planner.getRange(2, 1, pLastRow - 1, pLastCol).getValues();
-  const norm = (s: string) => String(s || '').trim().replace(/\s+/g, ' ');
-  const songUsage = new Map<string, Set<string>>();
-  const labelMap: Record<string, string> = {
+export function rebuildSongUsageFromPlanner() {
+  const norm = (s: string) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const songUsage = new Map<string, Set<string>>();
+  const addUsage = (song: string, usage: string) => {
+    const key = norm(song);
+    if (!key || !usage) return;
+    if (!songUsage.has(key)) songUsage.set(key, new Set());
+    songUsage.get(key)!.add(usage);
+  };
+
+  // ServiceItems is the live source used by the web planner.  Include the
+  // legacy Weekly Planner too so a rebuild preserves older history.
+  const orderSheet = getSheetByName(ORDER_SHEET);
+  const orderLastRow = orderSheet.getLastRow();
+  const orderLastCol = orderSheet.getLastColumn();
+  if (orderLastRow >= 2 && orderLastCol >= 1) {
+    const headers = orderSheet.getRange(1, 1, 1, orderLastCol).getValues()[0].map(v => String(v ?? '').trim());
+    const itemTypeIdx = headers.findIndex(h => h.toLowerCase() === ORDER_COL.itemType.toLowerCase());
+    const detailIdx = headers.findIndex(h => h.toLowerCase() === ORDER_COL.detail.toLowerCase());
+    if (itemTypeIdx >= 0 && detailIdx >= 0) {
+      const rows = orderSheet.getRange(2, 1, orderLastRow - 1, orderLastCol).getValues();
+      for (const row of rows) addUsage(String(row[detailIdx] ?? ''), songUsageForItemType(String(row[itemTypeIdx] ?? '')));
+    }
+  }
+
+  const planner = getSheetByName(PLANNER_SHEET);
+  const pLastRow = planner.getLastRow();
+  const pLastCol = planner.getLastColumn();
+  const labelMap: Record<string, string> = {
     'Opening Song': 'Call to Worship',
     'Song2': 'Song2',
     'Song3': 'Song3',
@@ -1178,17 +1216,17 @@ export function rebuildSongUsageFromPlanner() {
     'Closing Song': 'Closing'
   };
 
-  for (const row of pBody) {
-    for (const label of PLANNER_SONG_COLS) {
-      const idx = pColMap[label];
-      if (idx == null || idx < 0) continue;
-      const raw = norm(String(row[idx] ?? ''));
-      if (!raw) continue;
-      const key = norm(raw);
-      if (!songUsage.has(key)) songUsage.set(key, new Set());
-      songUsage.get(key)!.add(labelMap[label] || label);
-    }
-  }
+  if (pLastRow >= 2 && pLastCol >= 1) {
+    const pHeaders = planner.getRange(1, 1, 1, pLastCol).getValues()[0].map(v => String(v ?? '').trim());
+    const pIdx = (name: string) => pHeaders.findIndex(h => h.toLowerCase() === name.toLowerCase());
+    const pBody = planner.getRange(2, 1, pLastRow - 1, pLastCol).getValues();
+    for (const row of pBody) {
+      for (const label of PLANNER_SONG_COLS) {
+        const idx = pIdx(label);
+        if (idx >= 0) addUsage(String(row[idx] ?? ''), labelMap[label] || label);
+      }
+    }
+  }
 
   const songsSh = getSheetByName(SONG_SHEET);
   const { headers, colMap } = getHeaders(songsSh);
@@ -1202,7 +1240,7 @@ export function rebuildSongUsageFromPlanner() {
   const range = songsSh.getRange(2, 1, lastRow - 1, lastCol);
   const values = range.getValues();
   let updated = 0;
-  const order = ['Call to Worship','Song2','Song3','Song4','Communion','Closing'];
+  const order = SONG_USAGE_ORDER;
   for (let r = 0; r < values.length; r++) {
     const name = norm(String(values[r][nameCol] ?? ''));
     let usage = '';

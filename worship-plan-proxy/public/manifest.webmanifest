@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Worship Plan",
+  "short_name": "Worship Plan",
+  "description": "Plan services, songs, teams, and availability.",
+  "start_url": "/#/services",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#1d4d42",
+  "icons": [
+    {
+      "src": "icons/worship-plan-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
