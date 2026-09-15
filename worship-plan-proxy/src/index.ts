@@ -41,13 +41,47 @@ export default {
       );
     }
 
-    let upstream: Response;
+    const rpcMethod = (() => {
+      try { return String(JSON.parse(body || '{}')?.method || ''); }
+      catch (_) { return ''; }
+    })();
+    // Google intermittently returns a Drive 404 from its Apps Script redirect
+    // path when requests originate at the Worker. Retrying reads is safe; so
+    // is saveOrder because it replaces the complete order with the same body.
+    // Never retry email, create, or other potentially non-idempotent writes.
+    const canRetry = /^(get|list|suggest|ai|summarize|esv)/i.test(rpcMethod)
+      || rpcMethod === 'saveOrder';
+
+    let upstream: Response | undefined;
+    let text = '';
+    let contentType = '';
+    let parsed: ReturnType<typeof parseJsonSafely> = { ok: false };
     try {
-      upstream = await fetch(`${appsScriptBase}/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body
-      });
+      for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
+        const rpcUrl = `${appsScriptBase}/exec?worker_request=${Date.now()}_${attempt}`;
+        upstream = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8',
+            'Cache-Control': 'no-store'
+          },
+          body,
+          // Apps Script answers a POST with a 302 to a one-time
+          // googleusercontent URL. Retrieve that response explicitly as GET.
+          redirect: 'manual'
+        });
+
+        if (upstream.status >= 300 && upstream.status < 400) {
+          const resultUrl = upstream.headers.get('Location');
+          if (!resultUrl) throw new Error('Apps Script redirected the RPC request without a result URL.');
+          upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
+        }
+
+        text = await upstream.text();
+        contentType = upstream.headers.get('Content-Type') || '';
+        parsed = parseJsonSafely(text);
+        if (parsed.ok) break;
+      }
     } catch (err) {
       return jsonError(
         origin,
@@ -56,21 +90,18 @@ export default {
       );
     }
 
-    const text = await upstream.text();
-    const contentType = upstream.headers.get('Content-Type') || '';
-    const parsed = parseJsonSafely(text);
     if (!parsed.ok) {
       const preview = summarizeUpstream(text);
       return jsonError(
         origin,
         502,
-        `Apps Script returned a non-JSON response (${upstream.status}${contentType ? `, ${contentType}` : ''}). This usually means the worker is pointing at an outdated or non-public Apps Script deployment.`,
+        `Apps Script returned a non-JSON response (${upstream?.status || 502}${contentType ? `, ${contentType}` : ''}). This usually means the worker is pointing at an outdated or non-public Apps Script deployment.`,
         preview
       );
     }
 
     return new Response(JSON.stringify(parsed.value), {
-      status: upstream.status,
+      status: upstream?.status || 200,
       headers: {
         ...cors(origin),
         'Content-Type': 'application/json; charset=utf-8'

@@ -1940,7 +1940,11 @@ function applyServiceFilters(items: ServiceItem[], opts?: ListServicesOptions): 
 }
 
 export function listServices(opts?: ListServicesOptions) {
-  ensureUpcomingServicesCoverage();
+  // Listing services is called by several public views during application
+  // startup.  Do not create services here: that takes the document lock and
+  // makes otherwise read-only requests queue behind each other (and can make
+  // the public Worker time out).  Service creation remains an explicit admin
+  // action through the planning UI.
   const all = fetchServicesUnfiltered();
   return { items: applyServiceFilters(all, opts) };
 }

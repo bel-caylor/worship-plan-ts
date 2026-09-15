@@ -84,6 +84,30 @@ Notes:
 - the Worker normalizes either form
 - every time Apps Script gives you a new deployment URL, assume the Worker secret now needs updating too
 
+### If "Manage deployments" is unavailable or cannot update the Web App
+
+Do not create a new deployment blindly. Creating a separate deployment can
+change the URL and leave the Worker pointed at the old Web App (the N-1 issue).
+
+First, confirm that you are signed in to the Google account that owns the Apps
+Script project and has permission to manage its deployments. If the Apps Script
+UI still cannot update the existing Web App, use the locally authenticated
+`clasp` fallback **only when you know the existing Web App deployment ID**:
+
+```powershell
+# Create a version from the code already pushed by npm run deploy.
+npx clasp version "Deploy latest backend"
+
+# Redeploy the existing Web App with that version. This preserves its
+# deployment configuration (including its access settings) and URL.
+npx clasp deploy --deploymentId <EXISTING_WEB_APP_DEPLOYMENT_ID> --versionNumber <VERSION_NUMBER>
+```
+
+Use `npx clasp deployments` to list known deployment IDs. If neither the UI
+nor `clasp` can update the existing deployment, the project owner must grant
+deployment-management access; pushing source files alone does not publish a
+new Web App version.
+
 ## 3. Update the Wrangler secret
 
 Change into the Worker folder:
