@@ -234,10 +234,27 @@
       },
 
       useSuggestedYoutubeUrl(url) {
-        const next = String(url || '').trim();
+        const next = this.normalizeYoutubeUrl(url);
         if (!next) return;
         this.form.youtubeUrl = next;
         if (this.selectedServiceId) this.queueSaveDetails(true);
+      },
+
+      // Older saves could contain a serialized suggestion/candidate instead of
+      // its URL. Keep that implementation detail out of the URL input and
+      // recover the usable URL whenever one is present.
+      normalizeYoutubeUrl(value) {
+        let next = value;
+        if (typeof next === 'string') {
+          const text = next.trim();
+          if (text.startsWith('{') || text.startsWith('[')) {
+            try { next = JSON.parse(text); } catch (_) { return text; }
+          } else {
+            return text;
+          }
+        }
+        if (next && typeof next === 'object') return String(next.url || '').trim();
+        return String(next || '').trim();
       },
 
       hydrateExistingServices() {
@@ -691,7 +708,7 @@
         this.form.date = svc.date || this.nextSundayISO();
         this.form.time = derivedTime || svc.time || fallbackTime;
         this.form.type = svc.type || fallbackType;
-        this.form.youtubeUrl = svc.youtubeUrl || '';
+        this.form.youtubeUrl = this.normalizeYoutubeUrl(svc.youtubeUrl);
         this.form.leader = svc.leader || fallbackLeader;
         this.form.preacher = svc.preacher || fallbackPreacher;
         this.form.scripture = svc.scripture || '';
@@ -2779,6 +2796,16 @@
         } catch (_) { }
       },
 
+      updateSelectedServiceSummary() {
+        const targetId = String(this.selectedServiceId || '').trim();
+        if (!targetId) return;
+        const next = (Array.isArray(this.existingServices) ? this.existingServices : []).map((svc) =>
+          svc && svc.id === targetId ? { ...svc, leader: String(this.form.leader || '').trim() } : svc
+        );
+        this.existingServices = next;
+        try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
+      },
+
       queueSaveDetails(immediate = false) {
         if (this.isGuest) return;
         try {
@@ -2789,6 +2816,9 @@
         } catch (_) { }
         if (!this.selectedServiceId) return;
         this.detailsDirty = true;
+        // The toolbar label is a summary of the current form. Update it now,
+        // rather than waiting for the debounced server save to finish.
+        this.updateSelectedServiceSummary();
         this.updateTeamEmailDraft({});
         if (immediate) {
           this.persistDetails();
@@ -2808,7 +2838,9 @@
         if (!this.selectedServiceId) return;
         this.savingDetails = true;
         this.detailsError = '';
-        const payload = { ...this.form, id: this.selectedServiceId, scriptureText: this.scriptureText };
+        const youtubeUrl = this.normalizeYoutubeUrl(this.form.youtubeUrl);
+        this.form.youtubeUrl = youtubeUrl;
+        const payload = { ...this.form, youtubeUrl, id: this.selectedServiceId, scriptureText: this.scriptureText };
         try {
           const res = await callRpc('saveService', payload);
           const newId = res?.id || this.selectedServiceId;
@@ -2819,7 +2851,7 @@
             date: this.form.date,
             time: this.form.time,
             type: this.form.type,
-            youtubeUrl: this.form.youtubeUrl,
+            youtubeUrl,
             leader: this.form.leader,
             preacher: this.form.preacher,
             scripture: this.form.scripture,

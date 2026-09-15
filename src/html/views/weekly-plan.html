@@ -200,7 +200,7 @@
               <span x-show="!savingDetails && savedAt">Saved</span>
             </div>
           </div>
-          <div class="p-3 space-y-3 overflow-auto flex-1">
+          <div class="p-3 space-y-3 overflow-auto flex-1 min-h-0 flex flex-col">
             <div class="flex flex-wrap items-center gap-2">
               <button class="btn btn--outline btn--sm" @click="fetchScripture()">Fetch Text</button>
               <input class="flex-1 form-control form-control--dense min-w-[220px]" type="text"
@@ -226,7 +226,7 @@
               <textarea class="mt-1 w-full form-control form-control--dense" rows="3" x-model="form.notes"
                 @input="queueSaveDetails()"></textarea>
             </label>
-            <div class="mt-6 border rounded">
+            <div class="mt-6 border rounded flex flex-col flex-1 min-h-[420px]">
               <div class="flex flex-wrap items-center justify-start gap-2 px-3 py-2">
                 <div>
                   <span class="font-medium text-gray-700">Songs Browser</span>
@@ -243,7 +243,7 @@
                   </span>
                 </div>
               </div>
-              <div class="mt-2 h-[620px] flex flex-col overflow-hidden">
+              <div class="mt-2 flex-1 min-h-0 flex flex-col overflow-hidden">
                 <div class="flex-1 flex flex-col" x-data="songsApp('embedded')" x-init="init()"
                   x-ref="embeddedSongsApp">
                   <div x-ref="browserHost" class="flex-1 min-h-0 flex flex-col w-full overflow-hidden"></div>

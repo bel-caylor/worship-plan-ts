@@ -51,20 +51,49 @@ export function getFilesForFolderUrl(folderUrl: string, limit: number = 200) {
         return null;
     };
     const folderId = extractId(folderUrl);
-    if (!folderId) return [];
+    if (!folderId) throw new Error('The song media folder link is invalid.');
     let folder: GoogleAppsScript.Drive.Folder;
     try {
         folder = DriveApp.getFolderById(folderId);
     } catch (_) {
-        return [];
+        throw new Error('Unable to access the song media folder. Share the folder with the account running this app, then try again.');
     }
-    const out: Array<{ name: string; url: string; mimeType: string }> = [];
-    const it = folder.getFiles();
-    while (it.hasNext() && out.length < limit) {
-        const f = it.next();
-        out.push({ name: f.getName(), url: f.getUrl(), mimeType: f.getMimeType() });
+    const out: Array<{ name: string; url: string; mimeType: string; path: string }> = [];
+    const seenFolders = new Set<string>();
+    const stack: Array<{ folder: GoogleAppsScript.Drive.Folder; path: string }> = [{
+        folder,
+        path: ''
+    }];
+
+    // Song folders sometimes group charts, recordings, and stems in child folders.
+    // Search the whole song folder so the browser does not incorrectly report it empty.
+    while (stack.length && out.length < limit) {
+        const current = stack.pop()!;
+        const currentId = current.folder.getId();
+        if (seenFolders.has(currentId)) continue;
+        seenFolders.add(currentId);
+
+        const files = current.folder.getFiles();
+        while (files.hasNext() && out.length < limit) {
+            const f = files.next();
+            out.push({
+                name: f.getName(),
+                url: f.getUrl(),
+                mimeType: f.getMimeType(),
+                path: current.path
+            });
+        }
+
+        const subfolders = current.folder.getFolders();
+        while (subfolders.hasNext()) {
+            const child = subfolders.next();
+            stack.push({
+                folder: child,
+                path: current.path ? `${current.path} / ${child.getName()}` : child.getName()
+            });
+        }
     }
-    out.sort((a, b) => a.name.localeCompare(b.name));
+    out.sort((a, b) => (a.path || '').localeCompare(b.path || '') || a.name.localeCompare(b.name));
     return out;
 }
 

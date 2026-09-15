@@ -75,7 +75,17 @@ export default {
         if (upstream.status >= 300 && upstream.status < 400) {
           const resultUrl = upstream.headers.get('Location');
           if (!resultUrl) throw new Error('Apps Script redirected the RPC request without a result URL.');
-          upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
+          // The redirected googleusercontent URL is occasionally not ready
+          // immediately, especially just after a new Apps Script deployment.
+          // Retrying this same one-time URL is important; issuing a new POST
+          // only creates another result URL that has the same race.
+          for (let resultAttempt = 0; resultAttempt < 4; resultAttempt += 1) {
+            upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
+            if (upstream.ok) break;
+            if (resultAttempt < 3) {
+              await new Promise(resolve => setTimeout(resolve, 350 * (resultAttempt + 1)));
+            }
+          }
         }
 
         text = await upstream.text();
