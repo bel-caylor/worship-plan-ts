@@ -34,6 +34,7 @@
       promise,
       new Promise((_, reject) => setTimeout(() => reject(new Error('Service sync is taking too long. Please try again.')), timeoutMs))
     ]);
+    const cachedServices = readStoredServices();
 
     const normalizeTitle = (value) =>
       String(value || '')
@@ -203,7 +204,7 @@
       return '\uD83D\uDCC4';
     };
 return {
-      services: seededServices.length ? seededServices : readStoredServices(),
+      services: cachedServices.length ? cachedServices : seededServices,
       songs: seededSongs,
       songLookup: buildSongLookup(seededSongs),
       songsVersion: seededSongs.length ? 1 : 0,
@@ -211,8 +212,10 @@ return {
       songMedia: {},
       scriptureCache: {},
       selectedServiceId: '',
-      loadingServices: !seededServices.length && !readStoredServices().length,
+      loadingServices: !cachedServices.length && !seededServices.length,
       servicesError: '',
+      showingServiceHistory: false,
+      loadingServiceHistory: false,
       loadingDetails: false,
       loadingTeam: false,
       _detailRequestId: 0,
@@ -418,6 +421,24 @@ return {
             if (requestId === this._detailRequestId) this.loadingTeam = false;
           });
         await Promise.all([orderRequest, teamRequest]);
+      },
+
+      async loadServiceHistory() {
+        if (this.loadingServiceHistory || this.showingServiceHistory) return;
+        this.loadingServiceHistory = true;
+        this.servicesError = '';
+        try {
+          const res = await withTimeout(callRpc('listServices', { sort: 'desc' }), SERVICES_SYNC_TIMEOUT_MS);
+          if (Array.isArray(res?.items)) {
+            this.services = res.items;
+            this.showingServiceHistory = true;
+            storeServices(res.items);
+          }
+        } catch (err) {
+          this.servicesError = err?.message || 'Unable to load older services.';
+        } finally {
+          this.loadingServiceHistory = false;
+        }
       },
 
       toggleRow(idx, item) {

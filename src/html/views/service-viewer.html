@@ -9,6 +9,9 @@
         <option :value="svc.id" x-text="formatServiceLabel(svc)"></option>
       </template>
     </select>
+    <button type="button" class="btn btn--surface btn--xs" x-show="!showingServiceHistory"
+      :disabled="loadingServiceHistory" @click="loadServiceHistory()"
+      x-text="loadingServiceHistory ? 'Loading history...' : 'Show older services'"></button>
     <div class="flex-1"></div>
     <span class="inline-header-flex text-sm text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1 rounded"
       x-show="loadingServices">
