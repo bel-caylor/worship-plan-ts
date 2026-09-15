@@ -119,8 +119,9 @@
     <?!= HtmlService.createHtmlOutputFromFile('topbar').getContent(); ?>
   </div>
 
-  <!-- Mount only the active route.  x-show leaves every view's x-init active,
-       which caused hidden views to issue competing Apps Script requests. -->
+  <!-- Mount only the active route, except for Weekly Plan once it has been
+       opened. Keeping that editing workspace alive preserves the selected
+       service, active tab, and unsaved UI state while browsing the Song List. -->
   <main class="overflow-hidden flex flex-col flex-1 min-h-0"
     :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
     <template x-if="route==='services'">
@@ -147,8 +148,8 @@
       </div>
     </template>
 
-    <template x-if="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
+    <template x-if="planMounted && auth && auth.capabilities && auth.capabilities.canViewPlan">
+      <div x-show="route==='plan'" class="h-full flex-1 min-h-0 flex flex-col">
         <?!= HtmlService.createHtmlOutputFromFile('weekly-plan').getContent(); ?>
       </div>
     </template>
@@ -185,6 +186,7 @@
         };
       return {
         route: 'services',
+        planMounted: false,
         auth: initialAuth,
         authDebug: (typeof window !== 'undefined' && window.__AUTH_DEBUG__) || { enabled: false },
         allowedRoutes: routesForAuth(initialAuth),
@@ -213,6 +215,7 @@
           const setRoute = (value) => {
             const fallback = fallbackRoute();
             const next = this.allowedRoutes.has(value) ? value : fallback;
+            if (next === 'plan') this.planMounted = true;
             this.route = next;
             return next;
           };

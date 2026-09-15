@@ -48,6 +48,12 @@
       }));
     } catch (_) {}
   };
+  const announceSongsCacheUpdate = (rows) => {
+    try {
+      if (typeof window === 'undefined' || !Array.isArray(rows)) return;
+      window.dispatchEvent(new CustomEvent('songs-cache-updated', { detail: { rows } }));
+    } catch (_) {}
+  };
 
   const starDebugLog = (...args) => {
     try {
@@ -271,6 +277,17 @@
 
       async init() {
         this.bindAuthEvents();
+        try {
+          const handleSongsCacheUpdate = (evt) => {
+            const rows = evt?.detail?.rows;
+            if (!Array.isArray(rows)) return;
+            this.updateRows(rows, { skipRender: true });
+            this.buildFilters();
+            this.render(false);
+          };
+          window.addEventListener('songs-cache-updated', handleSongsCacheUpdate);
+          this._cleanupFns.push(() => window.removeEventListener('songs-cache-updated', handleSongsCacheUpdate));
+        } catch (_) { /* ignore */ }
         await this.bootstrapLayout();
         await this.ensureRowsLoaded();
 
@@ -1237,6 +1254,7 @@
             this.updateRows(res.items, { skipRender: true });
             this.buildFilters();
             this.render(true);
+            announceSongsCacheUpdate(res.items);
             const match = this.findSongByName(payload.Song);
             if (match) await this.select(match);
           }
