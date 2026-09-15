@@ -8,7 +8,10 @@
     const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
     const SERVICES_STORAGE_KEY = 'wp.serviceViewer.services.v1';
     const SERVICES_STORAGE_MAX_AGE_MS = 5 * 60 * 1000;
-    const SERVICES_SYNC_TIMEOUT_MS = 15000;
+    // Apps Script cold starts commonly take 15–30 seconds through the Worker.
+    // Keep a finite limit for genuinely stuck requests without rejecting a
+    // normal startup as a failure.
+    const SERVICES_SYNC_TIMEOUT_MS = 45000;
     const serviceListOptions = { includePast: false, sort: 'asc', limit: 24 };
 
     const readStoredServices = () => {
@@ -211,6 +214,8 @@ return {
       loadingServices: !seededServices.length && !readStoredServices().length,
       servicesError: '',
       loadingDetails: false,
+      loadingTeam: false,
+      _detailRequestId: 0,
       orderItems: [],
       orderError: '',
       teamAssignments: [],
@@ -379,27 +384,40 @@ return {
       async loadServiceDetails(serviceId) {
         const target = String(serviceId || '').trim();
         if (!target) return;
+        const requestId = ++this._detailRequestId;
         this.loadingDetails = true;
+        this.loadingTeam = true;
         this.orderItems = [];
         this.teamAssignments = [];
         this.orderError = '';
         this.teamError = '';
-        try {
-          const [orderRes, teamRes] = await Promise.all([
-            callRpc('getOrder', target),
-            callRpc('getServiceTeamAssignments', { serviceId: target })
-          ]);
-          this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
-          this.teamAssignments = Array.isArray(teamRes?.teams)
-            ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
-            : [];
-        } catch (err) {
-          const msg = err && err.message ? err.message : 'Unable to load service details.';
-          this.orderError = msg;
-          this.teamError = msg;
-        } finally {
-          this.loadingDetails = false;
-        }
+        const orderRequest = withTimeout(callRpc('getOrder', target), SERVICES_SYNC_TIMEOUT_MS)
+          .then((orderRes) => {
+            if (requestId !== this._detailRequestId) return;
+            this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+          })
+          .catch((err) => {
+            if (requestId !== this._detailRequestId) return;
+            this.orderError = err?.message || 'Unable to load the order of worship.';
+          })
+          .finally(() => {
+            if (requestId === this._detailRequestId) this.loadingDetails = false;
+          });
+        const teamRequest = withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS)
+          .then((teamRes) => {
+            if (requestId !== this._detailRequestId) return;
+            this.teamAssignments = Array.isArray(teamRes?.teams)
+              ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
+              : [];
+          })
+          .catch((err) => {
+            if (requestId !== this._detailRequestId) return;
+            this.teamError = err?.message || 'Unable to load the serving team.';
+          })
+          .finally(() => {
+            if (requestId === this._detailRequestId) this.loadingTeam = false;
+          });
+        await Promise.all([orderRequest, teamRequest]);
       },
 
       toggleRow(idx, item) {
