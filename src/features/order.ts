@@ -2,7 +2,7 @@
 import { ORDER_SHEET, ORDER_COL } from '../constants';
 import { getSheetByName } from '../util/sheets';
 import { songUsageForItemType, updateSongRecency } from './songs';
-import { getLatestSongPerformancePlayback } from './services';
+import { getLatestSongPerformancePlaybacks } from './services';
 
 export type OrderItem = {
   order: number;
@@ -34,13 +34,18 @@ export function getOrder(serviceId: string) {
   const notesIdx = col(ORDER_COL.notes);
 
   const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  const songNames = body
+    .filter(row => String(row[serviceIdx] ?? '').trim() === sid && looksLikeSongSlot(String(row[typeIdx] ?? '')))
+    .map(row => String(row[detailIdx] ?? '').trim())
+    .filter(Boolean);
+  const playbackBySong = getLatestSongPerformancePlaybacks(songNames);
   const items: OrderItem[] = [];
   for (const r of body) {
     const id = serviceIdx >= 0 ? String(r[serviceIdx] ?? '').trim() : '';
     if (id !== sid) continue;
     const detail = detailIdx >= 0 ? String(r[detailIdx] ?? '') : '';
     const playback = looksLikeSongSlot(typeIdx >= 0 ? String(r[typeIdx] ?? '') : '')
-      ? getLatestSongPerformancePlayback(detail)
+      ? (playbackBySong.get(detail) || { youtubeUrl: '', startLabel: '' })
       : { youtubeUrl: '', startLabel: '' };
     const hasManualTimestamp = Number(playback?.startSeconds || 0) > 0;
     items.push({

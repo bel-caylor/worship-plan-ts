@@ -380,6 +380,86 @@ export function getLatestSongPerformancePlayback(songName: string) {
   };
 }
 
+/**
+ * Batch version used while loading one order of worship.  The old one-song
+ * helper reads Services, YouTube streams, and SongPerformances every time;
+ * that made an order with several songs increasingly slow.
+ */
+export function getLatestSongPerformancePlaybacks(songNames: string[]) {
+  const requested = Array.from(new Set((Array.isArray(songNames) ? songNames : [])
+    .map(name => String(name || '').trim())
+    .filter(Boolean)));
+  const empty = { youtubeUrl: '', baseYoutubeUrl: '', startSeconds: 0, startLabel: '' };
+  const result = new Map<string, typeof empty>();
+  if (!requested.length) return result;
+
+  const requestedByNormalized = new Map<string, string[]>();
+  requested.forEach(name => {
+    const normalized = normalizeSongLookup(name);
+    if (!normalized) return;
+    const names = requestedByNormalized.get(normalized) || [];
+    names.push(name);
+    requestedByNormalized.set(normalized, names);
+  });
+  requested.forEach(name => result.set(name, empty));
+  if (!requestedByNormalized.size) return result;
+
+  const serviceById = new Map<string, ServiceItem>();
+  fetchServicesUnfiltered().forEach(service => {
+    const id = String(service?.id || '').trim();
+    if (id) serviceById.set(id, service);
+  });
+  const streamUrlByServiceId = getYouTubeStreamUrlByServiceIdMap();
+  const headers = Object.values(SONG_PERFORMANCES_COL);
+  const sh = getOrCreateSheet(SONG_PERFORMANCES_SHEET, headers);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return result;
+
+  const headerRow = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(value => String(value ?? '').trim());
+  const col = (name: string) => headerRow.findIndex(header => header.toLowerCase() === name.toLowerCase());
+  const songNameIdx = col(SONG_PERFORMANCES_COL.songName);
+  const serviceIdIdx = col(SONG_PERFORMANCES_COL.serviceId);
+  const youtubeUrlIdx = col(SONG_PERFORMANCES_COL.youtubeUrl);
+  const startSecondsIdx = col(SONG_PERFORMANCES_COL.startSeconds);
+  if (songNameIdx < 0 || serviceIdIdx < 0) return result;
+
+  const cutoff = todayISO();
+  const latestBySong = new Map<string, { serviceId: string; youtubeUrl: string; startSeconds: number; sortKey: string }>();
+  sh.getRange(2, 1, lastRow - 1, lastCol).getValues().forEach(row => {
+    const normalizedSong = normalizeSongLookup(String(row[songNameIdx] ?? ''));
+    if (!requestedByNormalized.has(normalizedSong)) return;
+    const serviceId = String(row[serviceIdIdx] ?? '').trim();
+    const startSeconds = startSecondsIdx >= 0 ? Math.max(0, Math.floor(Number(row[startSecondsIdx]) || 0)) : 0;
+    if (!serviceId || !startSeconds) return;
+    const service = serviceById.get(serviceId);
+    const date = String(service?.date || deriveDateFromServiceId(serviceId) || '').trim();
+    if (date && date > cutoff) return;
+    const sortKey = serviceSortKey(service || ({ id: serviceId } as ServiceItem));
+    const previous = latestBySong.get(normalizedSong);
+    if (previous && previous.sortKey.localeCompare(sortKey) >= 0) return;
+    latestBySong.set(normalizedSong, {
+      serviceId,
+      youtubeUrl: youtubeUrlIdx >= 0 ? String(row[youtubeUrlIdx] ?? '').trim() : '',
+      startSeconds,
+      sortKey
+    });
+  });
+
+  latestBySong.forEach((latest, normalizedSong) => {
+    const service = serviceById.get(latest.serviceId);
+    const baseYoutubeUrl = String(latest.youtubeUrl || service?.youtubeUrl || streamUrlByServiceId.get(latest.serviceId) || '').trim();
+    const playback = {
+      youtubeUrl: appendYouTubeStartTime(baseYoutubeUrl, latest.startSeconds),
+      baseYoutubeUrl,
+      startSeconds: latest.startSeconds,
+      startLabel: formatSecondsAsTimestamp(latest.startSeconds)
+    };
+    (requestedByNormalized.get(normalizedSong) || []).forEach(name => result.set(name, playback));
+  });
+  return result;
+}
+
 function extractVideoIdFromYouTubeUrl(url: string) {
   const text = String(url || '').trim();
   if (!text) return '';
@@ -1965,7 +2045,44 @@ export function listServices(opts?: ListServicesOptions) {
 export function getService(serviceId: string) {
   const id = String(serviceId || '').trim();
   if (!id) return null;
-  return fetchServicesUnfiltered().find(item => item.id === id) || null;
+  const sh = getSheetByName(SERVICES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return null;
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(value => String(value ?? '').trim());
+  const col = (name: string) => headers.findIndex(header => header.toLowerCase() === name.toLowerCase());
+  const idIdx = col(SERVICES_COL.id);
+  if (idIdx < 0) return null;
+
+  // Do not call fetchServicesUnfiltered here. A selected service needs one
+  // row, whereas that helper reads every cell in the Services sheet, including
+  // all saved scripture text. Reading IDs first keeps this lookup small.
+  const ids = sh.getRange(2, idIdx + 1, lastRow - 1, 1).getDisplayValues();
+  const rowOffset = ids.findIndex(row => String(row[0] ?? '').trim() === id);
+  if (rowOffset < 0) return null;
+  const row = sh.getRange(rowOffset + 2, 1, 1, lastCol).getValues()[0];
+  const value = (index: number) => index >= 0 ? String(row[index] ?? '') : '';
+  const scriptureTextIdx = (() => {
+    const canonical = col(SERVICES_COL.scriptureText);
+    return canonical >= 0 ? canonical : col('ScriptureText');
+  })();
+
+  return {
+    id,
+    date: deriveDateFromServiceId(id) || value(col(SERVICES_COL.date)),
+    time: deriveTimeFromServiceId(id) || value(col(SERVICES_COL.time)),
+    type: value(col(SERVICES_COL.type)),
+    youtubeUrl: value(col(SERVICES_COL.youtubeUrl)),
+    leader: value(col(SERVICES_COL.leader)),
+    preacher: value(col(SERVICES_COL.preacher)),
+    scripture: value(col(SERVICES_COL.scripture)),
+    scriptureText: value(scriptureTextIdx),
+    theme: value(col(SERVICES_COL.theme)),
+    keywords: value(col(SERVICES_COL.keywords)),
+    notes: value(col(SERVICES_COL.notes)),
+    suggestedSongs: value(col(SERVICES_COL.suggestedSongs))
+  } as ServiceItem;
 }
 
 function ensureUpcomingServicesCoverage(weeksAhead = AUTO_SERVICE_WEEKS_AHEAD) {

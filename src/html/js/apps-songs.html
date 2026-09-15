@@ -1,6 +1,6 @@
 <script>
   const SONGS_CACHE_KEY = '__wpSongsCache';
-  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v1';
+  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v2';
   const SONGS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
   let SONGS_BROWSER_HTML_PROMISE = null;
   const fetchSongsBrowserHtml = async () => {
@@ -468,7 +468,15 @@
         this.performanceItems = [];
         this.performanceMessage = '';
         if (!row) return;
-        const url = String((row && row._folderUrl) || '').trim();
+        let url = String((row && row._folderUrl) || '').trim();
+        if (!url && row?.Song) {
+          try {
+            url = String(await callRpc('getSongFolderUrl', { songName: row.Song }) || '').trim();
+            if (url) row._folderUrl = url;
+          } catch (e) {
+            console.warn('Unable to resolve song media folder', e);
+          }
+        }
         if (!url) {
           this.mediaMessage = 'No folder link available.';
           return;

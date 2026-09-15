@@ -1,5 +1,6 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
+import { getSongFolderUrl } from './features/song-media';
 import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, getService, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
 import { getOrder, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
@@ -19,6 +20,8 @@ export function rpc(input: { method: string; payload: unknown }) {
     switch (method) {
       case 'getFilesForFolderUrl':
         return getFilesForFolderUrl(String(payload), 200);
+      case 'getSongFolderUrl':
+        return getSongFolderUrl(payload as { songName?: string });
       case 'addService':
         return addService(payload as any);
       case 'saveService':

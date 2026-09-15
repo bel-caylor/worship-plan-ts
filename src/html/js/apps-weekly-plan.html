@@ -246,6 +246,19 @@
           try { cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null'); } catch (_) { }
           if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS)) {
             this.existingServices = cached.items;
+            return;
+          }
+          // Versions before the compact picker used this key. Preserve that
+          // device-local list rather than making every existing browser wait
+          // for a new first-load sync after upgrading.
+          let legacy = null;
+          try { legacy = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
+          if (legacy && Array.isArray(legacy.items) && legacy.items.length
+            && Date.now() - Number(legacy.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS) {
+            this.existingServices = legacy.items.map(({ id, date, time, type, leader }) => ({ id, date, time, type, leader }));
+            try {
+              localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: legacy.ts, items: this.existingServices }));
+            } catch (_) { /* ignore */ }
           }
         } catch (_) { /* ignore */ }
       },
@@ -266,8 +279,11 @@
       restoreSelectedService() {
         this.$nextTick(() => {
           const exists = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
-          if (this.selectedServiceId && exists) this.loadSelected();
-          else if (this.selectedServiceId) {
+          // Restore the picker selection without automatically fetching the
+          // entire service record.  Detail loading is intentionally explicit
+          // through the Load button so opening the planner stays immediate.
+          if (this.selectedServiceId && exists) return;
+          if (this.selectedServiceId) {
             this.selectedServiceId = '';
             try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
           }
@@ -711,6 +727,11 @@
         const selectedId = this.selectedServiceId;
         const choice = this.existingServices.find(s => s.id === selectedId);
         if (!choice) return notify('Select a service first', 'info');
+        // Do not leave the previous service visible while its replacement is
+        // loading; the selected option remains in the toolbar for context.
+        this.showDetails = false;
+        this.showOrder = false;
+        this.orderRows = [];
         this.resetRecommendations();
         this.resetTeamAssignments();
         this.loadingServices = true;

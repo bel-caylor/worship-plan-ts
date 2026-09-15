@@ -57,7 +57,8 @@ export default {
     let contentType = '';
     let parsed: ReturnType<typeof parseJsonSafely> = { ok: false };
     try {
-      for (let attempt = 0; attempt < (canRetry ? 2 : 1); attempt += 1) {
+      const attempts = canRetry ? 4 : 1;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
         const rpcUrl = `${appsScriptBase}/exec?worker_request=${Date.now()}_${attempt}`;
         upstream = await fetch(rpcUrl, {
           method: 'POST',
@@ -81,6 +82,11 @@ export default {
         contentType = upstream.headers.get('Content-Type') || '';
         parsed = parseJsonSafely(text);
         if (parsed.ok) break;
+        // A brief backoff gives Google's one-time result URL time to become
+        // available instead of returning its transient Drive 404 to the app.
+        if (attempt < attempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+        }
       }
     } catch (err) {
       return jsonError(

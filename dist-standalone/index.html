@@ -472,7 +472,10 @@
   window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || !window.__AUTH__.capabilities.canEditPlan);
   dispatchAuthChanged(window.__AUTH__);
   window.__AUTH_DEBUG__ = { ...DEFAULT_AUTH_DEBUG, enabled: DEBUG_FLAG };
-  refreshAuthContext();
+  // Local development already supplies a complete development identity. Do
+  // not add a second Apps Script request that competes with the initial
+  // service-catalog load.
+  if (!devAuthOverride) refreshAuthContext();
   window.refreshAuthContext = refreshAuthContext;
   window.refreshAuthDebug = refreshAuthDebug;
   window.addEventListener('load', () => {
@@ -863,7 +866,7 @@
 
   <script>
   const SONGS_CACHE_KEY = '__wpSongsCache';
-  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v1';
+  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v2';
   const SONGS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
   let SONGS_BROWSER_HTML_PROMISE = null;
   const fetchSongsBrowserHtml = async () => {
@@ -1331,7 +1334,15 @@
         this.performanceItems = [];
         this.performanceMessage = '';
         if (!row) return;
-        const url = String((row && row._folderUrl) || '').trim();
+        let url = String((row && row._folderUrl) || '').trim();
+        if (!url && row?.Song) {
+          try {
+            url = String(await callRpc('getSongFolderUrl', { songName: row.Song }) || '').trim();
+            if (url) row._folderUrl = url;
+          } catch (e) {
+            console.warn('Unable to resolve song media folder', e);
+          }
+        }
         if (!url) {
           this.mediaMessage = 'No folder link available.';
           return;
@@ -2375,7 +2386,9 @@
     // Keep a finite limit for genuinely stuck requests without rejecting a
     // normal startup as a failure.
     const SERVICES_SYNC_TIMEOUT_MS = 45000;
-    const serviceListOptions = { includePast: false, sort: 'asc', limit: 24 };
+    // The selector is the complete service archive; there is no separate
+    // "older services" step for people to discover.
+    const serviceListOptions = { summary: true, sort: 'desc' };
 
     const readStoredServices = () => {
       try {
@@ -2577,8 +2590,6 @@ return {
       selectedServiceId: '',
       loadingServices: !cachedServices.length && !seededServices.length,
       servicesError: '',
-      showingServiceHistory: false,
-      loadingServiceHistory: false,
       loadingDetails: false,
       loadingTeam: false,
       _detailRequestId: 0,
@@ -2784,24 +2795,6 @@ return {
             if (requestId === this._detailRequestId) this.loadingTeam = false;
           });
         await Promise.all([orderRequest, teamRequest]);
-      },
-
-      async loadServiceHistory() {
-        if (this.loadingServiceHistory || this.showingServiceHistory) return;
-        this.loadingServiceHistory = true;
-        this.servicesError = '';
-        try {
-          const res = await withTimeout(callRpc('listServices', { sort: 'desc' }), SERVICES_SYNC_TIMEOUT_MS);
-          if (Array.isArray(res?.items)) {
-            this.services = res.items;
-            this.showingServiceHistory = true;
-            storeServices(res.items);
-          }
-        } catch (err) {
-          this.servicesError = err?.message || 'Unable to load older services.';
-        } finally {
-          this.loadingServiceHistory = false;
-        }
       },
 
       toggleRow(idx, item) {
@@ -6536,6 +6529,19 @@ return {
           try { cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null'); } catch (_) { }
           if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS)) {
             this.existingServices = cached.items;
+            return;
+          }
+          // Versions before the compact picker used this key. Preserve that
+          // device-local list rather than making every existing browser wait
+          // for a new first-load sync after upgrading.
+          let legacy = null;
+          try { legacy = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
+          if (legacy && Array.isArray(legacy.items) && legacy.items.length
+            && Date.now() - Number(legacy.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS) {
+            this.existingServices = legacy.items.map(({ id, date, time, type, leader }) => ({ id, date, time, type, leader }));
+            try {
+              localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: legacy.ts, items: this.existingServices }));
+            } catch (_) { /* ignore */ }
           }
         } catch (_) { /* ignore */ }
       },
@@ -6556,8 +6562,11 @@ return {
       restoreSelectedService() {
         this.$nextTick(() => {
           const exists = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
-          if (this.selectedServiceId && exists) this.loadSelected();
-          else if (this.selectedServiceId) {
+          // Restore the picker selection without automatically fetching the
+          // entire service record.  Detail loading is intentionally explicit
+          // through the Load button so opening the planner stays immediate.
+          if (this.selectedServiceId && exists) return;
+          if (this.selectedServiceId) {
             this.selectedServiceId = '';
             try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
           }
@@ -7001,6 +7010,11 @@ return {
         const selectedId = this.selectedServiceId;
         const choice = this.existingServices.find(s => s.id === selectedId);
         if (!choice) return notify('Select a service first', 'info');
+        // Do not leave the previous service visible while its replacement is
+        // loading; the selected option remains in the toolbar for context.
+        this.showDetails = false;
+        this.showOrder = false;
+        this.orderRows = [];
         this.resetRecommendations();
         this.resetTeamAssignments();
         this.loadingServices = true;
@@ -10553,9 +10567,6 @@ return {
         <option :value="svc.id" x-text="formatServiceLabel(svc)"></option>
       </template>
     </select>
-    <button type="button" class="btn btn--surface btn--xs" x-show="!showingServiceHistory"
-      :disabled="loadingServiceHistory" @click="loadServiceHistory()"
-      x-text="loadingServiceHistory ? 'Loading history...' : 'Show older services'"></button>
     <div class="flex-1"></div>
     <span class="inline-header-flex text-sm text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1 rounded"
       x-show="loadingServices">

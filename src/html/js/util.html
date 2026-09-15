@@ -370,7 +370,10 @@
   window.__GUEST__ = Boolean(window.__FORCE_GUEST__ || !window.__AUTH__.capabilities.canEditPlan);
   dispatchAuthChanged(window.__AUTH__);
   window.__AUTH_DEBUG__ = { ...DEFAULT_AUTH_DEBUG, enabled: DEBUG_FLAG };
-  refreshAuthContext();
+  // Local development already supplies a complete development identity. Do
+  // not add a second Apps Script request that competes with the initial
+  // service-catalog load.
+  if (!devAuthOverride) refreshAuthContext();
   window.refreshAuthContext = refreshAuthContext;
   window.refreshAuthDebug = refreshAuthDebug;
   window.addEventListener('load', () => {
