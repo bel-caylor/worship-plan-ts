@@ -1,9 +1,9 @@
-const CACHE_NAME = 'worship-plan-shell-v1';
+const CACHE_NAME = 'worship-plan-shell-v2';
 const APP_SHELL = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/icons/worship-plan-icon.svg'
+  './',
+  './index.html',
+  './manifest.webmanifest',
+  './icons/worship-plan-icon.svg'
 ];
 
 self.addEventListener('install', (event) => {
@@ -30,9 +30,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request).then((response) => {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy));
+        caches.open(CACHE_NAME).then((cache) => cache.put('./index.html', copy));
         return response;
-      }).catch(() => caches.match('/index.html'))
+      }).catch(() => caches.match('./index.html'))
     );
     return;
   }

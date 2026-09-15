@@ -6,6 +6,31 @@
     const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     const seededServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
     const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
+    const SERVICES_STORAGE_KEY = 'wp.serviceViewer.services.v1';
+    const SERVICES_STORAGE_MAX_AGE_MS = 5 * 60 * 1000;
+    const SERVICES_SYNC_TIMEOUT_MS = 15000;
+    const serviceListOptions = { includePast: false, sort: 'asc', limit: 24 };
+
+    const readStoredServices = () => {
+      try {
+        const raw = JSON.parse(window.sessionStorage?.getItem(SERVICES_STORAGE_KEY) || 'null');
+        if (!raw || !Array.isArray(raw.items) || !raw.items.length) return [];
+        return Date.now() - Number(raw.ts || 0) < SERVICES_STORAGE_MAX_AGE_MS ? raw.items : [];
+      } catch (_) {
+        return [];
+      }
+    };
+    const storeServices = (items) => {
+      try {
+        if (Array.isArray(items) && items.length) {
+          window.sessionStorage?.setItem(SERVICES_STORAGE_KEY, JSON.stringify({ ts: Date.now(), items }));
+        }
+      } catch (_) { /* ignore */ }
+    };
+    const withTimeout = (promise, timeoutMs) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Service sync is taking too long. Please try again.')), timeoutMs))
+    ]);
 
     const normalizeTitle = (value) =>
       String(value || '')
@@ -175,7 +200,7 @@
       return '\uD83D\uDCC4';
     };
 return {
-      services: seededServices,
+      services: seededServices.length ? seededServices : readStoredServices(),
       songs: seededSongs,
       songLookup: buildSongLookup(seededSongs),
       songsVersion: seededSongs.length ? 1 : 0,
@@ -183,7 +208,8 @@ return {
       songMedia: {},
       scriptureCache: {},
       selectedServiceId: '',
-      loadingServices: true,
+      loadingServices: !seededServices.length && !readStoredServices().length,
+      servicesError: '',
       loadingDetails: false,
       orderItems: [],
       orderError: '',
@@ -318,14 +344,17 @@ return {
       },
 
       async refreshServices() {
-        this.loadingServices = true;
+        const hasUsableServices = Array.isArray(this.services) && this.services.length > 0;
+        this.loadingServices = !hasUsableServices;
+        this.servicesError = '';
         try {
-          const res = await callRpc('listServices', null);
-          if (Array.isArray(res?.items) && res.items.length) {
+          const res = await withTimeout(callRpc('listServices', serviceListOptions), SERVICES_SYNC_TIMEOUT_MS);
+          if (Array.isArray(res?.items)) {
             this.services = res.items;
+            storeServices(res.items);
           }
-        } catch (_) {
-          // keep injected list
+        } catch (err) {
+          this.servicesError = err?.message || 'Unable to sync services.';
         } finally {
           this.loadingServices = false;
           if (!this.selectedServiceId && Array.isArray(this.services) && this.services.length) {

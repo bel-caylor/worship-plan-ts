@@ -707,8 +707,13 @@
         const q = (this.q || '').toLowerCase().trim();
         const tokens = q ? q.split(/[,\s]+/).map(t => t.trim()).filter(Boolean) : [];
         const want = this.selectedSeason;
-        const baseFields = ['Song','Themes','Season','Keywords','Scriptures','Notes'];
-        const fields = this.searchLyrics ? [...baseFields, 'Lyrics','Lyrics (PD)'] : baseFields;
+        // A lyric search is intentionally broad: it also includes the catalog
+        // metadata that is derived from or describes a song.  With it off, keep
+        // the result set to literal title matches so a search such as
+        // "surrender" does not surface a song solely because of its themes.
+        const fields = this.searchLyrics
+          ? ['Song', 'Themes', 'Season', 'Keywords', 'Scriptures', 'Notes', 'Lyrics', 'Lyrics (PD)']
+          : ['Song'];
 
         let out = (this.rows || []).filter(r => {
           if (want) {
