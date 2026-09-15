@@ -2,6 +2,8 @@
   function weeklyPlanApp() {
     const START_AUTH = (typeof window !== 'undefined' && window.__AUTH__) || null;
     const SERVICE_LIST_TIMEOUT_MS = 45000;
+    const SERVICE_CHOICES_CACHE_KEY = 'wp.serviceChoices.v1';
+    const SERVICE_CHOICES_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
       ? window.APP_CTX.activeTeamTypes
       : ['Worship'];
@@ -149,20 +151,25 @@
         // Restore previously selected service id if present
         try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || ''; } catch (_) { }
         this.hydrateExistingServices();
-        // A cached or server-injected list is enough to restore this workspace
-        // immediately. The network refresh below is deliberately non-blocking.
+        // A locally stored picker list is enough to restore this workspace
+        // immediately. Only a missing or stale cache is refreshed on startup.
         this.loadingServices = !this.existingServices.length;
         this.finishInitialServiceHydration();
 
         (async () => {
+          if (this.hasFreshServiceChoices()) {
+            this.loadingServices = false;
+            this.ensureDefaults();
+            this.restoreSelectedService();
+            return;
+          }
           try {
             const s = await Promise.race([
-              callRpc('listServices', null),
+              callRpc('listServices', { summary: true, sort: 'desc' }),
               new Promise((_, reject) => setTimeout(() => reject(new Error('Service refresh is taking too long.')), SERVICE_LIST_TIMEOUT_MS))
             ]);
             if (Array.isArray(s?.items)) {
-              this.existingServices = s.items;
-              try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+              this.storeServiceChoices(s.items);
               this.finishInitialServiceHydration();
             }
           } catch (err) {
@@ -176,23 +183,7 @@
           this.$nextTick(() => {
             try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'CustomGǪ'); } catch (_) { }
           });
-          // Auto-load previously selected service if available
-          this.$nextTick(() => {
-            try {
-              if (!this.selectedServiceId) {
-                // nothing selected yet; stay blank
-                return;
-              }
-              // Ensure the selected ID actually exists before loading; otherwise clear it.
-              const existsNow = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
-              if (existsNow) {
-                this.loadSelected();
-              } else {
-                this.selectedServiceId = '';
-                try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
-              }
-            } catch (_) { }
-          });
+          this.restoreSelectedService();
         })();
         try {
           window.addEventListener('embedded-songs-ready', (evt) => {
@@ -251,16 +242,36 @@
 
       hydrateExistingServices() {
         try {
-          if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
-            this.existingServices = window.__SERVICES__;
-            return;
-          }
           let cached = null;
-          try { cached = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
-          if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < 300000)) {
+          try { cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null'); } catch (_) { }
+          if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS)) {
             this.existingServices = cached.items;
           }
         } catch (_) { /* ignore */ }
+      },
+
+      hasFreshServiceChoices() {
+        try {
+          const cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null');
+          return !!(cached && Array.isArray(cached.items) && cached.items.length
+            && Date.now() - Number(cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS);
+        } catch (_) { return false; }
+      },
+
+      storeServiceChoices(items) {
+        this.existingServices = Array.isArray(items) ? items : [];
+        try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+      },
+
+      restoreSelectedService() {
+        this.$nextTick(() => {
+          const exists = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
+          if (this.selectedServiceId && exists) this.loadSelected();
+          else if (this.selectedServiceId) {
+            this.selectedServiceId = '';
+            try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
+          }
+        });
       },
 
       hydrateDocxExportStore() {
@@ -382,7 +393,11 @@
         }
         if (this.selectedServiceId && !this.detailsDirty) {
           const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
-          if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
+          // Picker entries intentionally omit the large detail fields.  Do
+          // not clear the active form with that compact representation.
+          if (refreshed && Object.prototype.hasOwnProperty.call(refreshed, 'scripture')) {
+            this.applyServiceDetails(refreshed, { force: true, focus: false });
+          }
         }
       },
 
@@ -527,9 +542,8 @@
       async refreshServices() {
         this.loadingServices = true;
         try {
-          const s = await callRpc('listServices', null);
-          this.existingServices = Array.isArray(s?.items) ? s.items : [];
-          try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+          const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+          this.storeServiceChoices(s?.items);
         } catch (err) {
           console.error(err);
         } finally {
@@ -578,8 +592,8 @@
           // Refresh list
           this.loadingServices = true;
           try {
-            const s = await callRpc('listServices', null);
-            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+            const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+            if (Array.isArray(s?.items)) this.storeServiceChoices(s.items);
           } catch (_) { /* ignore */ } finally {
             this.loadingServices = false;
           }
@@ -609,8 +623,8 @@
           notify(isEdit ? 'Service saved.' : 'Service added.', 'success');
           this.loadingServices = true;
           try {
-            const s = await callRpc('listServices', null);
-            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+            const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+            if (Array.isArray(s?.items)) this.storeServiceChoices(s.items);
           } catch (_) { /* ignore */ } finally {
             this.loadingServices = false;
           }
@@ -684,7 +698,7 @@
         });
       },
 
-      loadSelected() {
+      async loadSelected() {
         try {
           if (this.saveDetailsTimer) {
             clearTimeout(this.saveDetailsTimer);
@@ -694,15 +708,33 @@
         this.detailsDirty = false;
         this.detailsError = '';
         this.savingDetails = false;
-        const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
-        if (!svc) return notify('Select a service first', 'info');
+        const selectedId = this.selectedServiceId;
+        const choice = this.existingServices.find(s => s.id === selectedId);
+        if (!choice) return notify('Select a service first', 'info');
         this.resetRecommendations();
         this.resetTeamAssignments();
-        this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
+        this.loadingServices = true;
+        try {
+          const svc = await callRpc('getService', selectedId);
+          // Ignore a late response if the user selected another service.
+          if (this.selectedServiceId !== selectedId) return;
+          if (!svc) {
+            notify('That service is no longer available.', 'info');
+            return;
+          }
+          this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
+        } catch (err) {
+          if (this.selectedServiceId === selectedId) {
+            notify(err?.message || 'Unable to load service details.', 'error');
+          }
+          return;
+        } finally {
+          this.loadingServices = false;
+        }
         this.loadingOrder = true;
         (async () => {
           try {
-            const r = await callRpc('getOrder', this.selectedServiceId);
+            const r = await callRpc('getOrder', selectedId);
             this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
           } catch (_) {
             this.orderRows = this.defaultOrderFor(this.form.type);
@@ -710,7 +742,7 @@
           this.ensureOrderOptionsFromRows();
           this.showOrder = true;
         })().finally(() => { this.loadingOrder = false; });
-        try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch (_) { }
+        try { localStorage.setItem('wp.selectedServiceId', selectedId); } catch (_) { }
         this.showDetails = true;
         this.activeContentTab = 'scripture';
       },
@@ -2717,7 +2749,7 @@
           });
           if (found) {
             this.existingServices = next;
-            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
+            try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
             if (targetId === this.selectedServiceId) {
               const updated = next.find(svc => svc && svc.id === targetId);
               if (updated) this.applyServiceDetails(updated, { force: true, focus: false });

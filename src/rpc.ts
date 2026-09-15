@@ -1,6 +1,6 @@
 // src/rpc.ts
 import { getFilesForFolderUrl } from './util/drive';
-import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
+import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, getService, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
 import { getOrder, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
@@ -27,6 +27,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return deleteService(payload as any);
       case 'listServices':
         return listServices(payload as any);
+      case 'getService':
+        return getService(String(payload || ''));
       case 'createServicesBatch':
         return createServicesBatch(payload as any);
       case 'getOrder':

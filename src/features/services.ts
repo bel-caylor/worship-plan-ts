@@ -25,6 +25,8 @@ export type ListServicesOptions = {
   includePast?: boolean;
   limit?: number;
   sort?: 'asc' | 'desc';
+  /** Return only the fields required to populate a service picker. */
+  summary?: boolean;
 };
 
 export type CreateServicesBatchInput = {
@@ -1946,7 +1948,24 @@ export function listServices(opts?: ListServicesOptions) {
   // the public Worker time out).  Service creation remains an explicit admin
   // action through the planning UI.
   const all = fetchServicesUnfiltered();
-  return { items: applyServiceFilters(all, opts) };
+  const items = applyServiceFilters(all, opts);
+  // Scripture text and notes can be very large.  The picker needs neither,
+  // so keep its response deliberately small.
+  if (opts?.summary) {
+    return {
+      // Keep the public return shape compatible with existing full-service
+      // callers; `summary` callers intentionally consume only these fields.
+      items: items.map(({ id, date, time, type, leader }) => ({ id, date, time, type, leader })) as unknown as ServiceItem[]
+    };
+  }
+  return { items };
+}
+
+/** Fetch full details only after a service has been selected in the planner. */
+export function getService(serviceId: string) {
+  const id = String(serviceId || '').trim();
+  if (!id) return null;
+  return fetchServicesUnfiltered().find(item => item.id === id) || null;
 }
 
 function ensureUpcomingServicesCoverage(weeksAhead = AUTO_SERVICE_WEEKS_AHEAD) {

@@ -41,7 +41,7 @@
 
     const baseTemplate = `<?!= JSON.stringify(typeof baseUrl !== 'undefined' ? baseUrl : '') ?>`;
     const guestTemplate = `<?!= JSON.stringify(typeof guestMode !== 'undefined' ? !!guestMode : false) ?>`;
-    const googleClientTemplate = "\"967595704630-1f7o7sa3cheo6qbh3jo280ngq2t3t6lj.apps.googleusercontent.com\"";
+    const googleClientTemplate = "";
     const parseTemplateString = (raw, fallback) => {
       if (!raw || /<\?!=/.test(raw)) return fallback;
       try { return JSON.parse(raw); } catch (_) { return fallback; }
@@ -75,7 +75,7 @@
     window.__GUEST__ = guestFromServer;
     window.__GOOGLE_CLIENT_ID__ = googleClientIdFromServer || '';
   </script>
-    <meta name="google-client-id" content="967595704630-1f7o7sa3cheo6qbh3jo280ngq2t3t6lj.apps.googleusercontent.com">
+    <meta name="google-client-id" content="">
   <script>
     (function ensureRpcBase() {
       if (window.__BASE__) return;
@@ -911,6 +911,12 @@
       }));
     } catch (_) {}
   };
+  const announceSongsCacheUpdate = (rows) => {
+    try {
+      if (typeof window === 'undefined' || !Array.isArray(rows)) return;
+      window.dispatchEvent(new CustomEvent('songs-cache-updated', { detail: { rows } }));
+    } catch (_) {}
+  };
 
   const starDebugLog = (...args) => {
     try {
@@ -1134,6 +1140,17 @@
 
       async init() {
         this.bindAuthEvents();
+        try {
+          const handleSongsCacheUpdate = (evt) => {
+            const rows = evt?.detail?.rows;
+            if (!Array.isArray(rows)) return;
+            this.updateRows(rows, { skipRender: true });
+            this.buildFilters();
+            this.render(false);
+          };
+          window.addEventListener('songs-cache-updated', handleSongsCacheUpdate);
+          this._cleanupFns.push(() => window.removeEventListener('songs-cache-updated', handleSongsCacheUpdate));
+        } catch (_) { /* ignore */ }
         await this.bootstrapLayout();
         await this.ensureRowsLoaded();
 
@@ -2105,6 +2122,7 @@
             this.updateRows(res.items, { skipRender: true });
             this.buildFilters();
             this.render(true);
+            announceSongsCacheUpdate(res.items);
             const match = this.findSongByName(payload.Song);
             if (match) await this.select(match);
           }
@@ -2351,6 +2369,35 @@
     const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     const seededServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
     const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
+    const SERVICES_STORAGE_KEY = 'wp.serviceViewer.services.v1';
+    const SERVICES_STORAGE_MAX_AGE_MS = 5 * 60 * 1000;
+    // Apps Script cold starts commonly take 15–30 seconds through the Worker.
+    // Keep a finite limit for genuinely stuck requests without rejecting a
+    // normal startup as a failure.
+    const SERVICES_SYNC_TIMEOUT_MS = 45000;
+    const serviceListOptions = { includePast: false, sort: 'asc', limit: 24 };
+
+    const readStoredServices = () => {
+      try {
+        const raw = JSON.parse(window.sessionStorage?.getItem(SERVICES_STORAGE_KEY) || 'null');
+        if (!raw || !Array.isArray(raw.items) || !raw.items.length) return [];
+        return Date.now() - Number(raw.ts || 0) < SERVICES_STORAGE_MAX_AGE_MS ? raw.items : [];
+      } catch (_) {
+        return [];
+      }
+    };
+    const storeServices = (items) => {
+      try {
+        if (Array.isArray(items) && items.length) {
+          window.sessionStorage?.setItem(SERVICES_STORAGE_KEY, JSON.stringify({ ts: Date.now(), items }));
+        }
+      } catch (_) { /* ignore */ }
+    };
+    const withTimeout = (promise, timeoutMs) => Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Service sync is taking too long. Please try again.')), timeoutMs))
+    ]);
+    const cachedServices = readStoredServices();
 
     const normalizeTitle = (value) =>
       String(value || '')
@@ -2520,7 +2567,7 @@
       return '\uD83D\uDCC4';
     };
 return {
-      services: seededServices,
+      services: cachedServices.length ? cachedServices : seededServices,
       songs: seededSongs,
       songLookup: buildSongLookup(seededSongs),
       songsVersion: seededSongs.length ? 1 : 0,
@@ -2528,8 +2575,13 @@ return {
       songMedia: {},
       scriptureCache: {},
       selectedServiceId: '',
-      loadingServices: true,
+      loadingServices: !cachedServices.length && !seededServices.length,
+      servicesError: '',
+      showingServiceHistory: false,
+      loadingServiceHistory: false,
       loadingDetails: false,
+      loadingTeam: false,
+      _detailRequestId: 0,
       orderItems: [],
       orderError: '',
       teamAssignments: [],
@@ -2663,14 +2715,17 @@ return {
       },
 
       async refreshServices() {
-        this.loadingServices = true;
+        const hasUsableServices = Array.isArray(this.services) && this.services.length > 0;
+        this.loadingServices = !hasUsableServices;
+        this.servicesError = '';
         try {
-          const res = await callRpc('listServices', null);
-          if (Array.isArray(res?.items) && res.items.length) {
+          const res = await withTimeout(callRpc('listServices', serviceListOptions), SERVICES_SYNC_TIMEOUT_MS);
+          if (Array.isArray(res?.items)) {
             this.services = res.items;
+            storeServices(res.items);
           }
-        } catch (_) {
-          // keep injected list
+        } catch (err) {
+          this.servicesError = err?.message || 'Unable to sync services.';
         } finally {
           this.loadingServices = false;
           if (!this.selectedServiceId && Array.isArray(this.services) && this.services.length) {
@@ -2695,26 +2750,57 @@ return {
       async loadServiceDetails(serviceId) {
         const target = String(serviceId || '').trim();
         if (!target) return;
+        const requestId = ++this._detailRequestId;
         this.loadingDetails = true;
+        this.loadingTeam = true;
         this.orderItems = [];
         this.teamAssignments = [];
         this.orderError = '';
         this.teamError = '';
+        const orderRequest = withTimeout(callRpc('getOrder', target), SERVICES_SYNC_TIMEOUT_MS)
+          .then((orderRes) => {
+            if (requestId !== this._detailRequestId) return;
+            this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+          })
+          .catch((err) => {
+            if (requestId !== this._detailRequestId) return;
+            this.orderError = err?.message || 'Unable to load the order of worship.';
+          })
+          .finally(() => {
+            if (requestId === this._detailRequestId) this.loadingDetails = false;
+          });
+        const teamRequest = withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS)
+          .then((teamRes) => {
+            if (requestId !== this._detailRequestId) return;
+            this.teamAssignments = Array.isArray(teamRes?.teams)
+              ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
+              : [];
+          })
+          .catch((err) => {
+            if (requestId !== this._detailRequestId) return;
+            this.teamError = err?.message || 'Unable to load the serving team.';
+          })
+          .finally(() => {
+            if (requestId === this._detailRequestId) this.loadingTeam = false;
+          });
+        await Promise.all([orderRequest, teamRequest]);
+      },
+
+      async loadServiceHistory() {
+        if (this.loadingServiceHistory || this.showingServiceHistory) return;
+        this.loadingServiceHistory = true;
+        this.servicesError = '';
         try {
-          const [orderRes, teamRes] = await Promise.all([
-            callRpc('getOrder', target),
-            callRpc('getServiceTeamAssignments', { serviceId: target })
-          ]);
-          this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
-          this.teamAssignments = Array.isArray(teamRes?.teams)
-            ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
-            : [];
+          const res = await withTimeout(callRpc('listServices', { sort: 'desc' }), SERVICES_SYNC_TIMEOUT_MS);
+          if (Array.isArray(res?.items)) {
+            this.services = res.items;
+            this.showingServiceHistory = true;
+            storeServices(res.items);
+          }
         } catch (err) {
-          const msg = err && err.message ? err.message : 'Unable to load service details.';
-          this.orderError = msg;
-          this.teamError = msg;
+          this.servicesError = err?.message || 'Unable to load older services.';
         } finally {
-          this.loadingDetails = false;
+          this.loadingServiceHistory = false;
         }
       },
 
@@ -6205,6 +6291,9 @@ return {
   <script>
   function weeklyPlanApp() {
     const START_AUTH = (typeof window !== 'undefined' && window.__AUTH__) || null;
+    const SERVICE_LIST_TIMEOUT_MS = 45000;
+    const SERVICE_CHOICES_CACHE_KEY = 'wp.serviceChoices.v1';
+    const SERVICE_CHOICES_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
     const ACTIVE_TEAM_TYPES = Array.isArray(window.APP_CTX?.activeTeamTypes)
       ? window.APP_CTX.activeTeamTypes
       : ['Worship'];
@@ -6216,6 +6305,7 @@ return {
       showOrder: false,
       activeContentTab: 'scripture',
       loadingServices: true,
+      servicesLoadError: '',
       loadingOrder: false,
       // cache + persistence
       loadedOnce: false,
@@ -6347,30 +6437,34 @@ return {
         this.preacherSelect = this.form.preacher;
         this.ensureSuggestStore();
         this.hydrateDocxExportStore();
-        this.loadingServices = true;
         this.updateTeamEmailDraft({ force: true });
         // Restore previously selected service id if present
         try { this.selectedServiceId = localStorage.getItem('wp.selectedServiceId') || ''; } catch (_) { }
         this.hydrateExistingServices();
+        // A locally stored picker list is enough to restore this workspace
+        // immediately. Only a missing or stale cache is refreshed on startup.
+        this.loadingServices = !this.existingServices.length;
         this.finishInitialServiceHydration();
 
         (async () => {
+          if (this.hasFreshServiceChoices()) {
+            this.loadingServices = false;
+            this.ensureDefaults();
+            this.restoreSelectedService();
+            return;
+          }
           try {
-            const r = await callRpc('getServicePeople', null);
-            if (r?.leaders) this.leaderChoices = Array.from(new Set([...this.leaderChoices, ...r.leaders])).sort((a, b) => a.localeCompare(b));
-            if (r?.preachers) this.preacherChoices = Array.from(new Set([...this.preacherChoices, ...r.preachers])).sort((a, b) => a.localeCompare(b));
-          } catch (e) { /* ignore */ }
-        })();
-        (async () => {
-          try {
-            const s = await callRpc('listServices', null);
+            const s = await Promise.race([
+              callRpc('listServices', { summary: true, sort: 'desc' }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Service refresh is taking too long.')), SERVICE_LIST_TIMEOUT_MS))
+            ]);
             if (Array.isArray(s?.items)) {
-              this.existingServices = s.items;
-              try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+              this.storeServiceChoices(s.items);
               this.finishInitialServiceHydration();
             }
-          } catch (_) {
-            // Guest mode or RPC unavailable: keep injected/cache data
+          } catch (err) {
+            // Keep a usable cached list visible if the background refresh fails.
+            this.servicesLoadError = err?.message || 'Unable to refresh services.';
           } finally {
             this.loadingServices = false;
           }
@@ -6379,23 +6473,7 @@ return {
           this.$nextTick(() => {
             try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'CustomGǪ'); } catch (_) { }
           });
-          // Auto-load previously selected service if available
-          this.$nextTick(() => {
-            try {
-              if (!this.selectedServiceId) {
-                // nothing selected yet; stay blank
-                return;
-              }
-              // Ensure the selected ID actually exists before loading; otherwise clear it.
-              const existsNow = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
-              if (existsNow) {
-                this.loadSelected();
-              } else {
-                this.selectedServiceId = '';
-                try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
-              }
-            } catch (_) { }
-          });
+          this.restoreSelectedService();
         })();
         try {
           window.addEventListener('embedded-songs-ready', (evt) => {
@@ -6454,16 +6532,36 @@ return {
 
       hydrateExistingServices() {
         try {
-          if (Array.isArray(window.__SERVICES__) && window.__SERVICES__.length) {
-            this.existingServices = window.__SERVICES__;
-            return;
-          }
           let cached = null;
-          try { cached = JSON.parse(localStorage.getItem('wp.servicesCache') || 'null'); } catch (_) { }
-          if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < 300000)) {
+          try { cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null'); } catch (_) { }
+          if (cached && Array.isArray(cached.items) && (Date.now() - (cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS)) {
             this.existingServices = cached.items;
           }
         } catch (_) { /* ignore */ }
+      },
+
+      hasFreshServiceChoices() {
+        try {
+          const cached = JSON.parse(localStorage.getItem(SERVICE_CHOICES_CACHE_KEY) || 'null');
+          return !!(cached && Array.isArray(cached.items) && cached.items.length
+            && Date.now() - Number(cached.ts || 0) < SERVICE_CHOICES_CACHE_MAX_AGE_MS);
+        } catch (_) { return false; }
+      },
+
+      storeServiceChoices(items) {
+        this.existingServices = Array.isArray(items) ? items : [];
+        try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+      },
+
+      restoreSelectedService() {
+        this.$nextTick(() => {
+          const exists = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
+          if (this.selectedServiceId && exists) this.loadSelected();
+          else if (this.selectedServiceId) {
+            this.selectedServiceId = '';
+            try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
+          }
+        });
       },
 
       hydrateDocxExportStore() {
@@ -6478,6 +6576,9 @@ return {
       activateContentTab(tab) {
         this.activeContentTab = tab;
         if (tab === 'team') {
+          if (this.selectedServiceId && !this.teamAssignmentsLoading) {
+            this.loadTeamAssignments(this.selectedServiceId);
+          }
           const needsDraft = !String(this.teamEmailBody || '').trim();
           this.updateTeamEmailDraft({ force: needsDraft });
           this.resizeTeamEmailBody();
@@ -6582,7 +6683,11 @@ return {
         }
         if (this.selectedServiceId && !this.detailsDirty) {
           const refreshed = this.existingServices.find(svc => svc && svc.id === this.selectedServiceId);
-          if (refreshed) this.applyServiceDetails(refreshed, { force: true, focus: false });
+          // Picker entries intentionally omit the large detail fields.  Do
+          // not clear the active form with that compact representation.
+          if (refreshed && Object.prototype.hasOwnProperty.call(refreshed, 'scripture')) {
+            this.applyServiceDetails(refreshed, { force: true, focus: false });
+          }
         }
       },
 
@@ -6727,9 +6832,8 @@ return {
       async refreshServices() {
         this.loadingServices = true;
         try {
-          const s = await callRpc('listServices', null);
-          this.existingServices = Array.isArray(s?.items) ? s.items : [];
-          try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
+          const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+          this.storeServiceChoices(s?.items);
         } catch (err) {
           console.error(err);
         } finally {
@@ -6778,8 +6882,8 @@ return {
           // Refresh list
           this.loadingServices = true;
           try {
-            const s = await callRpc('listServices', null);
-            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+            const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+            if (Array.isArray(s?.items)) this.storeServiceChoices(s.items);
           } catch (_) { /* ignore */ } finally {
             this.loadingServices = false;
           }
@@ -6809,13 +6913,12 @@ return {
           notify(isEdit ? 'Service saved.' : 'Service added.', 'success');
           this.loadingServices = true;
           try {
-            const s = await callRpc('listServices', null);
-            this.existingServices = Array.isArray(s?.items) ? s.items : this.existingServices;
+            const s = await callRpc('listServices', { summary: true, sort: 'desc' });
+            if (Array.isArray(s?.items)) this.storeServiceChoices(s.items);
           } catch (_) { /* ignore */ } finally {
             this.loadingServices = false;
           }
           if (newId) this.selectedServiceId = newId;
-          this.loadTeamAssignments(this.selectedServiceId || newId || '');
           this.detailsDirty = false;
           this.detailsError = '';
           if (!this.orderRows || this.orderRows.length === 0) {
@@ -6885,7 +6988,7 @@ return {
         });
       },
 
-      loadSelected() {
+      async loadSelected() {
         try {
           if (this.saveDetailsTimer) {
             clearTimeout(this.saveDetailsTimer);
@@ -6895,14 +6998,33 @@ return {
         this.detailsDirty = false;
         this.detailsError = '';
         this.savingDetails = false;
-        const svc = this.existingServices.find(s => s.id === this.selectedServiceId);
-        if (!svc) return notify('Select a service first', 'info');
+        const selectedId = this.selectedServiceId;
+        const choice = this.existingServices.find(s => s.id === selectedId);
+        if (!choice) return notify('Select a service first', 'info');
         this.resetRecommendations();
-        this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
+        this.resetTeamAssignments();
+        this.loadingServices = true;
+        try {
+          const svc = await callRpc('getService', selectedId);
+          // Ignore a late response if the user selected another service.
+          if (this.selectedServiceId !== selectedId) return;
+          if (!svc) {
+            notify('That service is no longer available.', 'info');
+            return;
+          }
+          this.applyServiceDetails(svc, { force: true, focus: true, resetDirty: true });
+        } catch (err) {
+          if (this.selectedServiceId === selectedId) {
+            notify(err?.message || 'Unable to load service details.', 'error');
+          }
+          return;
+        } finally {
+          this.loadingServices = false;
+        }
         this.loadingOrder = true;
         (async () => {
           try {
-            const r = await callRpc('getOrder', this.selectedServiceId);
+            const r = await callRpc('getOrder', selectedId);
             this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
           } catch (_) {
             this.orderRows = this.defaultOrderFor(this.form.type);
@@ -6910,10 +7032,9 @@ return {
           this.ensureOrderOptionsFromRows();
           this.showOrder = true;
         })().finally(() => { this.loadingOrder = false; });
-        try { localStorage.setItem('wp.selectedServiceId', this.selectedServiceId || ''); } catch (_) { }
+        try { localStorage.setItem('wp.selectedServiceId', selectedId); } catch (_) { }
         this.showDetails = true;
         this.activeContentTab = 'scripture';
-        this.loadTeamAssignments(this.selectedServiceId);
       },
 
       resetTeamAssignments() {
@@ -8918,7 +9039,7 @@ return {
           });
           if (found) {
             this.existingServices = next;
-            try { localStorage.setItem('wp.servicesCache', JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
+            try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: next })); } catch (_) { }
             if (targetId === this.selectedServiceId) {
               const updated = next.find(svc => svc && svc.id === targetId);
               if (updated) this.applyServiceDetails(updated, { force: true, focus: false });
@@ -10414,8 +10535,9 @@ return {
 
   </div>
 
-  <!-- Mount only the active route.  x-show leaves every view's x-init active,
-       which caused hidden views to issue competing Apps Script requests. -->
+  <!-- Mount only the active route, except for Weekly Plan once it has been
+       opened. Keeping that editing workspace alive preserves the selected
+       service, active tab, and unsaved UI state while browsing the Song List. -->
   <main class="overflow-hidden flex flex-col flex-1 min-h-0"
     :class="route==='schedule-embed' ? 'h-screen bg-white' : 'h-[calc(100vh-58px)]'">
     <template x-if="route==='services'">
@@ -10431,6 +10553,9 @@ return {
         <option :value="svc.id" x-text="formatServiceLabel(svc)"></option>
       </template>
     </select>
+    <button type="button" class="btn btn--surface btn--xs" x-show="!showingServiceHistory"
+      :disabled="loadingServiceHistory" @click="loadServiceHistory()"
+      x-text="loadingServiceHistory ? 'Loading history...' : 'Show older services'"></button>
     <div class="flex-1"></div>
     <span class="inline-header-flex text-sm text-blue-900 bg-blue-50 border border-blue-200 px-2 py-1 rounded"
       x-show="loadingServices">
@@ -10440,6 +10565,7 @@ return {
       </svg>
       <span>Syncing services...</span>
     </span>
+    <span class="text-sm text-amber-700" x-show="servicesError" x-text="servicesError"></span>
   </div>
 
   <div class="flex-1 min-h-0 overflow-auto p-1">
@@ -10598,7 +10724,7 @@ return {
       <!-- Serving team tab -->
       <div class="tab-panel__section" x-show="activeTab==='team'" x-cloak>
         <div class="flex items-center justify-between mb-3">
-          <span class="text-muted" x-show="loadingDetails">Loading...</span>
+          <span class="text-muted" x-show="loadingTeam">Loading...</span>
         </div>
         <div class="text-muted" x-show="!selectedServiceId">
           Select a service to see assigned teams.
@@ -10837,8 +10963,8 @@ return {
       </div>
     </template>
 
-    <template x-if="route==='plan' && auth && auth.capabilities && auth.capabilities.canViewPlan">
-      <div class="h-full flex-1 min-h-0 flex flex-col">
+    <template x-if="planMounted && auth && auth.capabilities && auth.capabilities.canViewPlan">
+      <div x-show="route==='plan'" class="h-full flex-1 min-h-0 flex flex-col">
         <div x-data="weeklyPlanApp()" x-init="init()"
   @use-song.window="applySuggestion(suggestTargetIndex, { name: $event.detail.name }); showSuggestModal=false"
   class="h-full flex flex-col overflow-hidden flex-1 min-h-0">
@@ -10855,6 +10981,13 @@ return {
           </option>
         </template>
       </select>
+      <button class="btn btn--surface btn--square" :disabled="loadingServices"
+        title="Refresh service list" aria-label="Refresh service list" @click="refreshServices()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true">
+          <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" />
+        </svg>
+      </button>
       <template x-if="!selectedServiceId && !isGuest">
         <button class="btn btn--accent" @click="submit()" x-text="actionLabel()"></button>
       </template>
@@ -10923,6 +11056,9 @@ return {
   <!-- Service loading notice -->
   <div class="mx-4 mt-3 mb-0" x-show="loadingServices" x-cloak>
     <div class="alert alert--info">Fetching existing services... please wait.</div>
+  </div>
+  <div class="mx-4 mt-3 mb-0" x-show="servicesLoadError" x-cloak>
+    <div class="alert alert--warning" x-text="servicesLoadError"></div>
   </div>
 
   <!-- Service details + tabs container -->
@@ -12559,6 +12695,7 @@ return {
         };
       return {
         route: 'services',
+        planMounted: false,
         auth: initialAuth,
         authDebug: (typeof window !== 'undefined' && window.__AUTH_DEBUG__) || { enabled: false },
         allowedRoutes: routesForAuth(initialAuth),
@@ -12587,6 +12724,7 @@ return {
           const setRoute = (value) => {
             const fallback = fallbackRoute();
             const next = this.allowedRoutes.has(value) ? value : fallback;
+            if (next === 'plan') this.planMounted = true;
             this.route = next;
             return next;
           };

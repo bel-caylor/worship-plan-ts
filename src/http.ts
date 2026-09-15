@@ -27,9 +27,9 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   // HTML app
   const tpl = HtmlService.createTemplateFromFile('index');
   tpl.rowsData = [];
-  // The public Services picker only needs a short upcoming list. The planner
-  // fetches its complete history separately after an editor opens that view.
-  try { tpl.servicesData = listServices({ includePast: false, sort: 'asc', limit: 24 }); } catch (_) { tpl.servicesData = { items: [] }; }
+  // Service choices are cached in the browser. Avoid embedding a service list
+  // in every HTML response; first use on a device fetches a compact picker list.
+  tpl.servicesData = { items: [] };
   tpl.guestMode = guestMode;
   tpl.viewerProfile = viewerProfile;
   tpl.googleClientId = getGoogleClientId();

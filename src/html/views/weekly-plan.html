@@ -14,6 +14,13 @@
           </option>
         </template>
       </select>
+      <button class="btn btn--surface btn--square" :disabled="loadingServices"
+        title="Refresh service list" aria-label="Refresh service list" @click="refreshServices()">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4" aria-hidden="true">
+          <path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" />
+        </svg>
+      </button>
       <template x-if="!selectedServiceId && !isGuest">
         <button class="btn btn--accent" @click="submit()" x-text="actionLabel()"></button>
       </template>
