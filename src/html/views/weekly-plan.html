@@ -83,6 +83,9 @@
   <div class="mx-4 mt-3 mb-0" x-show="loadingServices" x-cloak>
     <div class="alert alert--info">Fetching existing services... please wait.</div>
   </div>
+  <div class="mx-4 mt-3 mb-0" x-show="servicesLoadError" x-cloak>
+    <div class="alert alert--warning" x-text="servicesLoadError"></div>
+  </div>
 
   <!-- Service details + tabs container -->
   <div class="bg-gray-100 flex flex-col flex-1 min-h-0 overflow-hidden" x-show="showDetails" x-cloak>
