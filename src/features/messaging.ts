@@ -56,7 +56,33 @@ type SendServiceTeamEmailInput = {
   body?: string;
   recipients?: string[];
   htmlBody?: string;
+  requestId?: string;
 };
+
+const TEAM_EMAIL_HISTORY_PROPERTY = 'teamEmailSendHistory:v1';
+const TEAM_EMAIL_HISTORY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const TEAM_EMAIL_HISTORY_LIMIT = 100;
+
+type TeamEmailSendResult = { sent: number; subject: string; serviceId: string; requestId: string };
+
+function readTeamEmailHistory(): Record<string, TeamEmailSendResult & { completedAt: number }> {
+  try {
+    const raw = PropertiesService.getScriptProperties().getProperty(TEAM_EMAIL_HISTORY_PROPERTY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeTeamEmailHistory(history: Record<string, TeamEmailSendResult & { completedAt: number }>) {
+  const cutoff = Date.now() - TEAM_EMAIL_HISTORY_MAX_AGE_MS;
+  const entries = Object.entries(history)
+    .filter(([, value]) => Number(value?.completedAt || 0) >= cutoff)
+    .sort(([, a], [, b]) => Number(b.completedAt || 0) - Number(a.completedAt || 0))
+    .slice(0, TEAM_EMAIL_HISTORY_LIMIT);
+  PropertiesService.getScriptProperties().setProperty(TEAM_EMAIL_HISTORY_PROPERTY, JSON.stringify(Object.fromEntries(entries)));
+}
 
 export function sendServiceTeamEmail(input: SendServiceTeamEmailInput) {
   const profile = getViewerProfile();
@@ -67,6 +93,17 @@ export function sendServiceTeamEmail(input: SendServiceTeamEmailInput) {
 
   const serviceId = String(input?.serviceId || '').trim();
   if (!serviceId) throw new Error('Service ID is required.');
+  const requestId = String(input?.requestId || '').trim();
+  if (!requestId || requestId.length > 160) throw new Error('A valid email request ID is required.');
+
+  // The browser retains this ID if the proxy loses the response. A repeat
+  // request can then return this completed result without sending again.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const history = readTeamEmailHistory();
+    const prior = history[requestId];
+    if (prior) return prior;
 
   const subject = String(input?.subject || '').trim() || 'Team assignments';
   const body = String(input?.body || '').trim();
@@ -116,7 +153,7 @@ export function sendServiceTeamEmail(input: SendServiceTeamEmailInput) {
     ? uniqueRecipients.filter(email => normalizeEmail(email) !== viewerEmail)
     : remaining;
 
-  MailApp.sendEmail({
+    MailApp.sendEmail({
     to: toAddress,
     bcc: bccList.length ? bccList.join(', ') : undefined,
     subject,
@@ -126,9 +163,17 @@ export function sendServiceTeamEmail(input: SendServiceTeamEmailInput) {
     replyTo: viewerEmail || undefined
   });
 
-  return {
-    sent: uniqueRecipients.length,
-    subject,
-    serviceId
-  };
+    const result: TeamEmailSendResult & { completedAt: number } = {
+      sent: uniqueRecipients.length,
+      subject,
+      serviceId,
+      requestId,
+      completedAt: Date.now()
+    };
+    history[requestId] = result;
+    writeTeamEmailHistory(history);
+    return result;
+  } finally {
+    lock.releaseLock();
+  }
 }

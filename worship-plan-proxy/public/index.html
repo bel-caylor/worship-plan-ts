@@ -214,7 +214,24 @@
     return auth;
   };
 
+  // Multiple Alpine components can initialize together. Sharing duplicate
+  // reads prevents one page load from creating a queue of identical Apps
+  // Script executions (for example, service picker and song-catalog reads).
+  const inFlightRpcs = new Map();
+
   function callRpc(method, payload) {
+    const authToken = getStoredAuthToken();
+    let requestKey = '';
+    try {
+      requestKey = `${method}|${authToken}|${JSON.stringify(payload ?? null)}`;
+    } catch (_) {
+      // A non-serializable payload is not expected for RPCs; skip sharing it
+      // instead of changing the request's normal error behavior.
+      requestKey = `${method}|${authToken}|${Date.now()}|${Math.random()}`;
+    }
+    const existingRequest = inFlightRpcs.get(requestKey);
+    if (existingRequest) return existingRequest;
+
     const startedAt = Date.now();
     const reportSlowRpc = (outcome) => {
       const elapsedMs = Date.now() - startedAt;
@@ -223,9 +240,8 @@
         console.info(`[RPC timing] ${method} ${outcome} in ${elapsedMs}ms`);
       } catch (_) { /* ignore */ }
     };
-    return new Promise((resolve, reject) => {
+    const request = new Promise((resolve, reject) => {
       const base = String(window.__BASE__ || '').replace(/\/+$/, '');
-      const authToken = getStoredAuthToken();
       const runner = (window.google && google.script && google.script.run) || null;
       const rpcUrl = /\/(exec|dev)$/i.test(base) ? base : `${base}/exec`;
 
@@ -288,6 +304,12 @@
           reject(err);
         });
     });
+    inFlightRpcs.set(requestKey, request);
+    const clearRequest = () => {
+      if (inFlightRpcs.get(requestKey) === request) inFlightRpcs.delete(requestKey);
+    };
+    request.then(clearRequest, clearRequest);
+    return request;
   }
 
   const forcedGuestFlag = (() => {
@@ -6422,6 +6444,7 @@ return {
       teamEmailSubjectTouched: false,
       teamEmailBodyTouched: false,
       teamEmailGeneratedKey: '',
+      teamEmailAttemptId: '',
       teamEmailLink: '',
       // service detail autosave
       savingDetails: false,
@@ -8190,6 +8213,7 @@ return {
         const { force = false, assignmentsChanged = false, serviceChanged = false } = opts || {};
         if (force || assignmentsChanged || serviceChanged) {
           this.teamEmailStatus = '';
+          this.teamEmailAttemptId = '';
         }
         const recipients = this.computeTeamEmailRecipients();
         const assignmentsList = Array.isArray(this.teamAssignments) ? this.teamAssignments : [];
@@ -8238,12 +8262,14 @@ return {
 
       onTeamEmailSubjectInput() {
         this.teamEmailSubjectTouched = true;
+        this.teamEmailAttemptId = '';
         this.teamEmailStatus = '';
         this.teamEmailError = '';
       },
 
       onTeamEmailBodyInput() {
         this.teamEmailBodyTouched = true;
+        this.teamEmailAttemptId = '';
         this.teamEmailStatus = '';
         this.teamEmailError = '';
         this.resizeTeamEmailBody();
@@ -8301,13 +8327,19 @@ return {
         this.teamEmailStatus = '';
         this.teamEmailError = '';
         const htmlBody = this.formatTeamEmailHtml(body) || this.escapeHtml(body).replace(/\n/g, '<br>');
+        if (!this.teamEmailAttemptId) {
+          this.teamEmailAttemptId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        }
         try {
           const res = await callRpc('sendServiceTeamEmail', {
             serviceId: this.selectedServiceId,
             subject,
             body,
             recipients,
-            htmlBody
+            htmlBody,
+            requestId: this.teamEmailAttemptId
           });
           const count = res?.sent ?? recipients.length;
           this.teamEmailStatus = `Email sent to ${count} team member${count === 1 ? '' : 's'}.`;
@@ -10912,7 +10944,7 @@ return {
             </div>
           </template>
         </div>
-        <div class="text-muted" x-show="selectedServiceId && !teamAssignments.length && !loadingDetails">
+        <div class="text-muted" x-show="selectedServiceId && !teamAssignments.length && !loadingTeam && !teamError">
           No team assignments recorded for this service yet.
         </div>
       </div>

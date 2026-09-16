@@ -36,7 +36,14 @@ RPC
 Build and deploy
 - Build: `npm run build` (writes to `dist/`).
 - Push:  `npx clasp push` (or `-f` to force).
-- Deploy via Apps Script UI: Deploy → Web app → New deployment.
+- Apps Script deployment is performed by the user in the Apps Script UI: Deploy → Web app → New deployment.
+- **Mandatory Cloudflare release handoff:** this app is served through the `worship-plan-proxy` Cloudflare Worker, not directly through an Apps Script URL. After the user creates an Apps Script deployment and provides its new `/exec` URL, update the Worker secret before calling the release complete:
+  1. Set `APPS_SCRIPT_BASE` in `worship-plan-proxy` to that exact deployment base URL (the Worker appends `/exec`).
+  2. Run `npm run build:standalone` from the repository root so the current client scripts are copied into `worship-plan-proxy/public`.
+  3. Run `npm run deploy` from `worship-plan-proxy` to publish the Worker and its static assets.
+  4. Verify a read-only RPC through `https://worship-plan-proxy.belinda-caylor.workers.dev` returns JSON with `ok: true`.
+  5. Only then report the Cloudflare release as live and commit/push the release changes when requested.
+- Never assume a previously deployed Apps Script URL remains the Worker upstream. Do not update an arbitrary historical Apps Script deployment: ask the user for the URL if it was not supplied.
 - Manifest (`appsscript.json`) is in `dist/` via copy and controls runtime/scopes.
 
 Editing rules for agents
@@ -44,4 +51,3 @@ Editing rules for agents
 - Add UI constants in `src/html/context.html` (do not hardcode inside apps).
 - Do not place secrets client‑side. Server secrets live only in Script Properties.
 - When touching spreadsheet columns server‑side, use names from `src/constants.ts`.
-

@@ -80,10 +80,14 @@ export default {
           // The redirected googleusercontent URL is occasionally not ready
           // immediately, especially just after a new Apps Script deployment.
           // Retrying this same one-time URL is important; issuing a new POST
-          // only creates another result URL that has the same race.
+          // only creates another result URL that has the same race. A 200 can
+          // still be Google's temporary HTML page, so check the body before
+          // treating the result as ready. This is safe for email sends because
+          // it never replays their original POST.
           for (let resultAttempt = 0; resultAttempt < 3; resultAttempt += 1) {
             upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
-            if (upstream.ok) break;
+            const isJsonResult = upstream.ok && parseJsonSafely(await upstream.clone().text()).ok;
+            if (isJsonResult) break;
             if (resultAttempt < 2) {
               await new Promise(resolve => setTimeout(resolve, 250 * (resultAttempt + 1)));
             }
@@ -113,7 +117,7 @@ export default {
       return jsonError(
         origin,
         502,
-        `Apps Script returned a non-JSON response (${upstream?.status || 502}${contentType ? `, ${contentType}` : ''}). This usually means the worker is pointing at an outdated or non-public Apps Script deployment.`,
+        `Apps Script returned a non-JSON response (${upstream?.status || 502}${contentType ? `, ${contentType}` : ''}). The Worker may be pointed at an outdated/non-public deployment, or Apps Script may have returned a transient HTML response.`,
         preview
       );
     }

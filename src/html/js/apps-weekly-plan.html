@@ -59,6 +59,7 @@
       teamEmailSubjectTouched: false,
       teamEmailBodyTouched: false,
       teamEmailGeneratedKey: '',
+      teamEmailAttemptId: '',
       teamEmailLink: '',
       // service detail autosave
       savingDetails: false,
@@ -1827,6 +1828,7 @@
         const { force = false, assignmentsChanged = false, serviceChanged = false } = opts || {};
         if (force || assignmentsChanged || serviceChanged) {
           this.teamEmailStatus = '';
+          this.teamEmailAttemptId = '';
         }
         const recipients = this.computeTeamEmailRecipients();
         const assignmentsList = Array.isArray(this.teamAssignments) ? this.teamAssignments : [];
@@ -1875,12 +1877,14 @@
 
       onTeamEmailSubjectInput() {
         this.teamEmailSubjectTouched = true;
+        this.teamEmailAttemptId = '';
         this.teamEmailStatus = '';
         this.teamEmailError = '';
       },
 
       onTeamEmailBodyInput() {
         this.teamEmailBodyTouched = true;
+        this.teamEmailAttemptId = '';
         this.teamEmailStatus = '';
         this.teamEmailError = '';
         this.resizeTeamEmailBody();
@@ -1938,13 +1942,19 @@
         this.teamEmailStatus = '';
         this.teamEmailError = '';
         const htmlBody = this.formatTeamEmailHtml(body) || this.escapeHtml(body).replace(/\n/g, '<br>');
+        if (!this.teamEmailAttemptId) {
+          this.teamEmailAttemptId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        }
         try {
           const res = await callRpc('sendServiceTeamEmail', {
             serviceId: this.selectedServiceId,
             subject,
             body,
             recipients,
-            htmlBody
+            htmlBody,
+            requestId: this.teamEmailAttemptId
           });
           const count = res?.sent ?? recipients.length;
           this.teamEmailStatus = `Email sent to ${count} team member${count === 1 ? '' : 's'}.`;
