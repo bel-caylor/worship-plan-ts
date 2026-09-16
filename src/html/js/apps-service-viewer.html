@@ -219,6 +219,7 @@ return {
       loadingDetails: false,
       loadingTeam: false,
       _detailRequestId: 0,
+      teamLoadedServiceId: '',
       orderItems: [],
       orderError: '',
       teamAssignments: [],
@@ -382,6 +383,7 @@ return {
         if (!this.selectedServiceId) return;
         this.persistSelection();
         await this.loadServiceDetails(this.selectedServiceId);
+        if (this.activeTab === 'team') this.loadTeamAssignments(this.selectedServiceId);
       },
 
       async loadServiceDetails(serviceId) {
@@ -389,7 +391,8 @@ return {
         if (!target) return;
         const requestId = ++this._detailRequestId;
         this.loadingDetails = true;
-        this.loadingTeam = true;
+        this.loadingTeam = false;
+        this.teamLoadedServiceId = '';
         this.orderItems = [];
         this.teamAssignments = [];
         this.orderError = '';
@@ -398,6 +401,9 @@ return {
           .then((orderRes) => {
             if (requestId !== this._detailRequestId) return;
             this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+            // Do not make the order wait for its optional historical-recording
+            // links. They are filled in after the saved order is visible.
+            this.loadOrderRecordingLinks(requestId, this.orderItems);
           })
           .catch((err) => {
             if (requestId !== this._detailRequestId) return;
@@ -406,21 +412,60 @@ return {
           .finally(() => {
             if (requestId === this._detailRequestId) this.loadingDetails = false;
           });
-        const teamRequest = withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS)
-          .then((teamRes) => {
-            if (requestId !== this._detailRequestId) return;
-            this.teamAssignments = Array.isArray(teamRes?.teams)
-              ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
-              : [];
-          })
-          .catch((err) => {
-            if (requestId !== this._detailRequestId) return;
-            this.teamError = err?.message || 'Unable to load the serving team.';
-          })
-          .finally(() => {
-            if (requestId === this._detailRequestId) this.loadingTeam = false;
+        await orderRequest;
+        // Team assignments are intentionally lazy-loaded by selectTab('team').
+        // Most visits only need the order, so avoid a full assignment-sheet read.
+      },
+
+      selectTab(tab) {
+        this.activeTab = tab;
+        if (tab === 'team' && this.selectedServiceId) {
+          this.loadTeamAssignments(this.selectedServiceId);
+        }
+      },
+
+      async loadTeamAssignments(serviceId) {
+        const target = String(serviceId || '').trim();
+        if (!target || this.loadingTeam || this.teamLoadedServiceId === target) return;
+        const requestId = this._detailRequestId;
+        this.loadingTeam = true;
+        this.teamError = '';
+        try {
+          const teamRes = await withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS);
+          if (requestId !== this._detailRequestId || target !== this.selectedServiceId) return;
+          this.teamAssignments = Array.isArray(teamRes?.teams)
+            ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
+            : [];
+          this.teamLoadedServiceId = target;
+        } catch (err) {
+          if (requestId !== this._detailRequestId || target !== this.selectedServiceId) return;
+          this.teamError = err?.message || 'Unable to load the serving team.';
+        } finally {
+          if (requestId === this._detailRequestId) this.loadingTeam = false;
+        }
+      },
+
+      async loadOrderRecordingLinks(requestId, orderItems) {
+        const songNames = (Array.isArray(orderItems) ? orderItems : [])
+          .filter(item => this.isSongItem(item))
+          .map(item => String(item?.detail || '').trim())
+          .filter(Boolean);
+        if (!songNames.length) return;
+        try {
+          const res = await withTimeout(
+            callRpc('getOrderRecordingLinks', { songNames }),
+            SERVICES_SYNC_TIMEOUT_MS
+          );
+          if (requestId !== this._detailRequestId) return;
+          const links = new Map((Array.isArray(res?.items) ? res.items : [])
+            .map(link => [String(link?.songName || '').trim(), link]));
+          this.orderItems = this.orderItems.map(item => {
+            const link = links.get(String(item?.detail || '').trim());
+            return link ? { ...item, recordingUrl: link.recordingUrl || '', recordingLabel: link.recordingLabel || '' } : item;
           });
-        await Promise.all([orderRequest, teamRequest]);
+        } catch (_) {
+          // Recording links are optional; keep the already-rendered order usable.
+        }
       },
 
       toggleRow(idx, item) {

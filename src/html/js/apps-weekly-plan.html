@@ -752,6 +752,12 @@
         this.resetRecommendations();
         this.resetTeamAssignments();
         this.loadingServices = true;
+        // The order is independent of the service-detail lookup. Start both
+        // reads now, then apply the order after the service establishes its
+        // default item type.
+        // Handle a failed order read here as well: the service lookup can fail
+        // first, before the code below gets a chance to await this promise.
+        const orderRequest = callRpc('getOrder', selectedId).catch(() => null);
         try {
           const svc = await callRpc('getService', selectedId);
           // Ignore a late response if the user selected another service.
@@ -772,7 +778,7 @@
         this.loadingOrder = true;
         (async () => {
           try {
-            const r = await callRpc('getOrder', selectedId);
+            const r = await orderRequest;
             this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
           } catch (_) {
             this.orderRows = this.defaultOrderFor(this.form.type);
@@ -2906,12 +2912,42 @@
         }
       },
 
+      validateOrderDocxExport() {
+        const rows = Array.isArray(this.orderRows) ? this.orderRows : [];
+        const issues = [];
+        const itemType = (row) => String(row?.itemType || '').trim().toLowerCase();
+        const hasReference = (row) => String(row?.detail || '').trim().length > 0;
+
+        if (!rows.length) {
+          issues.push('Add the order of worship first.');
+        }
+
+        [
+          { type: 'call to worship', label: 'Call to Worship' },
+          { type: '2nd scripture', label: '2nd Scripture' }
+        ].forEach(({ type, label }) => {
+          const row = rows.find(candidate => itemType(candidate) === type);
+          if (!row) {
+            issues.push(`Add a ${label} row.`);
+          } else if (!hasReference(row)) {
+            issues.push(`Enter a reference for ${label}.`);
+          }
+        });
+
+        if (issues.length) {
+          notify(`Cannot export yet: ${issues.join(' ')}`, 'error');
+          return false;
+        }
+        return true;
+      },
+
       async exportOrderDocx() {
         if (this.isGuest) return;
         if (!this.selectedServiceId) {
           notify('Select or save a service first.', 'info');
           return;
         }
+        if (!this.validateOrderDocxExport()) return;
         this.exportingOrderDoc = true;
         try {
           if (this.detailsDirty) await this.persistDetails();

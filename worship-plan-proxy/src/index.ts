@@ -57,7 +57,9 @@ export default {
     let contentType = '';
     let parsed: ReturnType<typeof parseJsonSafely> = { ok: false };
     try {
-      const attempts = canRetry ? 4 : 1;
+      // A retry is enough to cover the occasional Google redirect race. Four
+      // complete POST cycles can turn one bad read into a multi-second hang.
+      const attempts = canRetry ? 2 : 1;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
         const rpcUrl = `${appsScriptBase}/exec?worker_request=${Date.now()}_${attempt}`;
         upstream = await fetch(rpcUrl, {
@@ -79,11 +81,11 @@ export default {
           // immediately, especially just after a new Apps Script deployment.
           // Retrying this same one-time URL is important; issuing a new POST
           // only creates another result URL that has the same race.
-          for (let resultAttempt = 0; resultAttempt < 4; resultAttempt += 1) {
+          for (let resultAttempt = 0; resultAttempt < 3; resultAttempt += 1) {
             upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
             if (upstream.ok) break;
-            if (resultAttempt < 3) {
-              await new Promise(resolve => setTimeout(resolve, 350 * (resultAttempt + 1)));
+            if (resultAttempt < 2) {
+              await new Promise(resolve => setTimeout(resolve, 250 * (resultAttempt + 1)));
             }
           }
         }
@@ -95,7 +97,7 @@ export default {
         // A brief backoff gives Google's one-time result URL time to become
         // available instead of returning its transient Drive 404 to the app.
         if (attempt < attempts - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200 * (attempt + 1)));
+          await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
         }
       }
     } catch (err) {
@@ -157,7 +159,7 @@ function jsonError(origin: string, status: number, message: string, details?: st
   });
 }
 
-function cors(origin) {
+function cors(origin: string) {
   const allow = origin && origin !== 'null' ? origin : '*';
   return {
     'Access-Control-Allow-Origin': allow,

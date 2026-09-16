@@ -236,6 +236,10 @@
       mediaFiles: [],
       mediaLoading: false,
       mediaMessage: '',
+      // Each song selection may start one or two asynchronous RPCs. Keep a
+      // monotonically increasing request id so a slower, earlier selection
+      // cannot paint its media over the song the user selected most recently.
+      _mediaRequestId: 0,
       performancesOpen: false,
       performanceItems: [],
       performanceLoading: false,
@@ -461,49 +465,59 @@
       },
 
       async select(row) {
+        const mediaRequestId = ++this._mediaRequestId;
         this.selected = row;
         this.mediaFiles = [];
         this.mediaMessage = '';
+        this.mediaLoading = !!row;
         this.performancesOpen = false;
         this.performanceItems = [];
         this.performanceMessage = '';
         if (!row) return;
+        if (!this.isModalContext) {
+          this.mobileListOpen = false;
+        }
         let url = String((row && row._folderUrl) || '').trim();
         if (!url && row?.Song) {
           try {
             url = String(await callRpc('getSongFolderUrl', { songName: row.Song }) || '').trim();
+            if (mediaRequestId !== this._mediaRequestId) return;
             if (url) row._folderUrl = url;
           } catch (e) {
+            if (mediaRequestId !== this._mediaRequestId) return;
             console.warn('Unable to resolve song media folder', e);
           }
         }
+        if (mediaRequestId !== this._mediaRequestId) return;
         if (!url) {
           this.mediaMessage = 'No folder link available.';
+          this.mediaLoading = false;
           return;
         }
-        await this.loadMediaForUrl(url);
-        if (!this.isModalContext) {
-          this.mobileListOpen = false;
-        }
+        await this.loadMediaForUrl(url, mediaRequestId);
       },
 
-      async loadMediaForUrl(url) {
+      async loadMediaForUrl(url, mediaRequestId = this._mediaRequestId) {
         if (!url) {
+          if (mediaRequestId !== this._mediaRequestId) return;
           this.mediaFiles = [];
           this.mediaMessage = 'No folder link available.';
+          this.mediaLoading = false;
           return;
         }
         this.mediaLoading = true;
         try {
           const files = await callRpc('getFilesForFolderUrl', url);
+          if (mediaRequestId !== this._mediaRequestId) return;
           this.mediaFiles = Array.isArray(files) ? files : [];
           this.mediaMessage = this.mediaFiles.length ? '' : 'No files in folder.';
         } catch (e) {
+          if (mediaRequestId !== this._mediaRequestId) return;
           console.error(e);
           this.mediaFiles = [];
           this.mediaMessage = (e && e.message) ? e.message : 'Failed to load files.';
         } finally {
-          this.mediaLoading = false;
+          if (mediaRequestId === this._mediaRequestId) this.mediaLoading = false;
         }
       },
 

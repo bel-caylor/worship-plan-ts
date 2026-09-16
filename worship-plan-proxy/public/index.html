@@ -215,6 +215,14 @@
   };
 
   function callRpc(method, payload) {
+    const startedAt = Date.now();
+    const reportSlowRpc = (outcome) => {
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs < 1000) return;
+      try {
+        console.info(`[RPC timing] ${method} ${outcome} in ${elapsedMs}ms`);
+      } catch (_) { /* ignore */ }
+    };
     return new Promise((resolve, reject) => {
       const base = String(window.__BASE__ || '').replace(/\/+$/, '');
       const authToken = getStoredAuthToken();
@@ -225,13 +233,20 @@
       // resolve the signed-in user's email from the bearer token.
       if ((!authToken || !base) && runner && runner.rpc) {
         runner
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
+          .withSuccessHandler((value) => {
+            reportSlowRpc('completed');
+            resolve(value);
+          })
+          .withFailureHandler((err) => {
+            reportSlowRpc('failed');
+            reject(err);
+          })
           .rpc({ method, payload });
         return;
       }
 
       if (!base) {
+        reportSlowRpc('failed');
         reject(new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.'));
         return;
       }
@@ -264,8 +279,14 @@
           }
           return data;
         })
-        .then(resolve)
-        .catch((err) => reject(err));
+        .then((value) => {
+          reportSlowRpc('completed');
+          resolve(value);
+        })
+        .catch((err) => {
+          reportSlowRpc('failed');
+          reject(err);
+        });
     });
   }
 
@@ -1102,6 +1123,10 @@
       mediaFiles: [],
       mediaLoading: false,
       mediaMessage: '',
+      // Each song selection may start one or two asynchronous RPCs. Keep a
+      // monotonically increasing request id so a slower, earlier selection
+      // cannot paint its media over the song the user selected most recently.
+      _mediaRequestId: 0,
       performancesOpen: false,
       performanceItems: [],
       performanceLoading: false,
@@ -1327,49 +1352,59 @@
       },
 
       async select(row) {
+        const mediaRequestId = ++this._mediaRequestId;
         this.selected = row;
         this.mediaFiles = [];
         this.mediaMessage = '';
+        this.mediaLoading = !!row;
         this.performancesOpen = false;
         this.performanceItems = [];
         this.performanceMessage = '';
         if (!row) return;
+        if (!this.isModalContext) {
+          this.mobileListOpen = false;
+        }
         let url = String((row && row._folderUrl) || '').trim();
         if (!url && row?.Song) {
           try {
             url = String(await callRpc('getSongFolderUrl', { songName: row.Song }) || '').trim();
+            if (mediaRequestId !== this._mediaRequestId) return;
             if (url) row._folderUrl = url;
           } catch (e) {
+            if (mediaRequestId !== this._mediaRequestId) return;
             console.warn('Unable to resolve song media folder', e);
           }
         }
+        if (mediaRequestId !== this._mediaRequestId) return;
         if (!url) {
           this.mediaMessage = 'No folder link available.';
+          this.mediaLoading = false;
           return;
         }
-        await this.loadMediaForUrl(url);
-        if (!this.isModalContext) {
-          this.mobileListOpen = false;
-        }
+        await this.loadMediaForUrl(url, mediaRequestId);
       },
 
-      async loadMediaForUrl(url) {
+      async loadMediaForUrl(url, mediaRequestId = this._mediaRequestId) {
         if (!url) {
+          if (mediaRequestId !== this._mediaRequestId) return;
           this.mediaFiles = [];
           this.mediaMessage = 'No folder link available.';
+          this.mediaLoading = false;
           return;
         }
         this.mediaLoading = true;
         try {
           const files = await callRpc('getFilesForFolderUrl', url);
+          if (mediaRequestId !== this._mediaRequestId) return;
           this.mediaFiles = Array.isArray(files) ? files : [];
           this.mediaMessage = this.mediaFiles.length ? '' : 'No files in folder.';
         } catch (e) {
+          if (mediaRequestId !== this._mediaRequestId) return;
           console.error(e);
           this.mediaFiles = [];
           this.mediaMessage = (e && e.message) ? e.message : 'Failed to load files.';
         } finally {
-          this.mediaLoading = false;
+          if (mediaRequestId === this._mediaRequestId) this.mediaLoading = false;
         }
       },
 
@@ -2593,6 +2628,7 @@ return {
       loadingDetails: false,
       loadingTeam: false,
       _detailRequestId: 0,
+      teamLoadedServiceId: '',
       orderItems: [],
       orderError: '',
       teamAssignments: [],
@@ -2756,6 +2792,7 @@ return {
         if (!this.selectedServiceId) return;
         this.persistSelection();
         await this.loadServiceDetails(this.selectedServiceId);
+        if (this.activeTab === 'team') this.loadTeamAssignments(this.selectedServiceId);
       },
 
       async loadServiceDetails(serviceId) {
@@ -2763,7 +2800,8 @@ return {
         if (!target) return;
         const requestId = ++this._detailRequestId;
         this.loadingDetails = true;
-        this.loadingTeam = true;
+        this.loadingTeam = false;
+        this.teamLoadedServiceId = '';
         this.orderItems = [];
         this.teamAssignments = [];
         this.orderError = '';
@@ -2772,6 +2810,9 @@ return {
           .then((orderRes) => {
             if (requestId !== this._detailRequestId) return;
             this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+            // Do not make the order wait for its optional historical-recording
+            // links. They are filled in after the saved order is visible.
+            this.loadOrderRecordingLinks(requestId, this.orderItems);
           })
           .catch((err) => {
             if (requestId !== this._detailRequestId) return;
@@ -2780,21 +2821,60 @@ return {
           .finally(() => {
             if (requestId === this._detailRequestId) this.loadingDetails = false;
           });
-        const teamRequest = withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS)
-          .then((teamRes) => {
-            if (requestId !== this._detailRequestId) return;
-            this.teamAssignments = Array.isArray(teamRes?.teams)
-              ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
-              : [];
-          })
-          .catch((err) => {
-            if (requestId !== this._detailRequestId) return;
-            this.teamError = err?.message || 'Unable to load the serving team.';
-          })
-          .finally(() => {
-            if (requestId === this._detailRequestId) this.loadingTeam = false;
+        await orderRequest;
+        // Team assignments are intentionally lazy-loaded by selectTab('team').
+        // Most visits only need the order, so avoid a full assignment-sheet read.
+      },
+
+      selectTab(tab) {
+        this.activeTab = tab;
+        if (tab === 'team' && this.selectedServiceId) {
+          this.loadTeamAssignments(this.selectedServiceId);
+        }
+      },
+
+      async loadTeamAssignments(serviceId) {
+        const target = String(serviceId || '').trim();
+        if (!target || this.loadingTeam || this.teamLoadedServiceId === target) return;
+        const requestId = this._detailRequestId;
+        this.loadingTeam = true;
+        this.teamError = '';
+        try {
+          const teamRes = await withTimeout(callRpc('getServiceTeamAssignments', { serviceId: target }), SERVICES_SYNC_TIMEOUT_MS);
+          if (requestId !== this._detailRequestId || target !== this.selectedServiceId) return;
+          this.teamAssignments = Array.isArray(teamRes?.teams)
+            ? teamRes.teams.filter(team => this.isActiveTeamType(team?.teamType))
+            : [];
+          this.teamLoadedServiceId = target;
+        } catch (err) {
+          if (requestId !== this._detailRequestId || target !== this.selectedServiceId) return;
+          this.teamError = err?.message || 'Unable to load the serving team.';
+        } finally {
+          if (requestId === this._detailRequestId) this.loadingTeam = false;
+        }
+      },
+
+      async loadOrderRecordingLinks(requestId, orderItems) {
+        const songNames = (Array.isArray(orderItems) ? orderItems : [])
+          .filter(item => this.isSongItem(item))
+          .map(item => String(item?.detail || '').trim())
+          .filter(Boolean);
+        if (!songNames.length) return;
+        try {
+          const res = await withTimeout(
+            callRpc('getOrderRecordingLinks', { songNames }),
+            SERVICES_SYNC_TIMEOUT_MS
+          );
+          if (requestId !== this._detailRequestId) return;
+          const links = new Map((Array.isArray(res?.items) ? res.items : [])
+            .map(link => [String(link?.songName || '').trim(), link]));
+          this.orderItems = this.orderItems.map(item => {
+            const link = links.get(String(item?.detail || '').trim());
+            return link ? { ...item, recordingUrl: link.recordingUrl || '', recordingLabel: link.recordingLabel || '' } : item;
           });
-        await Promise.all([orderRequest, teamRequest]);
+        } catch (_) {
+          // Recording links are optional; keep the already-rendered order usable.
+        }
       },
 
       toggleRow(idx, item) {
@@ -7035,6 +7115,12 @@ return {
         this.resetRecommendations();
         this.resetTeamAssignments();
         this.loadingServices = true;
+        // The order is independent of the service-detail lookup. Start both
+        // reads now, then apply the order after the service establishes its
+        // default item type.
+        // Handle a failed order read here as well: the service lookup can fail
+        // first, before the code below gets a chance to await this promise.
+        const orderRequest = callRpc('getOrder', selectedId).catch(() => null);
         try {
           const svc = await callRpc('getService', selectedId);
           // Ignore a late response if the user selected another service.
@@ -7055,7 +7141,7 @@ return {
         this.loadingOrder = true;
         (async () => {
           try {
-            const r = await callRpc('getOrder', selectedId);
+            const r = await orderRequest;
             this.orderRows = Array.isArray(r?.items) && r.items.length ? r.items : this.defaultOrderFor(this.form.type);
           } catch (_) {
             this.orderRows = this.defaultOrderFor(this.form.type);
@@ -9189,12 +9275,42 @@ return {
         }
       },
 
+      validateOrderDocxExport() {
+        const rows = Array.isArray(this.orderRows) ? this.orderRows : [];
+        const issues = [];
+        const itemType = (row) => String(row?.itemType || '').trim().toLowerCase();
+        const hasReference = (row) => String(row?.detail || '').trim().length > 0;
+
+        if (!rows.length) {
+          issues.push('Add the order of worship first.');
+        }
+
+        [
+          { type: 'call to worship', label: 'Call to Worship' },
+          { type: '2nd scripture', label: '2nd Scripture' }
+        ].forEach(({ type, label }) => {
+          const row = rows.find(candidate => itemType(candidate) === type);
+          if (!row) {
+            issues.push(`Add a ${label} row.`);
+          } else if (!hasReference(row)) {
+            issues.push(`Enter a reference for ${label}.`);
+          }
+        });
+
+        if (issues.length) {
+          notify(`Cannot export yet: ${issues.join(' ')}`, 'error');
+          return false;
+        }
+        return true;
+      },
+
       async exportOrderDocx() {
         if (this.isGuest) return;
         if (!this.selectedServiceId) {
           notify('Select or save a service first.', 'info');
           return;
         }
+        if (!this.validateOrderDocxExport()) return;
         this.exportingOrderDoc = true;
         try {
           if (this.detailsDirty) await this.persistDetails();
@@ -10621,10 +10737,10 @@ return {
     <div class="relative">
       <div class="border-b px-2 app-tabs app-tabs--segment">
         <button type="button" class="app-tab" :class="activeTab==='order' ? 'is-active' : ''"
-          @click="activeTab='order'">
+          @click="selectTab('order')">
           Order of Worship
         </button>
-        <button type="button" class="app-tab" :class="activeTab==='team' ? 'is-active' : ''" @click="activeTab='team'">
+        <button type="button" class="app-tab" :class="activeTab==='team' ? 'is-active' : ''" @click="selectTab('team')">
           Team
         </button>
       </div>

@@ -31,10 +31,10 @@
     <div class="relative">
       <div class="border-b px-2 app-tabs app-tabs--segment">
         <button type="button" class="app-tab" :class="activeTab==='order' ? 'is-active' : ''"
-          @click="activeTab='order'">
+          @click="selectTab('order')">
           Order of Worship
         </button>
-        <button type="button" class="app-tab" :class="activeTab==='team' ? 'is-active' : ''" @click="activeTab='team'">
+        <button type="button" class="app-tab" :class="activeTab==='team' ? 'is-active' : ''" @click="selectTab('team')">
           Team
         </button>
       </div>

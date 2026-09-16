@@ -2,7 +2,7 @@
 import { getFilesForFolderUrl } from './util/drive';
 import { getSongFolderUrl } from './features/song-media';
 import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, getService, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
-import { getOrder, saveOrder } from './features/order';
+import { getOrder, getOrderRecordingLinks, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
 import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
@@ -16,6 +16,7 @@ import { getVolunteerRequestsSnapshot, setViewerVolunteerRequest } from './featu
 
 export function rpc(input: { method: string; payload: unknown }) {
   const { method, payload } = input || ({} as any);
+  const startedAt = Date.now();
   try {
     switch (method) {
       case 'getFilesForFolderUrl':
@@ -36,6 +37,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return createServicesBatch(payload as any);
       case 'getOrder':
         return getOrder(String(payload || ''));
+      case 'getOrderRecordingLinks':
+        return getOrderRecordingLinks(payload as { songNames?: string[] });
       case 'saveOrder':
         return saveOrder(payload as any);
       case 'exportOrderOfWorshipDoc':
@@ -113,5 +116,12 @@ export function rpc(input: { method: string; payload: unknown }) {
     // Rethrow a clean error message so client failure handler triggers
     const msg = (err && (err as any).message) ? (err as any).message : String(err);
     throw new Error(msg);
+  } finally {
+    const elapsedMs = Date.now() - startedAt;
+    // Keep routine execution logs clean while making slow sheet/proxy calls
+    // visible in Apps Script Executions during performance investigations.
+    if (elapsedMs >= 250) {
+      try { Logger.log(`RPC timing method=${method} elapsedMs=${elapsedMs}`); } catch (_) { /* ignore */ }
+    }
   }
 }

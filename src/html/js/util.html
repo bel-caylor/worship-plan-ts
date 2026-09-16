@@ -113,6 +113,14 @@
   };
 
   function callRpc(method, payload) {
+    const startedAt = Date.now();
+    const reportSlowRpc = (outcome) => {
+      const elapsedMs = Date.now() - startedAt;
+      if (elapsedMs < 1000) return;
+      try {
+        console.info(`[RPC timing] ${method} ${outcome} in ${elapsedMs}ms`);
+      } catch (_) { /* ignore */ }
+    };
     return new Promise((resolve, reject) => {
       const base = String(window.__BASE__ || '').replace(/\/+$/, '');
       const authToken = getStoredAuthToken();
@@ -123,13 +131,20 @@
       // resolve the signed-in user's email from the bearer token.
       if ((!authToken || !base) && runner && runner.rpc) {
         runner
-          .withSuccessHandler(resolve)
-          .withFailureHandler(reject)
+          .withSuccessHandler((value) => {
+            reportSlowRpc('completed');
+            resolve(value);
+          })
+          .withFailureHandler((err) => {
+            reportSlowRpc('failed');
+            reject(err);
+          })
           .rpc({ method, payload });
         return;
       }
 
       if (!base) {
+        reportSlowRpc('failed');
         reject(new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.'));
         return;
       }
@@ -162,8 +177,14 @@
           }
           return data;
         })
-        .then(resolve)
-        .catch((err) => reject(err));
+        .then((value) => {
+          reportSlowRpc('completed');
+          resolve(value);
+        })
+        .catch((err) => {
+          reportSlowRpc('failed');
+          reject(err);
+        });
     });
   }
 

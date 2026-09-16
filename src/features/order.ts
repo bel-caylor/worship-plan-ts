@@ -4,6 +4,9 @@ import { getSheetByName } from '../util/sheets';
 import { songUsageForItemType, updateSongRecency } from './songs';
 import { getLatestSongPerformancePlaybacks } from './services';
 
+const ORDER_CACHE_PREFIX = 'wp.order.v1:';
+const ORDER_CACHE_TTL_SECONDS = 300;
+
 export type OrderItem = {
   order: number;
   itemType: string;
@@ -15,13 +18,61 @@ export type OrderItem = {
   recordingLabel?: string;
 };
 
+export type OrderRecordingLink = {
+  songName: string;
+  recordingUrl: string;
+  recordingLabel: string;
+};
+
+const orderCacheKey = (serviceId: string) => `${ORDER_CACHE_PREFIX}${encodeURIComponent(serviceId)}`;
+
+function readOrderCache(serviceId: string): { items: OrderItem[] } | null {
+  try {
+    const raw = CacheService.getDocumentCache().get(orderCacheKey(serviceId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.items) ? { items: parsed.items as OrderItem[] } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeOrderCache(serviceId: string, items: OrderItem[]) {
+  try {
+    CacheService.getDocumentCache().put(
+      orderCacheKey(serviceId),
+      JSON.stringify({ items }),
+      ORDER_CACHE_TTL_SECONDS
+    );
+  } catch (_) {
+    // Cache capacity is limited; a cache miss must never affect order loading.
+  }
+}
+
+function orderItemForCache(item: OrderItem, fallbackOrder: number): OrderItem {
+  return {
+    order: Number(item?.order ?? fallbackOrder),
+    itemType: String(item?.itemType ?? ''),
+    detail: String(item?.detail ?? ''),
+    scriptureText: String(item?.scriptureText ?? ''),
+    leader: String(item?.leader ?? ''),
+    notes: String(item?.notes ?? '')
+  };
+}
+
 export function getOrder(serviceId: string) {
   const sid = String(serviceId || '').trim();
   if (!sid) return { items: [] };
+  const cached = readOrderCache(sid);
+  if (cached) return cached;
   const sh = getSheetByName(ORDER_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return { items: [] };
+  if (lastRow < 2 || lastCol < 1) {
+    const empty = { items: [] as OrderItem[] };
+    writeOrderCache(sid, empty.items);
+    return empty;
+  }
 
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
@@ -32,34 +83,75 @@ export function getOrder(serviceId: string) {
   const scriptureTextIdx = col(ORDER_COL.scriptureText);
   const leaderIdx = col(ORDER_COL.leader);
   const notesIdx = col(ORDER_COL.notes);
-
-  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  const songNames = body
-    .filter(row => String(row[serviceIdx] ?? '').trim() === sid && looksLikeSongSlot(String(row[typeIdx] ?? '')))
-    .map(row => String(row[detailIdx] ?? '').trim())
-    .filter(Boolean);
-  const playbackBySong = getLatestSongPerformancePlaybacks(songNames);
-  const items: OrderItem[] = [];
-  for (const r of body) {
-    const id = serviceIdx >= 0 ? String(r[serviceIdx] ?? '').trim() : '';
-    if (id !== sid) continue;
-    const detail = detailIdx >= 0 ? String(r[detailIdx] ?? '') : '';
-    const playback = looksLikeSongSlot(typeIdx >= 0 ? String(r[typeIdx] ?? '') : '')
-      ? (playbackBySong.get(detail) || { youtubeUrl: '', startLabel: '' })
-      : { youtubeUrl: '', startLabel: '' };
-    const hasManualTimestamp = Number(playback?.startSeconds || 0) > 0;
-    items.push({
-      order: orderIdx >= 0 ? Number(r[orderIdx] ?? 0) : 0,
-      itemType: typeIdx >= 0 ? String(r[typeIdx] ?? '') : '',
-      detail,
-      scriptureText: scriptureTextIdx >= 0 ? String(r[scriptureTextIdx] ?? '') : '',
-      leader: leaderIdx >= 0 ? String(r[leaderIdx] ?? '') : '',
-      notes: notesIdx >= 0 ? String(r[notesIdx] ?? '') : '',
-      recordingUrl: hasManualTimestamp ? (playback.youtubeUrl || '') : '',
-      recordingLabel: hasManualTimestamp ? (playback.startLabel ? `Open at ${playback.startLabel}` : 'Open recording') : ''
-    });
+  if (serviceIdx < 0) {
+    const empty = { items: [] as OrderItem[] };
+    writeOrderCache(sid, empty.items);
+    return empty;
   }
+
+  // The historical implementation read every cell in the Order sheet before
+  // filtering. Scripture text can make that payload quite large. Locate the
+  // service using one narrow column, then read only its contiguous row block(s).
+  const serviceIds = sh.getRange(2, serviceIdx + 1, lastRow - 1, 1).getDisplayValues();
+  const matchingRows = serviceIds
+    .map((row, index) => String(row[0] ?? '').trim() === sid ? index + 2 : 0)
+    .filter(Boolean);
+  if (!matchingRows.length) {
+    const empty = { items: [] as OrderItem[] };
+    writeOrderCache(sid, empty.items);
+    return empty;
+  }
+
+  const rowBlocks: Array<{ start: number; count: number }> = [];
+  matchingRows.forEach((rowNumber) => {
+    const previous = rowBlocks[rowBlocks.length - 1];
+    if (previous && previous.start + previous.count === rowNumber) {
+      previous.count += 1;
+    } else {
+      rowBlocks.push({ start: rowNumber, count: 1 });
+    }
+  });
+  const items: OrderItem[] = [];
+  rowBlocks.forEach(({ start, count }) => {
+    sh.getRange(start, 1, count, lastCol).getValues().forEach((row) => {
+      const detail = detailIdx >= 0 ? String(row[detailIdx] ?? '') : '';
+      items.push({
+        order: orderIdx >= 0 ? Number(row[orderIdx] ?? 0) : 0,
+        itemType: typeIdx >= 0 ? String(row[typeIdx] ?? '') : '',
+        detail,
+        scriptureText: scriptureTextIdx >= 0 ? String(row[scriptureTextIdx] ?? '') : '',
+        leader: leaderIdx >= 0 ? String(row[leaderIdx] ?? '') : '',
+        notes: notesIdx >= 0 ? String(row[notesIdx] ?? '') : ''
+      });
+    });
+  });
   items.sort((a, b) => a.order - b.order);
+  writeOrderCache(sid, items);
+  return { items };
+}
+
+/**
+ * Recording history is helpful context, but it must not delay rendering the
+ * saved order. The client requests these links after it has painted the order.
+ */
+export function getOrderRecordingLinks(input: { songNames?: string[] }) {
+  const songNames = Array.from(new Set(
+    (Array.isArray(input?.songNames) ? input.songNames : [])
+      .map(name => String(name || '').trim())
+      .filter(Boolean)
+  ));
+  const playbackBySong = getLatestSongPerformancePlaybacks(songNames);
+  const items: OrderRecordingLink[] = songNames.map(songName => {
+    const playback = playbackBySong.get(songName);
+    const hasTimestamp = Number(playback?.startSeconds || 0) > 0;
+    return {
+      songName,
+      recordingUrl: hasTimestamp ? String(playback?.youtubeUrl || '') : '',
+      recordingLabel: hasTimestamp
+        ? (playback?.startLabel ? `Open at ${playback.startLabel}` : 'Open recording')
+        : ''
+    };
+  });
   return { items };
 }
 
@@ -142,6 +234,10 @@ export function saveOrder(input: { serviceId: string; items: OrderItem[]; servic
   } finally {
     lock.releaseLock();
   }
+
+  // Keep the next read for this service off the full Order-sheet scan. This
+  // cache is also the invalidation point for every planner autosave.
+  writeOrderCache(serviceId, items.map((item, index) => orderItemForCache(item, index + 1)));
 
   try {
     updateSongsFromOrder(items, serviceDate);

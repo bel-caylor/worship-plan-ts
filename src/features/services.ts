@@ -52,6 +52,8 @@ export type ServiceItem = {
 
 const SERVICES_CACHE_KEY = 'listServices:v1';
 const SERVICE_PEOPLE_CACHE_KEY = 'servicePeople:v1';
+const SONG_PLAYBACK_CACHE_PREFIX = 'songPlayback:v1:';
+const SONG_PLAYBACK_CACHE_TTL_SECONDS = 300;
 const YOUTUBE_HELPER_CACHE_KEY = 'youtube-helper:v1';
 const DEFAULT_SERVICE_TIME = '10:00 AM';
 const DEFAULT_LEADER = 'Darden';
@@ -64,6 +66,49 @@ const YOUTUBE_STREAMS_CURSOR_PROPERTY = 'youtube_streams_catalog_page_token_v2';
 const YOUTUBE_API_KEY_PROPERTY = 'YOUTUBE_API_KEY';
 const YOUTUBE_CHANNEL_HANDLE = '@hopechurch7113';
 const AUTO_SERVICE_WEEKS_AHEAD = 12;
+
+type SongPlayback = {
+  youtubeUrl: string;
+  baseYoutubeUrl: string;
+  startSeconds: number;
+  startLabel: string;
+};
+
+function songPlaybackCacheKey(songName: string) {
+  return `${SONG_PLAYBACK_CACHE_PREFIX}${encodeURIComponent(normalizeSongLookup(songName))}`;
+}
+
+function readSongPlaybackCache(songName: string): SongPlayback | null {
+  try {
+    const raw = CacheService.getDocumentCache().get(songPlaybackCacheKey(songName));
+    if (!raw) return null;
+    const value = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || !value.playback) return null;
+    const playback = value.playback;
+    return {
+      youtubeUrl: String(playback.youtubeUrl || ''),
+      baseYoutubeUrl: String(playback.baseYoutubeUrl || ''),
+      startSeconds: Math.max(0, Number(playback.startSeconds) || 0),
+      startLabel: String(playback.startLabel || '')
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeSongPlaybackCache(songName: string, playback: SongPlayback) {
+  try {
+    CacheService.getDocumentCache().put(
+      songPlaybackCacheKey(songName),
+      JSON.stringify({ playback }),
+      SONG_PLAYBACK_CACHE_TTL_SECONDS
+    );
+  } catch (_) { /* cache failures must not affect recording links */ }
+}
+
+function removeSongPlaybackCache(songName: string) {
+  try { CacheService.getDocumentCache().remove(songPlaybackCacheKey(songName)); } catch (_) { /* ignore */ }
+}
 
 // --- Normalization helpers ---
 function normalizeDisplayName(s: string): string {
@@ -389,20 +434,34 @@ export function getLatestSongPerformancePlaybacks(songNames: string[]) {
   const requested = Array.from(new Set((Array.isArray(songNames) ? songNames : [])
     .map(name => String(name || '').trim())
     .filter(Boolean)));
-  const empty = { youtubeUrl: '', baseYoutubeUrl: '', startSeconds: 0, startLabel: '' };
-  const result = new Map<string, typeof empty>();
+  const empty: SongPlayback = { youtubeUrl: '', baseYoutubeUrl: '', startSeconds: 0, startLabel: '' };
+  const result = new Map<string, SongPlayback>();
   if (!requested.length) return result;
 
+  const uncached = requested.filter(name => {
+    const cached = readSongPlaybackCache(name);
+    if (!cached) return true;
+    result.set(name, cached);
+    return false;
+  });
+  if (!uncached.length) return result;
+  const cacheUnresolved = () => {
+    uncached.forEach(name => writeSongPlaybackCache(name, result.get(name) || empty));
+  };
+
   const requestedByNormalized = new Map<string, string[]>();
-  requested.forEach(name => {
+  uncached.forEach(name => {
     const normalized = normalizeSongLookup(name);
     if (!normalized) return;
     const names = requestedByNormalized.get(normalized) || [];
     names.push(name);
     requestedByNormalized.set(normalized, names);
   });
-  requested.forEach(name => result.set(name, empty));
-  if (!requestedByNormalized.size) return result;
+  uncached.forEach(name => result.set(name, empty));
+  if (!requestedByNormalized.size) {
+    cacheUnresolved();
+    return result;
+  }
 
   const serviceById = new Map<string, ServiceItem>();
   fetchServicesUnfiltered().forEach(service => {
@@ -414,7 +473,10 @@ export function getLatestSongPerformancePlaybacks(songNames: string[]) {
   const sh = getOrCreateSheet(SONG_PERFORMANCES_SHEET, headers);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return result;
+  if (lastRow < 2 || lastCol < 1) {
+    cacheUnresolved();
+    return result;
+  }
 
   const headerRow = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(value => String(value ?? '').trim());
   const col = (name: string) => headerRow.findIndex(header => header.toLowerCase() === name.toLowerCase());
@@ -422,7 +484,10 @@ export function getLatestSongPerformancePlaybacks(songNames: string[]) {
   const serviceIdIdx = col(SONG_PERFORMANCES_COL.serviceId);
   const youtubeUrlIdx = col(SONG_PERFORMANCES_COL.youtubeUrl);
   const startSecondsIdx = col(SONG_PERFORMANCES_COL.startSeconds);
-  if (songNameIdx < 0 || serviceIdIdx < 0) return result;
+  if (songNameIdx < 0 || serviceIdIdx < 0) {
+    cacheUnresolved();
+    return result;
+  }
 
   const cutoff = todayISO();
   const latestBySong = new Map<string, { serviceId: string; youtubeUrl: string; startSeconds: number; sortKey: string }>();
@@ -457,6 +522,7 @@ export function getLatestSongPerformancePlaybacks(songNames: string[]) {
     };
     (requestedByNormalized.get(normalizedSong) || []).forEach(name => result.set(name, playback));
   });
+  cacheUnresolved();
   return result;
 }
 
@@ -2482,6 +2548,8 @@ export function saveSongPerformanceTimestamp(input?: SaveSongPerformanceTimestam
   } finally {
     lock.releaseLock();
   }
+
+  removeSongPlaybackCache(songName);
 
   return {
     ok: true,

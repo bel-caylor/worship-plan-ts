@@ -39,8 +39,33 @@ type SaveAssignmentInput = {
 const norm = (value: unknown): string => String(value ?? '').trim();
 const normLower = (value: unknown): string => norm(value).toLowerCase();
 const slimKey = (value: unknown): string => normLower(value).replace(/[^a-z0-9]+/g, '');
+const TEAM_ASSIGNMENTS_CACHE_PREFIX = 'serviceTeamAssignments:v1:';
+const TEAM_ASSIGNMENTS_CACHE_TTL_SECONDS = 300;
 const assignmentKey = (serviceId: unknown, teamType: unknown, roleName: unknown) =>
   `${normLower(serviceId)}::${normLower(teamType)}::${normLower(roleName)}`;
+
+const teamAssignmentsCacheKey = (serviceId: string) =>
+  `${TEAM_ASSIGNMENTS_CACHE_PREFIX}${encodeURIComponent(serviceId)}`;
+
+function readTeamAssignmentsCache(serviceId: string) {
+  try {
+    const raw = CacheService.getDocumentCache().get(teamAssignmentsCacheKey(serviceId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && parsed.serviceId === serviceId && Array.isArray(parsed.teams) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeTeamAssignmentsCache(serviceId: string, value: unknown) {
+  try {
+    CacheService.getDocumentCache().put(teamAssignmentsCacheKey(serviceId), JSON.stringify(value), TEAM_ASSIGNMENTS_CACHE_TTL_SECONDS);
+  } catch (_) { /* a cache miss must never block the Team tab */ }
+}
+
+function removeTeamAssignmentsCache(serviceId: string) {
+  try { CacheService.getDocumentCache().remove(teamAssignmentsCacheKey(serviceId)); } catch (_) { /* ignore */ }
+}
 
 type RoleOrderEntry = {
   teamKey: string;
@@ -602,6 +627,8 @@ type ServiceTeamAssignmentGroup = {
 export function getServiceTeamAssignments(input: { serviceId?: string }) {
   const serviceId = norm(input?.serviceId);
   if (!serviceId) throw new Error('Service ID is required.');
+  const cached = readTeamAssignmentsCache(serviceId);
+  if (cached) return cached;
   const rows = readAssignmentRows().filter(row => row.serviceId === serviceId);
   const roleOrderLookup = readRoleOrderLookup();
   const groups = new Map<string, ServiceTeamAssignmentGroup>();
@@ -642,7 +669,9 @@ rows.forEach(row => {
       };
     })
     .sort((a, b) => groupLabel(a).localeCompare(groupLabel(b)));
-  return { serviceId, teams };
+  const result = { serviceId, teams };
+  writeTeamAssignmentsCache(serviceId, result);
+  return result;
 }
 
 function groupLabel(group: ServiceTeamAssignmentGroup): string {
@@ -670,6 +699,7 @@ export function resetServiceTeamAssignments(payload: { serviceId?: string; teamT
   try {
     const sh = ensureAssignmentSheet();
     rowsToDelete.forEach(rowNumber => sh.deleteRow(rowNumber));
+    removeTeamAssignmentsCache(serviceId);
     return { deleted: rowsToDelete.length };
   } finally {
     lock.releaseLock();
@@ -768,6 +798,8 @@ export function saveServiceTeamAssignments(payload: { assignments?: SaveAssignme
       const startRow = Math.max(sh.getLastRow(), 1) + 1;
       sh.getRange(startRow, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
     }
+    Array.from(new Set(Array.from(normalized.values()).map(entry => entry.serviceId)))
+      .forEach(removeTeamAssignmentsCache);
     return { updated: rowsToDelete.length + rowUpdates.length + rowsToInsert.length };
   } finally {
     lock.releaseLock();
