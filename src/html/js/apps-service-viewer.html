@@ -337,6 +337,9 @@ return {
               this.setSongs(Array.from(merged.values()));
             }
           } catch (err) {
+            // A transient Apps Script/Worker failure must not permanently mark
+            // these songs as loaded; an expanded row should be able to retry.
+            missing.forEach(name => this._requestedSongTitles.delete(normalizeTitle(name)));
             console.error('Failed to load service songs', err);
           }
         })();
@@ -601,8 +604,29 @@ return {
         if (!key) return;
         const current = this.songMedia[key];
         if (current && (current.loading || current.files?.length || current.message)) return;
-        const info = this.songInfo(detail);
-        const folderUrl = info?.folderUrl;
+        let info = this.songInfo(detail);
+        let folderUrl = info?.folderUrl;
+        if (!folderUrl) {
+          // The targeted catalog request can occasionally fail independently
+          // of the already-rendered order. Retry it before declaring a link
+          // missing.
+          await this.ensureSongsLoaded([detail]);
+          info = this.songInfo(detail);
+          folderUrl = info?.folderUrl;
+        }
+        if (!folderUrl) {
+          // Last-resort lookup for a valid song row that was not included in
+          // the targeted response. This keeps a real folder from being shown
+          // as absent while avoiding the lookup on the normal fast path.
+          try {
+            folderUrl = String(await callRpc('getSongFolderUrl', { songName: detail }) || '').trim();
+            if (folderUrl) {
+              const existing = Array.isArray(this.songs) ? this.songs : [];
+              const replacement = { ...(this.songLookup.get(key) || {}), Song: detail, _folderUrl: folderUrl };
+              this.setSongs([...existing.filter(row => normalizeTitle(row?.Song || row?.song || row?.Title) !== key), replacement]);
+            }
+          } catch (_) { /* show the normal message below */ }
+        }
         if (!folderUrl) {
           this.songMedia = { ...this.songMedia, [key]: { loading: false, files: [], message: 'No folder link available.' } };
           return;
