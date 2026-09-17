@@ -211,6 +211,7 @@ return {
       songLookup: buildSongLookup(seededSongs),
       songsVersion: seededSongs.length ? 1 : 0,
       songsLoading: false,
+      _songLoadPromise: null,
       songMedia: {},
       scriptureCache: {},
       selectedServiceId: '',
@@ -312,26 +313,39 @@ return {
         const requested = Array.from(new Set((Array.isArray(names) ? names : this.songNamesForItems(this.orderItems))
           .map(name => String(name || '').trim())
           .filter(Boolean)));
+        // A row can be expanded while the upcoming service's songs are being
+        // warmed. Wait for that request so media does not incorrectly treat a
+        // not-yet-arrived folder URL as a missing one.
+        if (this.songsLoading) {
+          await this._songLoadPromise;
+          return;
+        }
         const missing = requested.filter(name => {
           const key = normalizeTitle(name);
           return key && !this.songLookup.has(key) && !this._requestedSongTitles.has(key);
         });
         if (!missing.length) return;
-        if (this.songsLoading) return;
         missing.forEach(name => this._requestedSongTitles.add(normalizeTitle(name)));
         this.songsLoading = true;
-        try {
-          const res = await callRpc('getSongsForServiceView', { names: missing });
-          if (Array.isArray(res) && res.length) {
-            const existing = Array.isArray(this.songs) ? this.songs : [];
-            const merged = new Map(existing.map(row => [normalizeTitle(row?.Song || row?.song || row?.Title), row]));
-            res.forEach(row => merged.set(normalizeTitle(row?.Song || row?.song || row?.Title), row));
-            this.setSongs(Array.from(merged.values()));
+        const load = (async () => {
+          try {
+            const res = await callRpc('getSongsForServiceView', { names: missing });
+            if (Array.isArray(res) && res.length) {
+              const existing = Array.isArray(this.songs) ? this.songs : [];
+              const merged = new Map(existing.map(row => [normalizeTitle(row?.Song || row?.song || row?.Title), row]));
+              res.forEach(row => merged.set(normalizeTitle(row?.Song || row?.song || row?.Title), row));
+              this.setSongs(Array.from(merged.values()));
+            }
+          } catch (err) {
+            console.error('Failed to load service songs', err);
           }
-        } catch (err) {
-          console.error('Failed to load service songs', err);
+        })();
+        this._songLoadPromise = load;
+        try {
+          await load;
         } finally {
           this.songsLoading = false;
+          if (this._songLoadPromise === load) this._songLoadPromise = null;
         }
       },
 
