@@ -2,9 +2,10 @@
 import { getFilesForFolderUrl } from './util/drive';
 import { getSongFolderUrl } from './features/song-media';
 import { addService, createServicesBatch, getScriptureVersions, getServicePeople, esvPassage, getService, listServices, saveService, deleteService, getSongPerformances, suggestYouTubeStream, saveSongPerformanceTimestamp } from './features/services';
+import { getServiceViewerStartup } from './features/service-viewer';
 import { getOrder, getOrderRecordingLinks, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
-import { suggestSongs, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
+import { suggestSongs, getSongsForServiceView, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
 import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
@@ -33,6 +34,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return listServices(payload as any);
       case 'getService':
         return getService(String(payload || ''));
+      case 'getServiceViewerStartup':
+        return getServiceViewerStartup();
       case 'createServicesBatch':
         return createServicesBatch(payload as any);
       case 'getOrder':
@@ -46,6 +49,7 @@ export function rpc(input: { method: string; payload: unknown }) {
       case 'suggestSongs':
         return suggestSongs(payload as any);
       case 'getSongsForView': return getSongsWithLinksForView();
+      case 'getSongsForServiceView': return getSongsForServiceView(payload as { names?: string[] });
       case 'getSongPerformances': return getSongPerformances(payload as any);
       case 'saveSongPerformanceTimestamp': return saveSongPerformanceTimestamp(payload as any);
       case 'suggestYouTubeStream': return suggestYouTubeStream(payload as any);

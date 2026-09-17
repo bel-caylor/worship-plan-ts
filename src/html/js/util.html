@@ -135,7 +135,7 @@
       const elapsedMs = Date.now() - startedAt;
       if (elapsedMs < 1000) return;
       try {
-        console.info(`[RPC timing] ${method} ${outcome} in ${elapsedMs}ms`);
+        console.info(`[RPC timing] ${method} ${outcome} in ${(elapsedMs / 1000).toFixed(1)}s`);
       } catch (_) { /* ignore */ }
     };
     const request = new Promise((resolve, reject) => {

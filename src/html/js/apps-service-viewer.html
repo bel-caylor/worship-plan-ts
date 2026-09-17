@@ -219,6 +219,8 @@ return {
       loadingDetails: false,
       loadingTeam: false,
       _detailRequestId: 0,
+      _loadedOrderServiceId: '',
+      _requestedSongTitles: new Set(),
       teamLoadedServiceId: '',
       orderItems: [],
       orderError: '',
@@ -228,8 +230,9 @@ return {
       activeTab: 'order',
 
       init() {
-        this.restoreSelection();
-        this.refreshServices();
+        // The next service is what almost every visitor needs. Render it
+        // before asking Apps Script for the archive that powers the picker.
+        this.loadUpcomingService().finally(() => this.refreshServices());
       },
 
       restoreSelection() {
@@ -305,18 +308,28 @@ return {
         } catch (_) { /* ignore */ }
       },
 
-      async ensureSongsLoaded(force = false) {
-        const hasSongs = Array.isArray(this.songs) && this.songs.length > 0;
-        if (!force && hasSongs) return;
+      async ensureSongsLoaded(names = []) {
+        const requested = Array.from(new Set((Array.isArray(names) ? names : this.songNamesForItems(this.orderItems))
+          .map(name => String(name || '').trim())
+          .filter(Boolean)));
+        const missing = requested.filter(name => {
+          const key = normalizeTitle(name);
+          return key && !this.songLookup.has(key) && !this._requestedSongTitles.has(key);
+        });
+        if (!missing.length) return;
         if (this.songsLoading) return;
+        missing.forEach(name => this._requestedSongTitles.add(normalizeTitle(name)));
         this.songsLoading = true;
         try {
-          const res = await callRpc('getSongsForView', null);
+          const res = await callRpc('getSongsForServiceView', { names: missing });
           if (Array.isArray(res) && res.length) {
-            this.setSongs(res);
+            const existing = Array.isArray(this.songs) ? this.songs : [];
+            const merged = new Map(existing.map(row => [normalizeTitle(row?.Song || row?.song || row?.Title), row]));
+            res.forEach(row => merged.set(normalizeTitle(row?.Song || row?.song || row?.Title), row));
+            this.setSongs(Array.from(merged.values()));
           }
         } catch (err) {
-          console.error('Failed to load songs list', err);
+          console.error('Failed to load service songs', err);
         } finally {
           this.songsLoading = false;
         }
@@ -372,9 +385,36 @@ return {
               this.persistSelection();
             }
           }
-          if (this.selectedServiceId) {
+          if (this.selectedServiceId && this._loadedOrderServiceId !== this.selectedServiceId) {
             this.loadServiceDetails(this.selectedServiceId);
           }
+        }
+      },
+
+      async loadUpcomingService() {
+        const requestId = ++this._detailRequestId;
+        this.loadingDetails = true;
+        this.orderError = '';
+        try {
+          const res = await withTimeout(callRpc('getServiceViewerStartup', null), SERVICES_SYNC_TIMEOUT_MS);
+          if (requestId !== this._detailRequestId) return;
+          const service = res?.service;
+          if (!service?.id) return;
+          const existing = Array.isArray(this.services) ? this.services.filter(item => item?.id !== service.id) : [];
+          this.services = [service, ...existing];
+          this.selectedServiceId = service.id;
+          this.persistSelection();
+          this.orderItems = Array.isArray(res?.items) ? res.items : [];
+          this._loadedOrderServiceId = service.id;
+          this.loadOrderRecordingLinks(requestId, this.orderItems);
+          // Warm lyrics and folder links for only this service's songs.
+          this.ensureSongsLoaded(this.songNamesForItems(this.orderItems));
+        } catch (err) {
+          if (requestId === this._detailRequestId) {
+            this.orderError = err?.message || 'Unable to load the next service.';
+          }
+        } finally {
+          if (requestId === this._detailRequestId) this.loadingDetails = false;
         }
       },
 
@@ -396,13 +436,16 @@ return {
         this.teamAssignments = [];
         this.orderError = '';
         this.teamError = '';
+        this._loadedOrderServiceId = '';
         const orderRequest = withTimeout(callRpc('getOrder', target), SERVICES_SYNC_TIMEOUT_MS)
           .then((orderRes) => {
             if (requestId !== this._detailRequestId) return;
             this.orderItems = Array.isArray(orderRes?.items) ? orderRes.items : [];
+            this._loadedOrderServiceId = target;
             // Do not make the order wait for its optional historical-recording
             // links. They are filled in after the saved order is visible.
             this.loadOrderRecordingLinks(requestId, this.orderItems);
+            this.ensureSongsLoaded(this.songNamesForItems(this.orderItems));
           })
           .catch((err) => {
             if (requestId !== this._detailRequestId) return;
@@ -467,13 +510,20 @@ return {
         }
       },
 
-      toggleRow(idx, item) {
+      songNamesForItems(items) {
+        return Array.from(new Set((Array.isArray(items) ? items : [])
+          .filter(item => this.isSongItem(item))
+          .map(item => String(item?.detail || '').trim())
+          .filter(Boolean)));
+      },
+
+      async toggleRow(idx, item) {
         const next = { ...this.expanded };
         const willExpand = !next[idx];
         next[idx] = willExpand;
         this.expanded = next;
         if (willExpand && this.isSongItem(item)) {
-          this.ensureSongsLoaded();
+          await this.ensureSongsLoaded([item?.detail || '']);
           this.ensureSongMedia(item?.detail || '');
         }
       },
@@ -505,9 +555,6 @@ return {
       },
 
       songInfo(detail) {
-        if ((!Array.isArray(this.songs) || !this.songs.length) && !this.songsLoading) {
-          this.ensureSongsLoaded();
-        }
         const normalized = normalizeTitle(detail);
         const row = normalized ? this.songLookup.get(normalized) : null;
         return {

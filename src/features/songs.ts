@@ -925,7 +925,7 @@ export function saveSongEntry(input: SaveSongInput) {
 }
 
 
-export function getSongsWithLinksForView(): Row[] {
+export function getSongsWithLinksForView(): Row[] {
     const sh = getSheetByName(SONG_SHEET);
 
     const lastRow = sh.getLastRow();
@@ -999,11 +999,68 @@ export function getSongsWithLinksForView(): Row[] {
         out.push(rowObj);
     }
 
-    return out;
-}
-
-
-// Return selected fields for specific song names (robust matching)
+    return out;
+}
+
+/**
+ * Returns viewer fields for only the songs in an order of worship. Loading the
+ * entire catalog just to display the next service can be very expensive.
+ */
+export function getSongsForServiceView(input: { names?: string[] }): Row[] {
+  const names = Array.from(new Set(
+    (Array.isArray(input?.names) ? input.names : [])
+      .map(name => String(name || '').trim())
+      .filter(Boolean)
+  ));
+  if (!names.length) return [];
+  const sh = getSheetByName(SONG_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h ?? '').trim());
+  const col = (name: string) => headers.findIndex(header => header.toLowerCase() === name.toLowerCase());
+  const nameIdx = col(SONG_COL_NAME);
+  if (nameIdx < 0) return [];
+  const requested = new Set(names.map(normalizeSongTitle).filter(Boolean));
+  const titles = sh.getRange(2, nameIdx + 1, lastRow - 1, 1).getDisplayValues();
+  const matchingRows = titles
+    .map((row, index) => requested.has(normalizeSongTitle(String(row[0] ?? ''))) ? index + 2 : 0)
+    .filter(Boolean);
+  if (!matchingRows.length) return [];
+
+  const folderIdx = col(FOLDER_LINK_COL);
+  const rows: Row[] = [];
+  matchingRows.forEach(rowNumber => {
+    const range = sh.getRange(rowNumber, 1, 1, lastCol);
+    const values = range.getValues()[0];
+    const formulas = range.getFormulas()[0];
+    const rich = range.getRichTextValues()[0];
+    const row: Row = {};
+    [SONG_COL_NAME, 'Lyrics', 'Lyrics (PD)', 'Link'].forEach(field => {
+      const index = col(field);
+      if (index >= 0) row[field] = values[index];
+    });
+    if (folderIdx >= 0) {
+      let folderUrl = '';
+      try { folderUrl = String(rich[folderIdx]?.getLinkUrl?.() || ''); } catch (_) { /* ignore */ }
+      if (!folderUrl) {
+        const match = /^=HYPERLINK\("([^"]+)"/i.exec(String(formulas[folderIdx] || ''));
+        if (match) folderUrl = match[1];
+      }
+      if (!folderUrl) {
+        const match = String(values[folderIdx] ?? '').match(/https:\/\/drive\.google\.com\/[^\s"]+/);
+        if (match) folderUrl = match[0];
+      }
+      row._folderUrl = folderUrl;
+    }
+    rows.push(row);
+  });
+  return rows;
+}
+
+
+// Return selected fields for specific song names (robust matching)
 export function getSongFields(input: { names?: string[]; fields?: string[] }) {
   const names = Array.isArray(input?.names) ? input!.names.map(String) : [];
   const want = Array.isArray(input?.fields) && input!.fields!.length ? input!.fields!.map(String) : ['Lyrics','Themes'];
