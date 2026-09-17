@@ -315,10 +315,12 @@ return {
           .filter(Boolean)));
         // A row can be expanded while the upcoming service's songs are being
         // warmed. Wait for that request so media does not incorrectly treat a
-        // not-yet-arrived folder URL as a missing one.
+        // not-yet-arrived folder URL as a missing one. The earlier request may
+        // be for a different service, so re-check this request afterward
+        // instead of treating its completion as proof these songs are loaded.
         if (this.songsLoading) {
           await this._songLoadPromise;
-          return;
+          return this.ensureSongsLoaded(requested);
         }
         const missing = requested.filter(name => {
           const key = normalizeTitle(name);
