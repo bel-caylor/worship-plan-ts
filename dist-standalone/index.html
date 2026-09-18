@@ -1386,6 +1386,12 @@
         if (!this.isModalContext) {
           this.mobileListOpen = false;
         }
+        const savedMedia = Array.isArray(row?._mediaFiles) ? row._mediaFiles : [];
+        if (savedMedia.length) {
+          this.mediaFiles = savedMedia;
+          this.mediaLoading = false;
+          return;
+        }
         let url = String((row && row._folderUrl) || '').trim();
         if (!url && row?.Song) {
           try {
@@ -1416,7 +1422,7 @@
         }
         this.mediaLoading = true;
         try {
-          const files = await callRpc('getFilesForFolderUrl', url);
+          const files = await this.getMediaFilesWithRetry(url);
           if (mediaRequestId !== this._mediaRequestId) return;
           this.mediaFiles = Array.isArray(files) ? files : [];
           this.mediaMessage = this.mediaFiles.length ? '' : 'No files in folder.';
@@ -1428,6 +1434,22 @@
         } finally {
           if (mediaRequestId === this._mediaRequestId) this.mediaLoading = false;
         }
+      },
+
+      async getMediaFilesWithRetry(url) {
+        let lastError;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            return await callRpc('getFilesForFolderUrl', url);
+          } catch (err) {
+            lastError = err;
+            const message = String(err?.message || err || '');
+            const isTransientGatewayError = /\b502\b|bad gateway|non-json response|transient html|unable to reach apps script/i.test(message);
+            if (!isTransientGatewayError || attempt === 1) throw err;
+            await new Promise(resolve => setTimeout(resolve, 750));
+          }
+        }
+        throw lastError || new Error('Failed to load files.');
       },
 
       sort(h) {
@@ -3016,6 +3038,7 @@ return {
           keywords: row?.Keywords || '',
           link: row?.Link || '',
           folderUrl: row?._folderUrl || row?._folderURL || row?._folder || '',
+          mediaFiles: Array.isArray(row?._mediaFiles) ? row._mediaFiles : [],
           usage: row?.Usage || '',
           uses: row?.Uses || '',
           yearsUsed: row?.Years_Used || '',
@@ -3032,12 +3055,34 @@ return {
         return this.songMedia[key] || { loading: false, files: [], message: '' };
       },
 
+      async getSongMediaFiles(folderUrl) {
+        let lastError;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            return await callRpc('getFilesForFolderUrl', folderUrl);
+          } catch (err) {
+            lastError = err;
+            const message = String(err?.message || err || '');
+            const isTransientGatewayError = /\b502\b|bad gateway|non-json response|transient html|unable to reach apps script/i.test(message);
+            if (!isTransientGatewayError || attempt === 1) throw err;
+            // The proxy only retries safe reads, but an Apps Script execution
+            // can still be briefly unavailable while Drive is cold or busy.
+            await new Promise(resolve => setTimeout(resolve, 750));
+          }
+        }
+        throw lastError || new Error('Failed to load files.');
+      },
+
       async ensureSongMedia(detail) {
         const key = songMediaKey(detail);
         if (!key) return;
         const current = this.songMedia[key];
         if (current && (current.loading || current.files?.length || current.message)) return;
         let info = this.songInfo(detail);
+        if (info.mediaFiles.length) {
+          this.songMedia = { ...this.songMedia, [key]: { loading: false, files: info.mediaFiles, message: '' } };
+          return;
+        }
         let folderUrl = info?.folderUrl;
         if (!folderUrl) {
           // The targeted catalog request can occasionally fail independently
@@ -3066,7 +3111,7 @@ return {
         }
         this.songMedia = { ...this.songMedia, [key]: { loading: true, files: [], message: '' } };
         try {
-          const files = await callRpc('getFilesForFolderUrl', folderUrl);
+          const files = await this.getSongMediaFiles(folderUrl);
           this.songMedia = {
             ...this.songMedia,
             [key]: {

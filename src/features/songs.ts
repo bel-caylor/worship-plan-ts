@@ -1,10 +1,12 @@
 // src/features/songs.ts
 import {
-  SONG_SHEET, SONG_COL_NAME, FOLDER_LINK_COL, AUDIO_LINKS_COL, MAX_AUDIO_LINKS,
+  SONG_SHEET, SONG_COL_NAME, FOLDER_LINK_COL, AUDIO_LINKS_COL, MAX_AUDIO_LINKS, MEDIA_FILES_COL,
   ROOT_FOLDER_ID, SPANISH_ROOT_ID, SP_COL_NAME, TARGET_LEADER_COL, Row,
   ORDER_SHEET, ORDER_COL, SONG_USAGE_ORDER
 } from '../constants';
-import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
+import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
+
+import { readMediaSnapshot } from './media-snapshot';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
 import { aiSongMetadata } from '../util/ai';
@@ -940,7 +942,8 @@ export function getSongsWithLinksForView(): Row[] {
 
     const songColIdx = colMap[SONG_COL_NAME] ?? -1;
     const spColIdx = colMap[SP_COL_NAME] ?? -1;
-    const fCol = colMap[FOLDER_LINK_COL] ?? -1;
+    const fCol = colMap[FOLDER_LINK_COL] ?? -1;
+    const mediaCol = colMap[MEDIA_FILES_COL] ?? -1;
     const leaderColIdx =
         (colMap[TARGET_LEADER_COL] ?? -1) >= 0
             ? (colMap[TARGET_LEADER_COL] as number)
@@ -989,7 +992,8 @@ export function getSongsWithLinksForView(): Row[] {
                 if (match) folderUrl = match[0];
             }
         }
-        (rowObj as any)._folderUrl = folderUrl || null;
+        (rowObj as any)._folderUrl = folderUrl || null;
+        (rowObj as any)._mediaFiles = mediaCol >= 0 ? readMediaSnapshot(rich[r][mediaCol]) : [];
 
         // ---- Leaders array for filtering ----
         const leadersRaw = leaderColIdx >= 0 ? String(values[r][leaderColIdx] ?? '') : '';
@@ -1030,6 +1034,7 @@ export function getSongsForServiceView(input: { names?: string[] }): Row[] {
   if (!matchingRows.length) return [];
 
   const folderIdx = col(FOLDER_LINK_COL);
+  const mediaIdx = col(MEDIA_FILES_COL);
   const rows: Row[] = [];
   matchingRows.forEach(rowNumber => {
     const range = sh.getRange(rowNumber, 1, 1, lastCol);
@@ -1054,6 +1059,7 @@ export function getSongsForServiceView(input: { names?: string[] }): Row[] {
       }
       row._folderUrl = folderUrl;
     }
+    row._mediaFiles = mediaIdx >= 0 ? readMediaSnapshot(rich[mediaIdx]) : [];
     rows.push(row);
   });
   return rows;

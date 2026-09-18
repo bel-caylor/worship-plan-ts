@@ -52,6 +52,21 @@ export function getFilesForFolderUrl(folderUrl: string, limit: number = 200) {
     };
     const folderId = extractId(folderUrl);
     if (!folderId) throw new Error('The song media folder link is invalid.');
+    // Opening several songs can otherwise start several independent Drive
+    // enumerations.  Cache the small, presentation-ready result rather than
+    // asking Drive for the same folder on every viewer request. Cache misses
+    // remain correct; the cache merely avoids slow/cold Drive requests.
+    const cacheKey = `song-media:${folderId}:${limit}`;
+    const cache = CacheService.getScriptCache();
+    try {
+        const cached = cache.get(cacheKey);
+        if (cached) {
+            const files = JSON.parse(cached);
+            if (Array.isArray(files)) return files;
+        }
+    } catch (_) {
+        // Cache availability and size limits must never make media unavailable.
+    }
     let folder: GoogleAppsScript.Drive.Folder;
     try {
         folder = DriveApp.getFolderById(folderId);
@@ -73,6 +88,14 @@ export function getFilesForFolderUrl(folderUrl: string, limit: number = 200) {
         });
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
+    try {
+        // Five minutes keeps the normal viewer flow fast while allowing newly
+        // added charts or recordings to appear shortly afterward.
+        cache.put(cacheKey, JSON.stringify(out), 300);
+    } catch (_) {
+        // Apps Script cache entries have a size limit; return the live result
+        // if a particularly large folder cannot be cached.
+    }
     return out;
 }
 

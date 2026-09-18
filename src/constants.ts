@@ -2,6 +2,8 @@
 export const SONG_SHEET = 'Songs';
 export const SONG_COL_NAME = 'Song';
 export const FOLDER_LINK_COL = 'Folder URL';
+export const MEDIA_FILES_COL = 'Media Files';
+export const MEDIA_LAST_SYNCED_COL = 'Media Last Synced';
 export const AUDIO_LINKS_COL = 'Audio Files';
 export const MAX_AUDIO_LINKS = 5;
 export const AUDIO_MIME_PREFIX = 'audio/';

@@ -1,6 +1,7 @@
 import { doGet, doPost, doOptions } from './http';
 import { onOpen as menuOnOpen, showMenuNow as menuShow, setupMenuTrigger as menuSetup } from './menu';
 import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from './features/songs';
+import { installDailySongMediaRefresh, refreshSavedSongMedia } from './features/media-snapshot';
 import { buildLeadersFromPlanner } from './features/leaders';
 import { repairServiceDateTimeColumns, syncYouTubeStreamsCatalog, matchServicesFromYouTubeStreams, resetYouTubeStreamsSyncState } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
@@ -41,6 +42,8 @@ global.rpc = rpc;
 global.getFilesForFolderUrl = getFilesForFolderUrl;
 
 global.linkSongMedia = linkSongMedia;
+global.refreshSavedSongMedia = refreshSavedSongMedia;
+global.installDailySongMediaRefresh = installDailySongMediaRefresh;
 global.buildLeadersFromPlanner = buildLeadersFromPlanner;
 global.rebuildSongUsageFromPlanner = rebuildSongUsageFromPlanner;
 global.syncSongsFromDrive = syncSongsFromDrive;

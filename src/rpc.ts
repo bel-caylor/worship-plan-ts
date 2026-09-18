@@ -21,7 +21,10 @@ export function rpc(input: { method: string; payload: unknown }) {
   try {
     switch (method) {
       case 'getFilesForFolderUrl':
-        return getFilesForFolderUrl(String(payload), 200);
+        // The viewer needs a practical list of charts/tracks, not an
+        // unbounded archive dump. Keeping this bounded avoids long-running
+        // Drive metadata reads that can exceed the proxy's upstream window.
+        return getFilesForFolderUrl(String(payload), 60);
       case 'getSongFolderUrl':
         return getSongFolderUrl(payload as { songName?: string });
       case 'addService':

@@ -18,7 +18,7 @@ export function doGet(e?: GoogleAppsScript.Events.DoGet) {
   // JSON API: list files for a folder
   if (action === 'files') {
     const folderUrl = String(e?.parameter?.folderUrl || '');
-    const files = getFilesForFolderUrl(folderUrl, 200);
+    const files = getFilesForFolderUrl(folderUrl, 60);
     return ContentService
       .createTextOutput(JSON.stringify({ files }))
       .setMimeType(ContentService.MimeType.JSON);

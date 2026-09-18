@@ -3,6 +3,8 @@ export function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Worship')
     .addItem('Link song media', 'linkSongMedia')
+    .addItem('Refresh saved media now', 'refreshSavedSongMedia')
+    .addItem('Install daily media refresh', 'installDailySongMediaRefresh')
     .addItem('Repair service date/time columns', 'repairServiceDateTimeColumns')
     .addItem('Sync YouTube streams catalog', 'syncYouTubeStreamsCatalog')
     .addItem('Reset YouTube streams sync state', 'resetYouTubeStreamsSyncState')
