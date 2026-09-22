@@ -30,6 +30,9 @@ jobs:
       - name: Install deps
         run: npm ci
 
+      - name: Install proxy deps
+        run: npm --prefix worship-plan-proxy ci
+
       - name: Build server + assets
         run: npm run build
 
