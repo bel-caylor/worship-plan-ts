@@ -67,7 +67,7 @@ type CreateWeeklyTeamInput = {
 const norm = (value: unknown): string => String(value ?? '').trim();
 const WEEKLY_TEAMS_CACHE_KEY = 'weeklyTeams:list:v1';
 const WEEKLY_TEAMS_CACHE_TTL_SECONDS = 300;
-const WEEKLY_TEAMS_CACHE_VERSION = 'weeklyTeams:list:v2';
+const WEEKLY_TEAMS_CACHE_VERSION = 'weeklyTeams:list:v3';
 const normKey = (team: unknown, teamName: unknown): string =>
   `${norm(team).toLowerCase()}::${norm(teamName).toLowerCase()}`;
 
@@ -205,13 +205,14 @@ function readWeeklyTeamRolesSheet(): WeeklyTeamRoleSheetRow[] {
   body.forEach((row, i) => {
     const team = norm(row[idxTeam]);
     const teamName = norm(row[idxTeamName]);
-    const roleName = norm(row[idxRoleName]);
+    const roleType = idxRoleType >= 0 ? norm(row[idxRoleType]) : '';
+    const roleName = norm(row[idxRoleName]) || roleType;
     if (!team || !teamName || !roleName) return;
     rows.push({
       team,
       teamName,
       roleName,
-      roleType: idxRoleType >= 0 ? norm(row[idxRoleType]) : '',
+      roleType,
       memberEmail: norm(row[idxMemberEmail]),
       memberName: norm(row[idxMemberName]),
       key: normKey(team, teamName),

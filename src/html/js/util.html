@@ -1,5 +1,7 @@
 <script>
   const AUTH_STORAGE_KEY = '__wpAuthToken';
+  const AUTH_PROFILE_CACHE_KEY = '__wpAuthProfile';
+  const AUTH_PROFILE_CACHE_TTL_MS = 300000;
   const GOOGLE_CLIENT_ID = (() => {
     const explicit = String(window.__GOOGLE_CLIENT_ID__ || '').trim();
     if (explicit) return explicit;
@@ -44,6 +46,59 @@
 
   function clearStoredAuthToken() {
     setStoredAuthToken('');
+    clearCachedAuthProfile();
+  }
+
+  function decodeJwtPayloadClient(token) {
+    try {
+      const payload = String(token || '').split('.')[1] || '';
+      if (!payload) return null;
+      const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+      return JSON.parse(atob(padded));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function authProfileCacheKey(token) {
+    const payload = decodeJwtPayloadClient(token);
+    const sub = String(payload?.sub || '').trim();
+    const exp = String(payload?.exp || '').trim();
+    if (!sub || !exp) return '';
+    return `${sub}:${exp}`;
+  }
+
+  function readCachedAuthProfile(token) {
+    const key = authProfileCacheKey(token);
+    if (!key) return null;
+    try {
+      const raw = window.sessionStorage?.getItem(AUTH_PROFILE_CACHE_KEY) || '';
+      const cached = raw ? JSON.parse(raw) : null;
+      if (!cached || cached.key !== key || !cached.profile) return null;
+      if (Date.now() - Number(cached.ts || 0) > AUTH_PROFILE_CACHE_TTL_MS) return null;
+      return cached.profile;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeCachedAuthProfile(token, profile) {
+    const key = authProfileCacheKey(token);
+    if (!key || !profile) return;
+    try {
+      window.sessionStorage?.setItem(AUTH_PROFILE_CACHE_KEY, JSON.stringify({
+        key,
+        ts: Date.now(),
+        profile
+      }));
+    } catch (_) { /* ignore */ }
+  }
+
+  function clearCachedAuthProfile() {
+    try {
+      window.sessionStorage?.removeItem(AUTH_PROFILE_CACHE_KEY);
+    } catch (_) { /* ignore */ }
   }
 
   function renderGoogleSignInButtons() {
@@ -353,8 +408,15 @@
   }
 
   async function refreshAuthContext() {
+    const token = getStoredAuthToken();
+    const cachedProfile = readCachedAuthProfile(token);
+    if (cachedProfile) {
+      refreshAuthDebug();
+      return setAuthState(cachedProfile, { ready: true });
+    }
     try {
       const profile = await callRpc('getViewerProfile', null);
+      writeCachedAuthProfile(token, profile);
       refreshAuthDebug();
       return setAuthState(profile, { ready: true });
     } catch (err) {

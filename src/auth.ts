@@ -22,9 +22,6 @@ function verifyGoogleIdToken(token: string) {
   const raw = String(token || '').trim();
   if (!raw) return null;
 
-  const clientId = getGoogleClientId();
-  if (!clientId) throw new Error('Google sign-in is not configured. Add GOOGLE_CLIENT_ID to Script Properties.');
-
   const cache = CacheService.getScriptCache();
   const payload = decodeJwtPayload(raw);
   const cacheKey = payload?.sub ? `google-id-token:${payload.sub}:${payload.exp || ''}` : '';
@@ -34,6 +31,9 @@ function verifyGoogleIdToken(token: string) {
       try { return JSON.parse(cached); } catch (_) { /* ignore */ }
     }
   }
+
+  const clientId = getGoogleClientId();
+  if (!clientId) throw new Error('Google sign-in is not configured. Add GOOGLE_CLIENT_ID to Script Properties.');
 
   const response = UrlFetchApp.fetch(`${GOOGLE_TOKENINFO_URL}${encodeURIComponent(raw)}`, {
     muteHttpExceptions: true
