@@ -2261,6 +2261,46 @@ export function getNextUpcomingService() {
   return next ? getService(next.id) : null;
 }
 
+export function getNextUpcomingServiceSummary() {
+  const sh = getSheetByName(SERVICES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return null;
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(value => String(value ?? '').trim());
+  const col = (name: string) => headers.findIndex(header => header.toLowerCase() === name.toLowerCase());
+  const idIdx = col(SERVICES_COL.id);
+  if (idIdx < 0) return null;
+  const dateIdx = col(SERVICES_COL.date);
+  const timeIdx = col(SERVICES_COL.time);
+  const typeIdx = col(SERVICES_COL.type);
+  const leaderIdx = col(SERVICES_COL.leader);
+  const rowCount = lastRow - 1;
+  const ids = sh.getRange(2, idIdx + 1, rowCount, 1).getDisplayValues();
+  const dates = dateIdx >= 0 ? sh.getRange(2, dateIdx + 1, rowCount, 1).getValues() : [];
+  const today = todayISO();
+  const candidates = ids
+    .map((row, index) => {
+      const id = String(row[0] ?? '').trim();
+      const date = canonicalServiceDate(id, dateIdx >= 0 ? dates[index]?.[0] : '');
+      return { id, date, rowNumber: index + 2 };
+    })
+    .filter(candidate => candidate.id && candidate.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const next = candidates.find(candidate => candidate.date >= today) || candidates[0];
+  if (!next) return null;
+
+  const row = sh.getRange(next.rowNumber, 1, 1, lastCol).getValues()[0];
+  const value = (index: number) => index >= 0 ? String(row[index] ?? '') : '';
+  return {
+    id: next.id,
+    date: next.date || deriveDateFromServiceId(next.id) || value(dateIdx),
+    time: deriveTimeFromServiceId(next.id) || toServiceTime(timeIdx >= 0 ? row[timeIdx] : ''),
+    type: value(typeIdx),
+    leader: value(leaderIdx)
+  } as Pick<ServiceItem, 'id' | 'date' | 'time' | 'type' | 'leader'>;
+}
+
 /** Fetch full details only after a service has been selected in the planner. */
 export function getService(serviceId: string) {
   const id = String(serviceId || '').trim();

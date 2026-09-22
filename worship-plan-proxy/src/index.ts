@@ -50,6 +50,7 @@ export default {
     // is saveOrder because it replaces the complete order with the same body.
     // Never retry email, create, or other potentially non-idempotent writes.
     const canRetry = /^(get|list|suggest|ai|summarize|esv)/i.test(rpcMethod)
+      || rpcMethod === 'memberExistsInRoles'
       || rpcMethod === 'saveOrder';
 
     let upstream: Response | undefined;

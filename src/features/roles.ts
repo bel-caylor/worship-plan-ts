@@ -1,5 +1,5 @@
 import { ROLES_COL, ROLES_SHEET } from '../constants';
-import { getSpreadsheetVersion, readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
+import { readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 import { requestTokenEmail } from '../auth';
 
@@ -58,6 +58,7 @@ type AddRoleInput = {
 const TEAM_SPLIT = /[,;|]/;
 const ROLES_CACHE_KEY = 'roles:list:v1';
 const ROLES_CACHE_TTL_SECONDS = 300;
+const ROLES_CACHE_VERSION = 'roles:list:v2';
 const normalizeEmail = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const normalizePermission = (value: unknown) => String(value ?? '').trim().toLowerCase();
 const canonicalizeRoleLabel = (value: unknown) => {
@@ -96,43 +97,9 @@ export function findRoleRecordByEmail(email: string): RolesListItem | null {
   const target = normalizeEmail(email);
   if (!target) return null;
 
-  const sh = getSheetByName(ROLES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) {
-    return null;
-  }
-
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const idxEmail = col(ROLES_COL.email);
-  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
-  const idxPerms = col(ROLES_COL.permissions);
-  const idxFirst = col(ROLES_COL.first);
-  const idxLast = col(ROLES_COL.last);
-  const idxTeam = col(ROLES_COL.team);
-  const idxRole = col(ROLES_COL.role);
-  const idxSpanish = col(ROLES_COL.spanish);
-
-  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  for (const row of body) {
-    const rowEmail = normalizeEmail(row[idxEmail]);
-    if (rowEmail !== target) continue;
-    const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
-    const teams = teamRaw ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean) : [];
-    return {
-      email: rowEmail,
-      permissions: idxPerms >= 0 ? String(row[idxPerms] ?? '').trim() : '',
-      first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
-      last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
-      teams,
-      teamRaw,
-      role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
-      spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
-    };
-  }
-
-  return null;
+  const roles = listRoles();
+  const items = Array.isArray(roles?.items) ? roles.items : [];
+  return items.find(row => normalizeEmail(row?.email) === target) || null;
 }
 
 function acquireRolesLock(maxAttempts = 4, waitMs = 5000) {
@@ -153,40 +120,19 @@ export function memberExistsInRoles(input: { email: string }) {
   const email = normalizeEmail(input?.email);
   if (!email) throw new Error('Email is required.');
 
-  const sh = getSheetByName(ROLES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return { exists: false };
-
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const idxEmail = col(ROLES_COL.email);
-  if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
-  const idxFirst = col(ROLES_COL.first);
-  const idxLast = col(ROLES_COL.last);
-  const idxTeam = col(ROLES_COL.team);
-  const idxRole = col(ROLES_COL.role);
-
-  const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
-  for (const row of body) {
-    const rowEmail = normalizeEmail(row[idxEmail]);
-    if (rowEmail !== email) continue;
-    const teamRaw = idxTeam >= 0 ? String(row[idxTeam] ?? '').trim() : '';
-    const teams = teamRaw ? teamRaw.split(TEAM_SPLIT).map(s => s.trim()).filter(Boolean) : [];
-    return {
-      exists: true,
-      member: {
-        email,
-        first: idxFirst >= 0 ? String(row[idxFirst] ?? '').trim() : '',
-        last: idxLast >= 0 ? String(row[idxLast] ?? '').trim() : '',
-        role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
-        teams,
-        teamRaw
-      }
-    };
-  }
-
-  return { exists: false };
+  const row = findRoleRecordByEmail(email);
+  if (!row) return { exists: false };
+  return {
+    exists: true,
+    member: {
+      email,
+      first: String(row.first || '').trim(),
+      last: String(row.last || '').trim(),
+      role: String(row.role || '').trim(),
+      teams: Array.isArray(row.teams) ? row.teams.slice() : [],
+      teamRaw: String(row.teamRaw || '').trim()
+    }
+  };
 }
 
 export function getViewerProfile(): ViewerProfile {
@@ -263,7 +209,7 @@ export function listRoles() {
   return readDocumentCachedJson<{ items: RolesListItem[]; teams: string[] }>({
     key: ROLES_CACHE_KEY,
     ttlSeconds: ROLES_CACHE_TTL_SECONDS,
-    version: getSpreadsheetVersion([ROLES_SHEET]),
+    version: ROLES_CACHE_VERSION,
     loader: () => {
       const sh = getSheetByName(ROLES_SHEET);
       const lastRow = sh.getLastRow();

@@ -6,7 +6,7 @@ import {
   WEEKLY_TEAM_ROLE_DEFAULTS_SHEET,
   WEEKLY_TEAM_ROLE_DEFAULTS_COL
 } from '../constants';
-import { getSpreadsheetVersion, readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
+import { readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 
 type WeeklyTeamRole = {
@@ -67,6 +67,7 @@ type CreateWeeklyTeamInput = {
 const norm = (value: unknown): string => String(value ?? '').trim();
 const WEEKLY_TEAMS_CACHE_KEY = 'weeklyTeams:list:v1';
 const WEEKLY_TEAMS_CACHE_TTL_SECONDS = 300;
+const WEEKLY_TEAMS_CACHE_VERSION = 'weeklyTeams:list:v2';
 const normKey = (team: unknown, teamName: unknown): string =>
   `${norm(team).toLowerCase()}::${norm(teamName).toLowerCase()}`;
 
@@ -224,11 +225,7 @@ export function listWeeklyTeams() {
   return readDocumentCachedJson<{ items: WeeklyTeamRecord[]; defaults: Record<string, { roleName: string; order: number }[]> }>({
     key: WEEKLY_TEAMS_CACHE_KEY,
     ttlSeconds: WEEKLY_TEAMS_CACHE_TTL_SECONDS,
-    version: getSpreadsheetVersion([
-      WEEKLY_TEAMS_SHEET,
-      WEEKLY_TEAM_ROLES_SHEET,
-      WEEKLY_TEAM_ROLE_DEFAULTS_SHEET
-    ]),
+    version: WEEKLY_TEAMS_CACHE_VERSION,
     loader: () => {
       const baseRows = readWeeklyTeamsSheet();
       const roleRows = readWeeklyTeamRolesSheet();
