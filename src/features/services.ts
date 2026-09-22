@@ -69,6 +69,7 @@ export type ServiceItem = {
 };
 
 const SERVICES_CACHE_KEY = 'listServices:v1';
+const SERVICES_SUMMARY_CACHE_KEY = 'listServices:summary:v1';
 const SERVICE_PEOPLE_CACHE_KEY = 'servicePeople:v1';
 const SONG_PLAYBACK_CACHE_PREFIX = 'songPlayback:v1:';
 const SONG_PLAYBACK_CACHE_TTL_SECONDS = 300;
@@ -126,6 +127,13 @@ function writeSongPlaybackCache(songName: string, playback: SongPlayback) {
 
 function removeSongPlaybackCache(songName: string) {
   try { CacheService.getDocumentCache().remove(songPlaybackCacheKey(songName)); } catch (_) { /* ignore */ }
+}
+
+function clearServicesCaches() {
+  try { CacheService.getDocumentCache().removeAll([SERVICES_CACHE_KEY, SERVICES_SUMMARY_CACHE_KEY]); } catch (_) {
+    try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+    try { CacheService.getDocumentCache().remove(SERVICES_SUMMARY_CACHE_KEY); } catch (_) {}
+  }
 }
 
 // --- Normalization helpers ---
@@ -1920,7 +1928,7 @@ export function addService(input: AddServiceInput) {
     lock.releaseLock();
   }
 
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   return { id: computedId };
 }
 
@@ -2168,23 +2176,39 @@ function toServiceTime(value: any) {
   }
 }
 
-function readServiceColumn(
-  sh: GoogleAppsScript.Spreadsheet.Sheet,
-  rowCount: number,
-  columnIndex: number,
-  display = false
-) {
-  if (columnIndex < 0 || rowCount < 1) return [];
-  const range = sh.getRange(2, columnIndex + 1, rowCount, 1);
-  return display ? range.getDisplayValues() : range.getValues();
-}
-
 function fetchServiceSummaries(): ServiceItem[] {
   const sh = getSheetByName(SERVICES_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
   if (lastRow < 2 || lastCol < 1) return [];
 
+  try {
+    const updatedAt = (() => {
+      try { return SpreadsheetApp.getActive().getLastUpdated()?.getTime() || 0; } catch (_) { return 0; }
+    })();
+    const ver = `${lastRow}-${lastCol}-${updatedAt}`;
+    const cache = CacheService.getDocumentCache();
+    const cached = cache.get(SERVICES_SUMMARY_CACHE_KEY);
+    if (cached) {
+      const obj = JSON.parse(cached);
+      if (obj && obj.ver === ver && Array.isArray(obj.items)) {
+        return obj.items as ServiceItem[];
+      }
+    }
+
+    const items = fetchServiceSummariesUncached(sh, lastRow, lastCol);
+    try { cache.put(SERVICES_SUMMARY_CACHE_KEY, JSON.stringify({ ver, items }), 300); } catch (_) {}
+    return items;
+  } catch (_) {
+    return fetchServiceSummariesUncached(sh, lastRow, lastCol);
+  }
+}
+
+function fetchServiceSummariesUncached(
+  sh: GoogleAppsScript.Spreadsheet.Sheet,
+  lastRow: number,
+  lastCol: number
+): ServiceItem[] {
   const rowCount = lastRow - 1;
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
   const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
@@ -2194,24 +2218,20 @@ function fetchServiceSummaries(): ServiceItem[] {
   const typeIdx = col(SERVICES_COL.type);
   const leaderIdx = col(SERVICES_COL.leader);
 
-  const ids = readServiceColumn(sh, rowCount, idIdx, true);
-  const dates = readServiceColumn(sh, rowCount, dateIdx);
-  const times = readServiceColumn(sh, rowCount, timeIdx);
-  const types = readServiceColumn(sh, rowCount, typeIdx, true);
-  const leaders = readServiceColumn(sh, rowCount, leaderIdx, true);
+  const body = sh.getRange(2, 1, rowCount, lastCol).getValues();
 
-  const items = ids
+  const items = body
     .map((row, index) => {
-      const id = String(row?.[0] ?? '').trim();
-      const rawDate = dateIdx >= 0 ? toServiceIso(dates[index]?.[0]) : '';
-      const rawTime = timeIdx >= 0 ? toServiceTime(times[index]?.[0]) : '';
+      const id = idIdx >= 0 ? String(row[idIdx] ?? '').trim() : '';
+      const rawDate = dateIdx >= 0 ? toServiceIso(row[dateIdx]) : '';
+      const rawTime = timeIdx >= 0 ? toServiceTime(row[timeIdx]) : '';
       const derivedTime = deriveTimeFromServiceId(id);
       return {
         id,
         date: rawDate || deriveDateFromServiceId(id),
         time: derivedTime || rawTime,
-        type: typeIdx >= 0 ? String(types[index]?.[0] ?? '') : '',
-        leader: leaderIdx >= 0 ? String(leaders[index]?.[0] ?? '') : '',
+        type: typeIdx >= 0 ? String(row[typeIdx] ?? '') : '',
+        leader: leaderIdx >= 0 ? String(row[leaderIdx] ?? '') : '',
         youtubeUrl: '',
         preacher: '',
         scripture: '',
@@ -2308,42 +2328,19 @@ export function getNextUpcomingService() {
 }
 
 export function getNextUpcomingServiceSummary() {
-  const sh = getSheetByName(SERVICES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  if (lastRow < 2 || lastCol < 1) return null;
-
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(value => String(value ?? '').trim());
-  const col = (name: string) => headers.findIndex(header => header.toLowerCase() === name.toLowerCase());
-  const idIdx = col(SERVICES_COL.id);
-  if (idIdx < 0) return null;
-  const dateIdx = col(SERVICES_COL.date);
-  const timeIdx = col(SERVICES_COL.time);
-  const typeIdx = col(SERVICES_COL.type);
-  const leaderIdx = col(SERVICES_COL.leader);
-  const rowCount = lastRow - 1;
-  const ids = sh.getRange(2, idIdx + 1, rowCount, 1).getDisplayValues();
-  const dates = dateIdx >= 0 ? sh.getRange(2, dateIdx + 1, rowCount, 1).getValues() : [];
   const today = todayISO();
-  const candidates = ids
-    .map((row, index) => {
-      const id = String(row[0] ?? '').trim();
-      const date = canonicalServiceDate(id, dateIdx >= 0 ? dates[index]?.[0] : '');
-      return { id, date, rowNumber: index + 2 };
-    })
-    .filter(candidate => candidate.id && candidate.date)
+  const candidates = fetchServiceSummaries()
+    .filter(service => service.id && service.date)
     .sort((a, b) => a.date.localeCompare(b.date));
-  const next = candidates.find(candidate => candidate.date >= today) || candidates[0];
+  const next = candidates.find(service => service.date >= today) || candidates[0];
   if (!next) return null;
 
-  const row = sh.getRange(next.rowNumber, 1, 1, lastCol).getValues()[0];
-  const value = (index: number) => index >= 0 ? String(row[index] ?? '') : '';
   return {
     id: next.id,
-    date: next.date || deriveDateFromServiceId(next.id) || value(dateIdx),
-    time: deriveTimeFromServiceId(next.id) || toServiceTime(timeIdx >= 0 ? row[timeIdx] : ''),
-    type: value(typeIdx),
-    leader: value(leaderIdx)
+    date: next.date,
+    time: next.time,
+    type: next.type,
+    leader: next.leader
   } as Pick<ServiceItem, 'id' | 'date' | 'time' | 'type' | 'leader'>;
 }
 
@@ -2459,7 +2456,7 @@ function ensureUpcomingServicesCoverage(weeksAhead = AUTO_SERVICE_WEEKS_AHEAD) {
     if (rows.length) {
       const startRow = sh.getLastRow() + 1;
       sh.getRange(startRow, 1, rows.length, lastCol).setValues(rows);
-      try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+      clearServicesCaches();
     }
 
     return { created };
@@ -2549,7 +2546,7 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
     lock.releaseLock();
   }
   if (!input?.dryRun) {
-    try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+    clearServicesCaches();
   }
   return { created, existing: existingRequested, requested: schedule.map(entry => entry.iso) };
 }
@@ -2660,7 +2657,7 @@ export function saveService(input: AddServiceInput & { id?: string }) {
   } finally {
     lock.releaseLock();
   }
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   return { id: resultId };
 }
 
@@ -3247,7 +3244,7 @@ export function matchServicesFromYouTubeStreams(options?: { overwriteExisting?: 
   if (reviewRows.length) reviewSheet.getRange(2, 1, reviewRows.length, 6).setValues(reviewRows);
   try { reviewSheet.autoResizeColumns(1, 6); } catch (_) {}
   try { SpreadsheetApp.flush(); } catch (_) {}
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   try {
     SpreadsheetApp.getActive().toast(`YouTube stream match from ${minDate}: ${matched} matched, ${skipped} need review`, 'Worship Planner', 5);
   } catch (_) {}
@@ -3365,7 +3362,7 @@ export function syncMissingYouTubeUrls(options?: { includeNearby?: boolean; limi
     skipped += 1;
   }
 
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   try {
     const summary = `YouTube sync: ${updated} matched, ${skipped} still need review`;
     SpreadsheetApp.getActive().toast(summary, 'Worship Planner', 5);
@@ -3435,7 +3432,7 @@ export function repairServiceDateTimeColumns() {
     if (touched) updated += 1;
   }
 
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   try {
     SpreadsheetApp.getActive().toast(`Service repair complete: ${updated} row${updated === 1 ? '' : 's'} updated`, 'Worship Planner', 5);
   } catch (_) {}
@@ -3516,7 +3513,7 @@ export function deleteService(input: { id?: string } | string) {
     lock.releaseLock();
   }
 
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  clearServicesCaches();
   try { CacheService.getDocumentCache().remove(`serviceTeamAssignments:v1:${encodeURIComponent(serviceId)}`); } catch (_) {}
   try { removeDocumentCacheKeys(['memberAvailability:index:v1']); } catch (_) {}
   return { ok: true, deleted };
@@ -3589,12 +3586,18 @@ export function getServicePeople() {
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalizeReferenceSpacing = (value: string) => String(value || '').replace(/\s+/g, ' ').trim();
+const normalizeReferenceForLookup = (value: string) => {
+  let ref = normalizeReferenceSpacing(value);
+  if (!ref) return '';
+  ref = ref.replace(/\s*\([^)]*\)\s*/g, ' ');
+  return normalizeReferenceSpacing(ref);
+};
 
 const BIBLE_BOOK_NAMES = [
   'Genesis','Exodus','Leviticus','Numbers','Deuteronomy',
   'Joshua','Judges','Ruth','1 Samuel','2 Samuel',
   '1 Kings','2 Kings','1 Chronicles','2 Chronicles','Ezra',
-  'Nehemiah','Esther','Job','Psalms','Proverbs',
+  'Nehemiah','Esther','Job','Psalm','Psalms','Proverbs',
   'Ecclesiastes','Song of Solomon','Isaiah','Jeremiah','Lamentations',
   'Ezekiel','Daniel','Hosea','Joel','Amos','Obadiah',
   'Jonah','Micah','Nahum','Habakkuk','Zephaniah','Haggai',
@@ -3855,7 +3858,7 @@ const fetchBibleGatewayChunk = (reference: string, version: string): PassageChun
 
 export function esvPassage(input: { reference: string, html?: boolean }) {
   const rawReference = String(input?.reference || '').trim();
-  const reference = normalizeReferenceSpacing(rawReference);
+  const reference = normalizeReferenceForLookup(rawReference);
   if (!reference) return { reference, text: '' };
 
   const props = PropertiesService.getScriptProperties();
@@ -3865,7 +3868,7 @@ export function esvPassage(input: { reference: string, html?: boolean }) {
   }
 
   const includeHtml = input?.html !== false;
-  const splitRefs = splitReferenceIntoDistinctBooks(rawReference);
+  const splitRefs = splitReferenceIntoDistinctBooks(reference);
   const multiRefs = splitRefs.length ? splitRefs : [];
   const refsToFetch = multiRefs.length ? multiRefs : [reference];
   const includeInlineReference = !multiRefs.length;
@@ -3888,11 +3891,11 @@ export function esvPassage(input: { reference: string, html?: boolean }) {
 
 export function lblaPassage(input: { reference: string }): PassageResult {
   const rawReference = String(input?.reference || '').trim();
-  const reference = normalizeReferenceSpacing(rawReference);
+  const reference = normalizeReferenceForLookup(rawReference);
   if (!reference) return { reference, text: '' };
 
   try {
-    const splitRefs = splitReferenceIntoDistinctBooks(rawReference);
+    const splitRefs = splitReferenceIntoDistinctBooks(reference);
     const refsToFetch = splitRefs.length ? splitRefs : [reference];
     const chunks = refsToFetch.map(ref => fetchBibleGatewayChunk(ref, 'LBLA'));
     if (!splitRefs.length) {
