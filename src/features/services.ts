@@ -48,6 +48,8 @@ export type ListServicesOptions = {
 export type CreateServicesBatchInput = {
   startDate?: string;
   weeks?: number;
+  dryRun?: boolean;
+  suggestedSongs?: string;
 };
 
 export type ServiceItem = {
@@ -2076,6 +2078,109 @@ function fetchServicesUnfiltered(): ServiceItem[] {
 
 const serviceSortKey = (item: ServiceItem) => (item.id && String(item.id)) || `${item.date || ''} ${item.time || ''}`.trim();
 
+function serviceSpreadsheetTimeZone() {
+  try {
+    return SpreadsheetApp.getActive().getSpreadsheetTimeZone();
+  } catch (_) {
+    return Session.getScriptTimeZone?.() || 'Etc/UTC';
+  }
+}
+
+function toServiceIso(value: any) {
+  try {
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      const y = value.getFullYear();
+      const m = String(value.getMonth() + 1).padStart(2, '0');
+      const d = String(value.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const s = String(value ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    return s;
+  } catch (_) {
+    return String(value ?? '');
+  }
+}
+
+function toServiceTime(value: any) {
+  try {
+    if (value instanceof Date && !isNaN(value.getTime())) {
+      return Utilities.formatDate(value, serviceSpreadsheetTimeZone(), 'h:mm a');
+    }
+    const s = String(value ?? '').trim();
+    if (!s) return '';
+    const m = s.match(/^(\d{1,2})(?::(\d{2}))(?:\s*:(\d{2}))?\s*(AM|PM)?$/i);
+    if (m) {
+      const mm = m[2] || '00';
+      const ap = (m[4] || '').toUpperCase();
+      const hh = m[1];
+      return `${hh}:${mm}${ap ? ' ' + ap : ''}`.trim();
+    }
+    return s;
+  } catch (_) {
+    return String(value ?? '');
+  }
+}
+
+function readServiceColumn(
+  sh: GoogleAppsScript.Spreadsheet.Sheet,
+  rowCount: number,
+  columnIndex: number,
+  display = false
+) {
+  if (columnIndex < 0 || rowCount < 1) return [];
+  const range = sh.getRange(2, columnIndex + 1, rowCount, 1);
+  return display ? range.getDisplayValues() : range.getValues();
+}
+
+function fetchServiceSummaries(): ServiceItem[] {
+  const sh = getSheetByName(SERVICES_SHEET);
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  const rowCount = lastRow - 1;
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const idIdx = col(SERVICES_COL.id);
+  const dateIdx = col(SERVICES_COL.date);
+  const timeIdx = col(SERVICES_COL.time);
+  const typeIdx = col(SERVICES_COL.type);
+  const leaderIdx = col(SERVICES_COL.leader);
+
+  const ids = readServiceColumn(sh, rowCount, idIdx, true);
+  const dates = readServiceColumn(sh, rowCount, dateIdx);
+  const times = readServiceColumn(sh, rowCount, timeIdx);
+  const types = readServiceColumn(sh, rowCount, typeIdx, true);
+  const leaders = readServiceColumn(sh, rowCount, leaderIdx, true);
+
+  const items = ids
+    .map((row, index) => {
+      const id = String(row?.[0] ?? '').trim();
+      const rawDate = dateIdx >= 0 ? toServiceIso(dates[index]?.[0]) : '';
+      const rawTime = timeIdx >= 0 ? toServiceTime(times[index]?.[0]) : '';
+      const derivedTime = deriveTimeFromServiceId(id);
+      return {
+        id,
+        date: rawDate || deriveDateFromServiceId(id),
+        time: derivedTime || rawTime,
+        type: typeIdx >= 0 ? String(types[index]?.[0] ?? '') : '',
+        leader: leaderIdx >= 0 ? String(leaders[index]?.[0] ?? '') : '',
+        youtubeUrl: '',
+        preacher: '',
+        scripture: '',
+        scriptureText: '',
+        theme: '',
+        keywords: '',
+        notes: '',
+        suggestedSongs: ''
+      } as ServiceItem;
+    })
+    .filter(item => item.id || item.date);
+  items.sort((a, b) => serviceSortKey(b).localeCompare(serviceSortKey(a)));
+  return items;
+}
+
 function applyServiceFilters(items: ServiceItem[], opts?: ListServicesOptions): ServiceItem[] {
   let result = Array.isArray(items) ? items.slice() : [];
   if (!opts) return result;
@@ -2109,7 +2214,7 @@ export function listServices(opts?: ListServicesOptions) {
   // makes otherwise read-only requests queue behind each other (and can make
   // the public Worker time out).  Service creation remains an explicit admin
   // action through the planning UI.
-  const all = fetchServicesUnfiltered();
+  const all = opts?.summary ? fetchServiceSummaries() : fetchServicesUnfiltered();
   const items = applyServiceFilters(all, opts);
   // Scripture text and notes can be very large.  The picker needs neither,
   // so keep its response deliberately small.
@@ -2284,6 +2389,9 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
   const startIso = normalizeIso(input?.startDate || '') || isoFromDate(nextSundayOnOrAfter(new Date()));
   const startDate = dateFromISO(startIso) || nextSundayOnOrAfter(new Date());
   const firstSunday = nextSundayOnOrAfter(startDate);
+  if (isoFromDate(firstSunday) !== startIso) {
+    throw new Error('Start date must be a Sunday.');
+  }
   const schedule: { iso: string; date: Date }[] = [];
   for (let i = 0; i < weeks; i++) {
     const iter = new Date(firstSunday.getFullYear(), firstSunday.getMonth(), firstSunday.getDate() + (i * 7));
@@ -2305,44 +2413,59 @@ export function createServicesBatch(input?: CreateServicesBatchInput) {
   const suggestedSongsIdx = col(SERVICES_COL.suggestedSongs);
 
   const created: { id: string; date: string; time: string; type: string }[] = [];
+  const existingRequested: { id: string; date: string; time: string; type: string }[] = [];
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
   try {
     const existing = new Set<string>();
+    const serviceTypeById = new Map<string, string>();
     const lastRow = sh.getLastRow();
     if (lastRow >= 2) {
-      const ids = sh.getRange(2, idIdx + 1, lastRow - 1, 1).getValues();
-      ids.forEach(row => {
-        const id = String((row && row[0]) ?? '').trim();
-        if (id) existing.add(id);
+      const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+      body.forEach(row => {
+        const id = String(row[idIdx] ?? '').trim();
+        if (!id) return;
+        existing.add(id);
+        if (typeIdx >= 0) serviceTypeById.set(id, String(row[typeIdx] ?? '').trim());
       });
     }
     const rows: any[][] = [];
     for (const entry of schedule) {
       const serviceId = `${entry.iso}_10am`;
-      if (existing.has(serviceId)) continue;
+      const svcType = defaultServiceTypeForDate(entry.date);
+      if (existing.has(serviceId)) {
+        existingRequested.push({
+          id: serviceId,
+          date: entry.iso,
+          time: DEFAULT_SERVICE_TIME,
+          type: serviceTypeById.get(serviceId) || svcType
+        });
+        continue;
+      }
       existing.add(serviceId);
+      created.push({ id: serviceId, date: entry.iso, time: DEFAULT_SERVICE_TIME, type: svcType });
+      if (input?.dryRun) continue;
       const row = Array.from({ length: lastCol }, () => '');
       row[idIdx] = serviceId;
       if (dateIdx >= 0) row[dateIdx] = new Date(entry.date.getFullYear(), entry.date.getMonth(), entry.date.getDate());
       if (timeIdx >= 0) row[timeIdx] = DEFAULT_SERVICE_TIME;
-      const svcType = defaultServiceTypeForDate(entry.date);
       if (typeIdx >= 0) row[typeIdx] = svcType;
       if (leaderIdx >= 0) row[leaderIdx] = DEFAULT_LEADER;
       if (preacherIdx >= 0) row[preacherIdx] = DEFAULT_PREACHER;
-      if (suggestedSongsIdx >= 0) row[suggestedSongsIdx] = input.suggestedSongs ?? '';
+      if (suggestedSongsIdx >= 0) row[suggestedSongsIdx] = input?.suggestedSongs ?? '';
       rows.push(row);
-      created.push({ id: serviceId, date: entry.iso, time: DEFAULT_SERVICE_TIME, type: svcType });
     }
-    if (rows.length) {
+    if (!input?.dryRun && rows.length) {
       const startRow = sh.getLastRow() + 1;
       sh.getRange(startRow, 1, rows.length, lastCol).setValues(rows);
     }
   } finally {
     lock.releaseLock();
   }
-  try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
-  return { created };
+  if (!input?.dryRun) {
+    try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
+  }
+  return { created, existing: existingRequested, requested: schedule.map(entry => entry.iso) };
 }
 
 export function saveService(input: AddServiceInput & { id?: string }) {

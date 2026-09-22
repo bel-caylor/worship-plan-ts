@@ -647,6 +647,16 @@
         this.showCreateServicesModal = false;
       },
 
+      batchCreateSummary(preview) {
+        const created = Array.isArray(preview?.created) ? preview.created : [];
+        const existing = Array.isArray(preview?.existing) ? preview.existing : [];
+        const first = created[0]?.date || '';
+        const last = created[created.length - 1]?.date || '';
+        const range = first && last && first !== last ? `${first} through ${last}` : first;
+        if (!created.length) return `No new services will be created. ${existing.length} requested date${existing.length === 1 ? '' : 's'} already exist.`;
+        return `Create ${created.length} new Sunday service${created.length === 1 ? '' : 's'}${range ? ` (${range})` : ''}? ${existing.length} requested date${existing.length === 1 ? '' : 's'} already exist.`;
+      },
+
       async submitBatchCreate() {
         const start = String(this.batchStartDate || '').trim();
         const weeks = Number(this.batchWeeks) || 0;
@@ -661,6 +671,8 @@
         this.batchCreateLoading = true;
         this.batchCreateError = '';
         try {
+          const preview = await callRpc('createServicesBatch', { startDate: start, weeks, dryRun: true });
+          if (!confirm(this.batchCreateSummary(preview))) return;
           const res = await callRpc('createServicesBatch', { startDate: start, weeks });
           const created = Array.isArray(res?.created) ? res.created : [];
           if (created.length) {
