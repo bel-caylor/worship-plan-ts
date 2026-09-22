@@ -1,6 +1,6 @@
 <script>
   const SONGS_CACHE_KEY = '__wpSongsCache';
-  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v2';
+  const SONGS_CACHE_STORAGE_KEY = 'wp.songsCache.v3';
   const SONGS_CACHE_MAX_AGE_MS = 30 * 60 * 1000;
   let SONGS_BROWSER_HTML_PROMISE = null;
   const fetchSongsBrowserHtml = async () => {
@@ -146,7 +146,6 @@
       try {
         if (typeof window !== 'undefined' && Array.isArray(window.__ROWS__) && window.__ROWS__.length) {
           songsCache.rows = window.__ROWS__;
-          songsCache.lastFetched = songsCache.lastFetched || Date.now();
           return songsCache.rows;
         }
       } catch (_) {}
@@ -1438,7 +1437,7 @@
         const cache = this.songsCache || {};
         this.hydrateRowsFromStorage();
         if (Array.isArray(this.rows) && this.rows.length) {
-          this.syncCacheFromRows(this.rows);
+          this.assignRowUids(this.rows);
           if (this.songsCacheIsFresh()) return;
           this.refreshRowsInBackground();
           return;

@@ -3035,9 +3035,10 @@ export function debugYouTubeExtraction() {
   return { sheet: name, streams: streamsItems.length, search: searchItems.length };
 }
 
-export function syncYouTubeStreamsCatalog() {
+export function syncYouTubeStreamsCatalog(options?: { maxPages?: number }) {
   const minDate = defaultYouTubeBackfillStartDate();
-  const cursor = getYouTubeCatalogCursor();
+  let cursor = getYouTubeCatalogCursor();
+  const maxPages = Math.max(1, Math.min(10, Math.floor(Number(options?.maxPages || 5) || 5)));
   const headers = [
     YOUTUBE_STREAMS_COL.videoId,
     YOUTUBE_STREAMS_COL.url,
@@ -3063,30 +3064,41 @@ export function syncYouTubeStreamsCatalog() {
     if (videoId) existingByVideoId.set(videoId, { row, rowIndex: index + 2 });
   });
 
-  const result = listYouTubeStreamCatalogEntries({ pageToken: cursor });
-  const rows = result.items.map((entry) => {
-    const existing = existingByVideoId.get(entry.videoId)?.row || [];
-    const matchedServiceId = String(existing[7] ?? '').trim();
-    const existingNotes = String(existing[9] ?? '').trim();
-    const status = matchedServiceId
-      ? 'Matched'
-      : entry.streamDate
-        ? 'Ready'
-        : 'Needs Review';
-    return [
-      entry.videoId,
-      entry.url,
-      entry.title,
-      entry.streamDate ? toSheetDateValue(entry.streamDate) : '',
-      entry.published ? toSheetDateValue(entry.published) : '',
-      entry.channelId,
-      entry.channelName,
-      matchedServiceId,
-      status,
-      existingNotes,
-      entry.source
-    ];
-  });
+  const rows: any[][] = [];
+  let processedEntries = 0;
+  let totalEntries = 0;
+  let done = false;
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+    const result = listYouTubeStreamCatalogEntries({ pageToken: cursor });
+    processedEntries += result.processedEntries;
+    totalEntries = result.totalEntries || totalEntries;
+    result.items.forEach((entry) => {
+      const existing = existingByVideoId.get(entry.videoId)?.row || [];
+      const matchedServiceId = String(existing[7] ?? '').trim();
+      const existingNotes = String(existing[9] ?? '').trim();
+      const status = matchedServiceId
+        ? 'Matched'
+        : entry.streamDate
+          ? 'Ready'
+          : 'Needs Review';
+      rows.push([
+        entry.videoId,
+        entry.url,
+        entry.title,
+        entry.streamDate ? toSheetDateValue(entry.streamDate) : '',
+        entry.published ? toSheetDateValue(entry.published) : '',
+        entry.channelId,
+        entry.channelName,
+        matchedServiceId,
+        status,
+        existingNotes,
+        entry.source
+      ]);
+    });
+    cursor = String(result.nextPageToken || '').trim();
+    done = !!result.reachedEnd || !cursor;
+    if (done) break;
+  }
   sh.clearContents();
   sh.getRange(1, 1, 1, headers.length).setValues([headers]);
   const mergedRows = new Map<string, any[]>();
@@ -3110,15 +3122,14 @@ export function syncYouTubeStreamsCatalog() {
     return `${bDate}|${String(b[2] || '')}`.localeCompare(`${aDate}|${String(a[2] || '')}`);
   });
   if (finalRows.length) sh.getRange(2, 1, finalRows.length, headers.length).setValues(finalRows);
-  const done = !!result.reachedEnd;
   if (done) clearYouTubeCatalogCursor();
-  else setYouTubeCatalogCursor(String(result.nextPageToken || ''));
+  else setYouTubeCatalogCursor(cursor);
   try { sh.autoResizeColumns(1, headers.length); } catch (_) {}
   try {
     SpreadsheetApp.getActive().toast(
       done
         ? `YouTube streams catalog complete from ${minDate}: ${finalRows.length} row${finalRows.length === 1 ? '' : 's'}`
-        : `YouTube streams catalog progress: processed ${result.processedEntries} upload${result.processedEntries === 1 ? '' : 's'} from playlist`,
+        : `YouTube streams catalog progress: processed ${processedEntries} uploads from playlist`,
       'Worship Planner',
       5
     );
@@ -3126,9 +3137,9 @@ export function syncYouTubeStreamsCatalog() {
   return {
     sheet: YOUTUBE_STREAMS_SHEET,
     rowsUpdated: rows.length,
-    processedEntries: result.processedEntries,
-    totalEntries: result.totalEntries,
-    nextPageToken: result.nextPageToken,
+    processedEntries,
+    totalEntries,
+    nextPageToken: cursor,
     done
   };
 }
@@ -3244,7 +3255,7 @@ export function matchServicesFromYouTubeStreams(options?: { overwriteExisting?: 
 }
 
 export function runWeeklyYouTubeStreamMatch() {
-  const sync = syncYouTubeStreamsCatalog();
+  const sync = syncYouTubeStreamsCatalog({ maxPages: 5 });
   const match = matchServicesFromYouTubeStreams();
   return { sync, match };
 }

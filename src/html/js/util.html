@@ -21,6 +21,57 @@
       return false;
     }
   })();
+  const DEBUG_RPC_FLAG = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search || '');
+      return ['1', 'true', 'yes', 'on'].includes(String(params.get('debugRpc') || '').toLowerCase());
+    } catch (_) {
+      return false;
+    }
+  })();
+
+  window.__RPC_TIMINGS__ = Array.isArray(window.__RPC_TIMINGS__) ? window.__RPC_TIMINGS__ : [];
+  window.clearRpcTimings = function clearRpcTimings() {
+    window.__RPC_TIMINGS__ = [];
+    return window.__RPC_TIMINGS__;
+  };
+  window.printRpcTimings = function printRpcTimings() {
+    const rows = (window.__RPC_TIMINGS__ || [])
+      .slice()
+      .sort((a, b) => Number(b.elapsedMs || 0) - Number(a.elapsedMs || 0));
+    try {
+      console.table(rows);
+    } catch (_) {
+      console.log(rows);
+    }
+    return rows;
+  };
+
+  function recordRpcTiming(entry) {
+    try {
+      const timings = Array.isArray(window.__RPC_TIMINGS__) ? window.__RPC_TIMINGS__ : [];
+      const elapsedMs = Number(entry && entry.elapsedMs || 0);
+      const next = Object.assign({
+        at: new Date().toISOString(),
+        seconds: Number((elapsedMs / 1000).toFixed(2))
+      }, entry || {});
+      if (!('elapsedSeconds' in next)) {
+        next.elapsedSeconds = next.seconds;
+      }
+      timings.push(next);
+      if (timings.length > 200) timings.splice(0, timings.length - 200);
+      window.__RPC_TIMINGS__ = timings;
+      if (DEBUG_RPC_FLAG) {
+        console.info('[RPC timing]', next);
+      }
+      try {
+        document.dispatchEvent(new CustomEvent('app-rpc-timing', { detail: next }));
+      } catch (_) { /* ignore */ }
+      return next;
+    } catch (_) {
+      return entry;
+    }
+  }
 
   function getStoredAuthToken() {
     if (typeof window === 'undefined') return '';
@@ -174,9 +225,13 @@
 
   function callRpc(method, payload) {
     const authToken = getStoredAuthToken();
+    const payloadJson = (() => {
+      try { return JSON.stringify(payload ?? null); }
+      catch (_) { return ''; }
+    })();
     let requestKey = '';
     try {
-      requestKey = `${method}|${authToken}|${JSON.stringify(payload ?? null)}`;
+      requestKey = `${method}|${authToken}|${payloadJson}`;
     } catch (_) {
       // A non-serializable payload is not expected for RPCs; skip sharing it
       // instead of changing the request's normal error behavior.
@@ -186,12 +241,20 @@
     if (existingRequest) return existingRequest;
 
     const startedAt = Date.now();
-    const reportSlowRpc = (outcome) => {
+    const reportRpc = (outcome, detail = {}) => {
       const elapsedMs = Date.now() - startedAt;
-      if (elapsedMs < 1000) return;
+      const timing = recordRpcTiming(Object.assign({
+        method,
+        outcome,
+        ok: outcome === 'completed',
+        elapsedMs,
+        payloadBytes: payloadJson ? payloadJson.length : 0
+      }, detail));
+      if (elapsedMs < 1000 && !DEBUG_RPC_FLAG) return timing;
       try {
         console.info(`[RPC timing] ${method} ${outcome} in ${(elapsedMs / 1000).toFixed(1)}s`);
       } catch (_) { /* ignore */ }
+      return timing;
     };
     const request = new Promise((resolve, reject) => {
       const base = String(window.__BASE__ || '').replace(/\/+$/, '');
@@ -203,11 +266,14 @@
       if ((!authToken || !base) && runner && runner.rpc) {
         runner
           .withSuccessHandler((value) => {
-            reportSlowRpc('completed');
+            reportRpc('completed', { transport: 'google.script.run' });
             resolve(value);
           })
           .withFailureHandler((err) => {
-            reportSlowRpc('failed');
+            reportRpc('failed', {
+              transport: 'google.script.run',
+              error: err && err.message ? err.message : String(err || 'RPC failed')
+            });
             reject(err);
           })
           .rpc({ method, payload });
@@ -215,8 +281,9 @@
       }
 
       if (!base) {
-        reportSlowRpc('failed');
-        reject(new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.'));
+        const err = new Error('RPC endpoint is not configured. Build the standalone app with APPS_SCRIPT_BASE set to your Worker URL, or set window.APP_RPC_BASE at runtime.');
+        reportRpc('failed', { transport: 'fetch', error: err.message });
+        reject(err);
         return;
       }
 
@@ -232,28 +299,71 @@
         mode: 'cors',
         credentials: 'omit',
         headers,
-        body: JSON.stringify({ method, payload, authToken })
+        body: JSON.stringify({ method, payload, authToken, debugRpc: DEBUG_RPC_FLAG })
       })
         .then(async (res) => {
+          const responseText = await res.text();
           let data = null;
-          try { data = await res.json(); }
+          try { data = JSON.parse(responseText); }
           catch (_) {
             const hint = res && res.status ? ` (${res.status})` : '';
-            throw new Error(`Invalid RPC response${hint}. The Worker likely returned HTML instead of JSON.`);
+            reportRpc('failed', {
+              transport: 'fetch',
+              status: res && res.status,
+              responseBytes: responseText.length,
+              error: `Invalid RPC response${hint}`,
+              preview: responseText.replace(/\s+/g, ' ').slice(0, 180)
+            });
+            const err = new Error(`Invalid RPC response${hint}. The Worker likely returned HTML instead of JSON.`);
+            err.__rpcTimingRecorded = true;
+            throw err;
           }
 
           if (data && typeof data === 'object' && 'ok' in data) {
-            if (data.ok) return data.data;
-            throw new Error(data.error || 'RPC request failed');
+            if (data.ok) {
+              return {
+                value: data.data,
+                timing: {
+                  transport: 'fetch',
+                  status: res && res.status,
+                  responseBytes: responseText.length,
+                  worker: data.__debug || null
+                }
+              };
+            }
+            const err = new Error(data.error || 'RPC request failed');
+            reportRpc('failed', {
+              transport: 'fetch',
+              status: res && res.status,
+              responseBytes: responseText.length,
+              worker: data.__debug || null,
+              error: err.message
+            });
+            err.__rpcTimingRecorded = true;
+            throw err;
           }
-          return data;
+          return {
+            value: data,
+            timing: {
+              transport: 'fetch',
+              status: res && res.status,
+              responseBytes: responseText.length
+            }
+          };
         })
-        .then((value) => {
-          reportSlowRpc('completed');
+        .then((result) => {
+          const timing = result && typeof result === 'object' && 'value' in result ? result.timing : {};
+          const value = result && typeof result === 'object' && 'value' in result ? result.value : result;
+          reportRpc('completed', timing || { transport: 'fetch' });
           resolve(value);
         })
         .catch((err) => {
-          reportSlowRpc('failed');
+          if (!(err && err.__rpcTimingRecorded)) {
+            reportRpc('failed', {
+              transport: 'fetch',
+              error: err && err.message ? err.message : String(err || 'RPC failed')
+            });
+          }
           reject(err);
         });
     });
@@ -264,6 +374,84 @@
     request.then(clearRequest, clearRequest);
     return request;
   }
+
+  const TeamDataCache = (() => {
+    const state = {
+      roles: null,
+      weeklyTeams: null,
+      startup: null,
+      rolesPromise: null,
+      weeklyTeamsPromise: null,
+      startupPromise: null
+    };
+    const clone = (value) => {
+      try {
+        return value == null ? value : JSON.parse(JSON.stringify(value));
+      } catch (_) {
+        return value;
+      }
+    };
+    const setStartup = (startup) => {
+      if (startup && typeof startup === 'object') {
+        state.startup = clone(startup);
+        if (startup.roles) state.roles = clone(startup.roles);
+        if (startup.weeklyTeams) state.weeklyTeams = clone(startup.weeklyTeams);
+      }
+      return clone(state.startup);
+    };
+    return {
+      async getStartup({ force = false } = {}) {
+        if (!force && state.startup) return clone(state.startup);
+        if (!force && state.roles && state.weeklyTeams) {
+          state.startup = { roles: clone(state.roles), weeklyTeams: clone(state.weeklyTeams) };
+          return clone(state.startup);
+        }
+        if (state.startupPromise && !force) return state.startupPromise.then(clone);
+        state.startupPromise = callRpc('getTeamStartup', null)
+          .then((res) => setStartup(res || {}))
+          .finally(() => { state.startupPromise = null; });
+        return state.startupPromise;
+      },
+      async getRoles({ force = false } = {}) {
+        if (!force && state.roles) return clone(state.roles);
+        if (state.rolesPromise && !force) return state.rolesPromise.then(clone);
+        state.rolesPromise = callRpc('listRoles', null)
+          .then((res) => {
+            state.roles = clone(res || {});
+            if (state.startup) state.startup.roles = clone(state.roles);
+            return clone(state.roles);
+          })
+          .finally(() => { state.rolesPromise = null; });
+        return state.rolesPromise;
+      },
+      async getWeeklyTeams({ force = false } = {}) {
+        if (!force && state.weeklyTeams) return clone(state.weeklyTeams);
+        if (state.weeklyTeamsPromise && !force) return state.weeklyTeamsPromise.then(clone);
+        state.weeklyTeamsPromise = callRpc('listWeeklyTeams', null)
+          .then((res) => {
+            state.weeklyTeams = clone(res || {});
+            if (state.startup) state.startup.weeklyTeams = clone(state.weeklyTeams);
+            return clone(state.weeklyTeams);
+          })
+          .finally(() => { state.weeklyTeamsPromise = null; });
+        return state.weeklyTeamsPromise;
+      },
+      setRoles(res) {
+        state.roles = clone(res || {});
+        if (state.startup) state.startup.roles = clone(state.roles);
+      },
+      setWeeklyTeams(res) {
+        state.weeklyTeams = clone(res || {});
+        if (state.startup) state.startup.weeklyTeams = clone(state.weeklyTeams);
+      },
+      clear() {
+        state.roles = null;
+        state.weeklyTeams = null;
+        state.startup = null;
+      }
+    };
+  })();
+  window.TeamDataCache = TeamDataCache;
 
   const forcedGuestFlag = (() => {
     try {

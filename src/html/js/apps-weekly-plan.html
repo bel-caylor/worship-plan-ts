@@ -1059,7 +1059,7 @@
         if (this.teamRoleDefaultsLoaded || this.teamRoleDefaultsLoading) return;
         this.teamRoleDefaultsLoading = true;
         try {
-          const res = await callRpc('listWeeklyTeams', null);
+          const res = await window.TeamDataCache.getWeeklyTeams();
           const defaults = res && res.defaults ? res.defaults : {};
           this.normalizeTeamRoleDefaults(defaults);
         } catch (err) {
@@ -1276,7 +1276,7 @@
         if (this.teamMemberLookupLoaded || this.teamMemberLookupLoading) return;
         this.teamMemberLookupLoading = true;
         try {
-          const res = await callRpc('listRoles', null);
+          const res = await window.TeamDataCache.getRoles();
           const rows = Array.isArray(res?.items) ? res.items : [];
           this.teamMemberLookup = this.buildMemberLookup(rows);
         } catch (err) {

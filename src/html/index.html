@@ -228,6 +228,11 @@
           const applyAuth = (authState) => {
             this.auth = authState || initialAuth;
             this.allowedRoutes = routesForAuth(this.auth);
+            try {
+              if (this.auth?.capabilities?.canViewTeam && window.TeamDataCache) {
+                window.TeamDataCache.getStartup().catch((err) => console.warn('Team startup warmup failed', err));
+              }
+            } catch (_) { /* ignore */ }
             const prevRoute = this.route;
             const resolved = setRoute(prevRoute);
             if (resolved !== prevRoute) {

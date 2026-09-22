@@ -10,6 +10,8 @@
   const TEAM_TYPE_PRIORITY = ACTIVE_TEAM_TYPES.slice();
   const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
   const WEEKLY_COLUMN_LABELS = ['1st Sunday', '2nd Sunday', '3rd Sunday', '4th Sunday', '5th Sunday'];
+  const TEAM_ROLES_CACHE_KEY = 'wp.team.roles.v2';
+  const TEAM_WEEKLY_TEAMS_CACHE_KEY = 'wp.team.weeklyTeams.v2';
 
   function teamApp() {
     return {
@@ -264,7 +266,7 @@
       },
 
       hydrateTeamCaches() {
-        const rolesCache = this.readLocalCache('wp.team.roles');
+        const rolesCache = this.readLocalCache(TEAM_ROLES_CACHE_KEY);
         if (rolesCache && Array.isArray(rolesCache.items)) {
           this.roles = rolesCache.items;
           this.teamOptions = Array.isArray(rolesCache.teams) ? rolesCache.teams.filter(team => this.isActiveTeamType(team)) : [];
@@ -272,7 +274,7 @@
           this.rolesLoadedOnce = true;
         }
 
-        const weeklyCache = this.readLocalCache('wp.team.weeklyTeams');
+        const weeklyCache = this.readLocalCache(TEAM_WEEKLY_TEAMS_CACHE_KEY);
         if (weeklyCache && Array.isArray(weeklyCache.items)) {
           this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(weeklyCache.defaults);
           this.weeklyTeams = weeklyCache.items
@@ -329,7 +331,11 @@
         }
         this.rolesLoadedOnce = true;
         this.rebuildRecipientMembers();
-        this.writeLocalCache('wp.team.roles', {
+        window.TeamDataCache.setRoles({
+          items: this.roles,
+          teams: this.teamOptions
+        });
+        this.writeLocalCache(TEAM_ROLES_CACHE_KEY, {
           items: this.roles,
           teams: this.teamOptions
         });
@@ -341,7 +347,7 @@
         this.error = '';
         this.weeklyTeamsError = '';
         try {
-          const res = await callRpc('getTeamStartup', null);
+          const res = await window.TeamDataCache.getStartup();
           this.applyRolesResult(res?.roles);
           await this.applyWeeklyTeamsResult(res?.weeklyTeams);
         } catch (e) {
@@ -358,7 +364,7 @@
         this.loading = true;
         this.error = '';
         try {
-          const res = await callRpc('listRoles', null);
+          const res = await window.TeamDataCache.getRoles();
           this.applyRolesResult(res);
         } catch (e) {
           console.error(e);
@@ -730,7 +736,11 @@
           this.weeklyTeamsSaveMessage = '';
         }
         this.weeklyTeamsLoadedOnce = true;
-        this.writeLocalCache('wp.team.weeklyTeams', {
+        window.TeamDataCache.setWeeklyTeams({
+          items: Array.isArray(res?.items) ? res.items : [],
+          defaults: res?.defaults || {}
+        });
+        this.writeLocalCache(TEAM_WEEKLY_TEAMS_CACHE_KEY, {
           items: Array.isArray(res?.items) ? res.items : [],
           defaults: res?.defaults || {}
         });
@@ -741,7 +751,7 @@
         this.weeklyTeamsLoading = true;
         this.weeklyTeamsError = '';
         try {
-          const res = await callRpc('listWeeklyTeams', null);
+          const res = await window.TeamDataCache.getWeeklyTeams();
           await this.applyWeeklyTeamsResult(res);
         } catch (e) {
           console.error(e);
@@ -1681,6 +1691,7 @@
         this.roleDefaultsError = '';
         try {
           const res = await callRpc('saveWeeklyTeamDefaults', { team, roles });
+          window.TeamDataCache.setWeeklyTeams(res || {});
           if (res?.defaults) {
             this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res.defaults);
           }
@@ -1830,6 +1841,7 @@
             const expected = targeted ? (expectedVersions?.[id] ?? this.teamDirtyVersions?.[id] ?? null) : null;
             try {
               const res = await callRpc('saveWeeklyTeam', payload);
+              window.TeamDataCache.setWeeklyTeams(res || {});
               if (!targeted && res?.items) {
                 this.weeklyTeams = res.items.map(item => this.normalizeWeeklyTeam(item));
                 if (res?.defaults) {
@@ -2300,6 +2312,7 @@
             }
           };
           const res = await callRpc('saveWeeklyTeam', payload);
+          window.TeamDataCache.setWeeklyTeams(res || {});
           const items = Array.isArray(res?.items) ? res.items : null;
           if (items) {
             this.weeklyTeams = items
@@ -2398,6 +2411,7 @@
             description: String(this.newWeeklyTeam.description || '').trim()
           };
           const res = await callRpc('createWeeklyTeam', payload);
+          window.TeamDataCache.setWeeklyTeams(res || {});
           const items = Array.isArray(res?.items) ? res.items : null;
           if (items) {
             this.weeklyTeams = items
@@ -2499,17 +2513,7 @@
             spanish: this.spanishChecked ? 'Y' : ''
           };
           const res = await callRpc('updateRoleEntry', payload);
-          this.roles = Array.isArray(res?.items) ? res.items : this.roles;
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : this.teamOptions;
-          this.permissionsOptions = (() => {
-            const permMap = new Map();
-            ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
-            this.roles.forEach(r => {
-              const val = String(r.permissions || '').trim();
-              if (val) permMap.set(val.toLowerCase(), val);
-            });
-            return Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
-          })();
+          this.applyRolesResult(res);
           this.select(sel.email);
           this.savedAt = Date.now();
         } catch (e) {
@@ -2575,17 +2579,7 @@
             spanish: ''
           };
           const res = await callRpc('addRoleEntry', payload);
-          this.roles = Array.isArray(res?.items) ? res.items : this.roles;
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : this.teamOptions;
-          this.permissionsOptions = (() => {
-            const permMap = new Map();
-            ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
-            this.roles.forEach(r => {
-              const val = String(r.permissions || '').trim();
-              if (val) permMap.set(val.toLowerCase(), val);
-            });
-            return Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
-          })();
+          this.applyRolesResult(res);
           this.showNewMemberModal = false;
           this.select(email);
           this.savedAt = Date.now();

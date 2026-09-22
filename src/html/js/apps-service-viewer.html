@@ -5,7 +5,7 @@
       : ['Worship'];
     const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
     const seededServices = Array.isArray(window.__SERVICES__) ? window.__SERVICES__ : [];
-    const seededSongs = Array.isArray(window.__ROWS__) ? window.__ROWS__ : [];
+    const seededSongs = Array.isArray(window.__SERVICE_SONG_ROWS__) ? window.__SERVICE_SONG_ROWS__ : [];
     const SERVICES_STORAGE_KEY = 'wp.serviceViewer.services.v1';
     const SERVICES_STORAGE_MAX_AGE_MS = 5 * 60 * 1000;
     // Apps Script cold starts commonly take 15–30 seconds through the Worker.
@@ -305,7 +305,7 @@ return {
         this.songLookup = buildSongLookup(list);
         this.songsVersion += 1;
         try {
-          if (typeof window !== 'undefined') window.__ROWS__ = list;
+          if (typeof window !== 'undefined') window.__SERVICE_SONG_ROWS__ = list;
         } catch (_) { /* ignore */ }
       },
 
