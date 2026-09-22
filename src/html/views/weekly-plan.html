@@ -47,10 +47,6 @@
         </svg>
         <span>Syncing services...</span>
       </span>
-      <template x-if="!isGuest">
-        <button class="btn btn--surface hidden md:block" :disabled="loadingServices"
-          @click="openCreateServicesModal()">Add New Services</button>
-      </template>
     </div>
   </div>
 

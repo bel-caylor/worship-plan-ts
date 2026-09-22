@@ -296,10 +296,7 @@
 
       async refresh(opts = {}) {
         const includeSchedule = opts.includeSchedule !== false && this.activeTab === 'schedule';
-        await Promise.all([
-          this.loadRoles(),
-          this.loadWeeklyTeams()
-        ]);
+        await this.loadTeamStartup();
         if (includeSchedule) {
           await this.loadSchedule();
         }
@@ -314,32 +311,55 @@
         }
       },
 
+      applyRolesResult(res) {
+        this.roles = Array.isArray(res?.items) ? res.items : [];
+        this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : [];
+        this.memberLookup = this.buildMemberLookup(this.roles);
+
+        const permMap = new Map();
+        ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
+        this.roles.forEach(r => {
+          const val = String(r.permissions || '').trim();
+          if (val) permMap.set(val.toLowerCase(), val);
+        });
+        this.permissionsOptions = Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
+
+        if (this.selectedEmail) {
+          this.select(this.selectedEmail);
+        }
+        this.rolesLoadedOnce = true;
+        this.rebuildRecipientMembers();
+        this.writeLocalCache('wp.team.roles', {
+          items: this.roles,
+          teams: this.teamOptions
+        });
+      },
+
+      async loadTeamStartup() {
+        this.loading = true;
+        this.weeklyTeamsLoading = true;
+        this.error = '';
+        this.weeklyTeamsError = '';
+        try {
+          const res = await callRpc('getTeamStartup', null);
+          this.applyRolesResult(res?.roles);
+          await this.applyWeeklyTeamsResult(res?.weeklyTeams);
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Failed to load team.';
+          this.weeklyTeamsError = (e && e.message) ? e.message : 'Weekly teams are not available yet.';
+        } finally {
+          this.loading = false;
+          this.weeklyTeamsLoading = false;
+        }
+      },
+
       async loadRoles() {
         this.loading = true;
         this.error = '';
         try {
           const res = await callRpc('listRoles', null);
-          this.roles = Array.isArray(res?.items) ? res.items : [];
-          this.teamOptions = Array.isArray(res?.teams) ? res.teams.filter(team => this.isActiveTeamType(team)) : [];
-          this.memberLookup = this.buildMemberLookup(this.roles);
-
-          const permMap = new Map();
-          ['subscriber', 'editor', 'administrator'].forEach(p => permMap.set(p.toLowerCase(), p));
-          this.roles.forEach(r => {
-            const val = String(r.permissions || '').trim();
-            if (val) permMap.set(val.toLowerCase(), val);
-          });
-          this.permissionsOptions = Array.from(permMap.values()).sort((a, b) => a.localeCompare(b));
-
-          if (this.selectedEmail) {
-            this.select(this.selectedEmail);
-          }
-          this.rolesLoadedOnce = true;
-          this.rebuildRecipientMembers();
-          this.writeLocalCache('wp.team.roles', {
-            items: this.roles,
-            teams: this.teamOptions
-          });
+          this.applyRolesResult(res);
         } catch (e) {
           console.error(e);
           this.error = (e && e.message) ? e.message : 'Failed to load team.';
@@ -694,31 +714,35 @@
         }
       },
 
+      async applyWeeklyTeamsResult(res) {
+        const items = Array.isArray(res?.items) ? res.items : [];
+        this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.defaults);
+        this.weeklyTeams = items
+          .map(item => this.normalizeWeeklyTeam(item))
+          .filter(item => this.isActiveTeamType(item?.team));
+        if (this.selectedWeeklyTeamId) {
+          this.selectWeeklyTeam(this.selectedWeeklyTeamId);
+        }
+        await this.ensureDefaultWeeklyTeams();
+        this.weeklyTeamDirtyFlags = {};
+        this.weeklyTeamsSaveError = '';
+        if (!this.weeklyTeamsSaving) {
+          this.weeklyTeamsSaveMessage = '';
+        }
+        this.weeklyTeamsLoadedOnce = true;
+        this.writeLocalCache('wp.team.weeklyTeams', {
+          items: Array.isArray(res?.items) ? res.items : [],
+          defaults: res?.defaults || {}
+        });
+        this.rebuildWeeklyTeamLayouts();
+      },
+
       async loadWeeklyTeams() {
         this.weeklyTeamsLoading = true;
         this.weeklyTeamsError = '';
         try {
           const res = await callRpc('listWeeklyTeams', null);
-          const items = Array.isArray(res?.items) ? res.items : [];
-          this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.defaults);
-          this.weeklyTeams = items
-            .map(item => this.normalizeWeeklyTeam(item))
-            .filter(item => this.isActiveTeamType(item?.team));
-          if (this.selectedWeeklyTeamId) {
-            this.selectWeeklyTeam(this.selectedWeeklyTeamId);
-          }
-          await this.ensureDefaultWeeklyTeams();
-          this.weeklyTeamDirtyFlags = {};
-          this.weeklyTeamsSaveError = '';
-          if (!this.weeklyTeamsSaving) {
-            this.weeklyTeamsSaveMessage = '';
-          }
-          this.weeklyTeamsLoadedOnce = true;
-          this.writeLocalCache('wp.team.weeklyTeams', {
-            items: Array.isArray(res?.items) ? res.items : [],
-            defaults: res?.defaults || {}
-          });
-          this.rebuildWeeklyTeamLayouts();
+          await this.applyWeeklyTeamsResult(res);
         } catch (e) {
           console.error(e);
           this.weeklyTeamsError = (e && e.message) ? e.message : 'Weekly teams are not available yet.';

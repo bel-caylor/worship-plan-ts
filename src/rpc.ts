@@ -75,6 +75,11 @@ export function rpc(input: { method: string; payload: unknown }) {
         return getScriptureVersions(payload as any);
       case 'listRoles':
         return listRoles();
+      case 'getTeamStartup':
+        return {
+          roles: listRoles(),
+          weeklyTeams: listWeeklyTeams()
+        };
       case 'updateRoleEntry':
         return updateRoleEntry(payload as any);
       case 'addRoleEntry':

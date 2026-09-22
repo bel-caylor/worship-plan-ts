@@ -283,7 +283,6 @@ export function listRoles() {
       const body = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
       const items: RolesListItem[] = [];
       const teamSet = new Set<string>();
-      const roleFixes: Array<{ row: number; value: string }> = [];
 
       for (let i = 0; i < body.length; i++) {
         const row = body[i];
@@ -304,27 +303,9 @@ export function listRoles() {
           role: idxRole >= 0 ? canonicalizeRoleLabel(row[idxRole]) : '',
           spanish: idxSpanish >= 0 ? String(row[idxSpanish] ?? '').trim() : ''
         });
-        if (idxRole >= 0) {
-          const rawRole = String(row[idxRole] ?? '').trim();
-          const canonical = canonicalizeRoleLabel(rawRole);
-          if (rawRole && canonical && rawRole !== canonical) {
-            roleFixes.push({ row: 2 + i, value: canonical });
-          }
-        }
       }
 
       items.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
-
-      if (roleFixes.length && idxRole >= 0) {
-        const lock = acquireRolesLock();
-        try {
-          roleFixes.forEach(fix => {
-            sh.getRange(fix.row, idxRole + 1).setValue(fix.value);
-          });
-        } finally {
-          lock.releaseLock();
-        }
-      }
 
       return {
         items,
