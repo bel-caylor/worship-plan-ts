@@ -1463,6 +1463,52 @@ function fetchYouTubeCandidateEntries(isoDate?: string) {
   return Array.from(byUrl.values()).map(({ sourceRank, ...item }) => item);
 }
 
+function readYouTubeStreamCatalogCandidates(isoDate: string) {
+  const targetDate = normalizeIso(isoDate as any) || '';
+  if (!targetDate) return [] as YouTubeCandidate[];
+  let sh: GoogleAppsScript.Spreadsheet.Sheet | null = null;
+  try {
+    sh = getSheetByName(YOUTUBE_STREAMS_SHEET);
+  } catch (_) {
+    sh = null;
+  }
+  if (!sh) return [];
+
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return [];
+
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const urlIdx = col(YOUTUBE_STREAMS_COL.url);
+  const titleIdx = col(YOUTUBE_STREAMS_COL.title);
+  const streamDateIdx = col(YOUTUBE_STREAMS_COL.streamDate);
+  const publishedDateIdx = col(YOUTUBE_STREAMS_COL.publishedDate);
+  const channelIdIdx = col(YOUTUBE_STREAMS_COL.channelId);
+  const channelNameIdx = col(YOUTUBE_STREAMS_COL.channelName);
+  if (urlIdx < 0 || titleIdx < 0 || streamDateIdx < 0) return [];
+
+  const rows = sh.getRange(2, 1, lastRow - 1, lastCol).getValues();
+  return rows
+    .map((row) => {
+      const streamDate = normalizeIso(row[streamDateIdx] as any) || '';
+      const published = publishedDateIdx >= 0 ? normalizeIso(row[publishedDateIdx] as any) || '' : '';
+      if (streamDate !== targetDate && published !== targetDate) return null;
+      const title = String(row[titleIdx] ?? '').trim();
+      const url = String(row[urlIdx] ?? '').trim();
+      if (!title || !url) return null;
+      return scoreYouTubeCandidate({
+        title,
+        url,
+        published: streamDate || published,
+        channelId: channelIdIdx >= 0 ? String(row[channelIdIdx] ?? '').trim() : '',
+        channelName: channelNameIdx >= 0 ? String(row[channelNameIdx] ?? '').trim() : ''
+      }, targetDate);
+    })
+    .filter((item): item is YouTubeCandidate => !!item && item.score > 0)
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
+}
+
 function fetchYouTubeVideoMetadata(url: string) {
   const target = String(url || '').trim();
   if (!target) return { published: '', title: '', channelId: '', channelName: '' };
@@ -1637,7 +1683,7 @@ function collectScoredYouTubeCandidates(isoDate: string, enrichMetadata = false)
   if (!scored.length) return scored;
 
   const enriched: YouTubeCandidate[] = [];
-  const limit = Math.min(12, scored.length);
+  const limit = Math.min(4, scored.length);
   for (let i = 0; i < limit; i++) {
     const base = scored[i];
     const meta = fetchYouTubeVideoMetadata(base.url);
@@ -2785,7 +2831,8 @@ export function suggestYouTubeStream(input: { date?: string }): SuggestYouTubeSt
     };
   }
 
-  const scored = collectScoredYouTubeCandidates(isoDate, true);
+  const catalogMatches = readYouTubeStreamCatalogCandidates(isoDate);
+  const scored = catalogMatches.length ? catalogMatches : collectScoredYouTubeCandidates(isoDate, true);
   if (!scored.length) {
     return {
       url: '',
@@ -3194,6 +3241,30 @@ export function matchServicesFromYouTubeStreams(options?: { overwriteExisting?: 
     SpreadsheetApp.getActive().toast(`YouTube stream match from ${minDate}: ${matched} matched, ${skipped} need review`, 'Worship Planner', 5);
   } catch (_) {}
   return { matched, skipped, reviewSheet: reviewSheetName, catalogSheet: YOUTUBE_STREAMS_SHEET };
+}
+
+export function runWeeklyYouTubeStreamMatch() {
+  const sync = syncYouTubeStreamsCatalog();
+  const match = matchServicesFromYouTubeStreams();
+  return { sync, match };
+}
+
+export function installWeeklyYouTubeStreamMatch() {
+  const handler = 'runWeeklyYouTubeStreamMatch';
+  const installed = ScriptApp.getProjectTriggers().some(trigger => trigger.getHandlerFunction() === handler);
+  if (!installed) {
+    ScriptApp.newTrigger(handler)
+      .timeBased()
+      .onWeekDay(ScriptApp.WeekDay.MONDAY)
+      .atHour(4)
+      .create();
+  }
+  SpreadsheetApp.getActive().toast(
+    installed ? 'Weekly YouTube stream match is already installed.' : 'Weekly YouTube stream match installed.',
+    'Worship Planner',
+    4
+  );
+  return { installed: !installed };
 }
 
 export function syncMissingYouTubeUrls(options?: { includeNearby?: boolean; limit?: number }) {

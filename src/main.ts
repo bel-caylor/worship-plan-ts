@@ -3,7 +3,7 @@ import { onOpen as menuOnOpen, showMenuNow as menuShow, setupMenuTrigger as menu
 import { linkSongMedia, rebuildSongUsageFromPlanner, syncSongsFromDrive } from './features/songs';
 import { installDailySongMediaRefresh, refreshSavedSongMedia } from './features/media-snapshot';
 import { buildLeadersFromPlanner } from './features/leaders';
-import { repairServiceDateTimeColumns, syncYouTubeStreamsCatalog, matchServicesFromYouTubeStreams, resetYouTubeStreamsSyncState } from './features/services';
+import { repairServiceDateTimeColumns, syncYouTubeStreamsCatalog, matchServicesFromYouTubeStreams, resetYouTubeStreamsSyncState, runWeeklyYouTubeStreamMatch, installWeeklyYouTubeStreamMatch } from './features/services';
 import { getFilesForFolderUrl } from './util/drive';
 import { rpc } from './rpc';
 
@@ -51,6 +51,8 @@ global.repairServiceDateTimeColumns = repairServiceDateTimeColumns;
 global.syncYouTubeStreamsCatalog = syncYouTubeStreamsCatalog;
 global.resetYouTubeStreamsSyncState = resetYouTubeStreamsSyncState;
 global.matchServicesFromYouTubeStreams = matchServicesFromYouTubeStreams;
+global.runWeeklyYouTubeStreamMatch = runWeeklyYouTubeStreamMatch;
+global.installWeeklyYouTubeStreamMatch = installWeeklyYouTubeStreamMatch;
 
 global.onOpen = onOpen;
 global.showMenuNow = showMenuNow;

@@ -9,6 +9,7 @@ export function onOpen() {
     .addItem('Sync YouTube streams catalog', 'syncYouTubeStreamsCatalog')
     .addItem('Reset YouTube streams sync state', 'resetYouTubeStreamsSyncState')
     .addItem('Match services from YouTube streams', 'matchServicesFromYouTubeStreams')
+    .addItem('Install weekly YouTube stream match', 'installWeeklyYouTubeStreamMatch')
     .addItem('Sync songs from Drive', 'syncSongsFromDrive')
     .addItem('Rebuild song leaders (from Services)', 'buildLeadersFromPlanner')
     .addItem('Rebuild song Usage (from ServiceItems)', 'rebuildSongUsageFromPlanner')
