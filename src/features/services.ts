@@ -1,6 +1,22 @@
 // src/features/services.ts
-import { SERVICES_SHEET, PLANNER_SHEET, SERVICES_COL, ORDER_SHEET, ORDER_COL, YOUTUBE_STREAMS_SHEET, YOUTUBE_STREAMS_COL, SONG_PERFORMANCES_SHEET, SONG_PERFORMANCES_COL } from '../constants';
-import { getSpreadsheetVersion, readDocumentCachedJson } from '../util/cache';
+import {
+  SERVICES_SHEET,
+  PLANNER_SHEET,
+  SERVICES_COL,
+  ORDER_SHEET,
+  ORDER_COL,
+  YOUTUBE_STREAMS_SHEET,
+  YOUTUBE_STREAMS_COL,
+  SONG_PERFORMANCES_SHEET,
+  SONG_PERFORMANCES_COL,
+  MEMBER_AVAILABILITY_SHEET,
+  MEMBER_AVAILABILITY_COL,
+  SERVICE_TEAM_ASSIGNMENTS_SHEET,
+  SERVICE_TEAM_ASSIGNMENTS_COL,
+  VOLUNTEER_REQUESTS_SHEET,
+  VOLUNTEER_REQUESTS_COL
+} from '../constants';
+import { getSpreadsheetVersion, readDocumentCachedJson, removeDocumentCacheKeys } from '../util/cache';
 import { getSheetByName } from '../util/sheets';
 
 export type AddServiceInput = {
@@ -3181,48 +3197,84 @@ export function repairServiceDateTimeColumns() {
   return { updated };
 }
 
+function headerIndexOptional(headers: string[], label: string) {
+  return headers.findIndex(h => h.trim().toLowerCase() === label.trim().toLowerCase());
+}
+
+function deleteRowsByColumnValue(sheetName: string, columnName: string, expectedValue: string) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) return 0;
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return 0;
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const idx = headerIndexOptional(headers, columnName);
+  if (idx < 0) return 0;
+  const values = sh.getRange(2, idx + 1, lastRow - 1, 1).getValues();
+  let deleted = 0;
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (String(values[i]?.[0] ?? '').trim() === expectedValue) {
+      sh.deleteRow(i + 2);
+      deleted += 1;
+    }
+  }
+  return deleted;
+}
+
+function clearRowsByColumnValue(sheetName: string, columnName: string, expectedValue: string) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) return 0;
+  const lastRow = sh.getLastRow();
+  const lastCol = sh.getLastColumn();
+  if (lastRow < 2 || lastCol < 1) return 0;
+  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+  const idx = headerIndexOptional(headers, columnName);
+  if (idx < 0) return 0;
+  const values = sh.getRange(2, idx + 1, lastRow - 1, 1).getValues();
+  let cleared = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i]?.[0] ?? '').trim() === expectedValue) {
+      sh.getRange(i + 2, idx + 1).clearContent();
+      cleared += 1;
+    }
+  }
+  return cleared;
+}
+
 export function deleteService(input: { id?: string } | string) {
   const id = typeof input === 'string' ? input : String((input as any)?.id || '').trim();
   const serviceId = String(id || '').trim();
   if (!serviceId) throw new Error('id required');
 
-  // Delete row from Services and any related rows from Order
-  // Services
-  const sh = getSheetByName(SERVICES_SHEET);
-  const lastRow = sh.getLastRow();
-  const lastCol = sh.getLastColumn();
-  const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
-  const col = (name: string) => headers.findIndex(h => h.toLowerCase() === name.toLowerCase());
-  const idIdx = col(SERVICES_COL.id);
   const lock = LockService.getDocumentLock();
   lock.waitLock(10000);
+  const deleted = {
+    services: 0,
+    orderItems: 0,
+    teamAssignments: 0,
+    memberAvailability: 0,
+    volunteerRequests: 0,
+    songPerformances: 0,
+    youtubeMatchesCleared: 0
+  };
   try {
-    if (idIdx >= 0 && lastRow >= 2) {
-      const ids = sh.getRange(2, idIdx + 1, lastRow - 1, 1).getValues().map(r => String(r[0] ?? '').trim());
-      for (let i = ids.length - 1; i >= 0; i--) {
-        if (ids[i] === serviceId) sh.deleteRow(2 + i);
-      }
-    }
+    deleted.services = deleteRowsByColumnValue(SERVICES_SHEET, SERVICES_COL.id, serviceId);
+    deleted.orderItems = deleteRowsByColumnValue(ORDER_SHEET, ORDER_COL.serviceId, serviceId);
+    deleted.teamAssignments = deleteRowsByColumnValue(SERVICE_TEAM_ASSIGNMENTS_SHEET, SERVICE_TEAM_ASSIGNMENTS_COL.serviceId, serviceId);
+    deleted.memberAvailability = deleteRowsByColumnValue(MEMBER_AVAILABILITY_SHEET, MEMBER_AVAILABILITY_COL.serviceId, serviceId);
+    deleted.volunteerRequests = deleteRowsByColumnValue(VOLUNTEER_REQUESTS_SHEET, VOLUNTEER_REQUESTS_COL.serviceId, serviceId);
+    deleted.songPerformances = deleteRowsByColumnValue(SONG_PERFORMANCES_SHEET, SONG_PERFORMANCES_COL.serviceId, serviceId);
+    deleted.youtubeMatchesCleared = clearRowsByColumnValue(YOUTUBE_STREAMS_SHEET, YOUTUBE_STREAMS_COL.matchedServiceId, serviceId);
   } finally {
     lock.releaseLock();
   }
 
-  // Related order rows
-  try {
-    const oh = getSheetByName(ORDER_SHEET);
-    const oLastRow = oh.getLastRow();
-    const oLastCol = oh.getLastColumn();
-    const oHeaders = oh.getRange(1, 1, 1, oLastCol).getValues()[0].map(v => String(v ?? '').trim());
-    const oCol = (name: string) => oHeaders.findIndex(h => h.toLowerCase() === name.toLowerCase());
-    const serviceIdx = oCol(ORDER_COL.serviceId);
-    if (serviceIdx >= 0 && oLastRow >= 2) {
-      const ids = oh.getRange(2, serviceIdx + 1, oLastRow - 1, 1).getValues().map(r => String(r[0] ?? '').trim());
-      for (let i = ids.length - 1; i >= 0; i--) if (ids[i] === serviceId) oh.deleteRow(2 + i);
-    }
-  } catch (_) { /* ignore */ }
-
   try { CacheService.getDocumentCache().remove(SERVICES_CACHE_KEY); } catch (_) {}
-  return { ok: true };
+  try { CacheService.getDocumentCache().remove(`serviceTeamAssignments:v1:${encodeURIComponent(serviceId)}`); } catch (_) {}
+  try { removeDocumentCacheKeys(['memberAvailability:index:v1']); } catch (_) {}
+  return { ok: true, deleted };
 }
 
 export function getServicePeople() {

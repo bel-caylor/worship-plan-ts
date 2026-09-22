@@ -621,8 +621,8 @@
         try {
           const id = String(this.selectedServiceId || '').trim();
           if (!id) { notify('Select a service first', 'info'); return; }
-          if (!confirm('Delete this service and its order?')) return;
-          await callRpc('deleteService', { id });
+          if (!confirm('Delete this service and all saved order, team, availability, volunteer, and song timestamp references?')) return;
+          const deleteResult = await callRpc('deleteService', { id });
           // Refresh list
           this.loadingServices = true;
           try {
@@ -640,7 +640,12 @@
           this.activeContentTab = 'scripture';
           this.resetTeamAssignments();
           this.resetRecommendations();
-          notify('Service deleted.', 'success');
+          const removed = deleteResult?.deleted
+            ? Object.entries(deleteResult.deleted)
+              .filter(([key]) => key !== 'services' && key !== 'youtubeMatchesCleared')
+              .reduce((sum, [, value]) => sum + (Number(value) || 0), 0)
+            : 0;
+          notify(removed ? `Service deleted. Removed ${removed} related row${removed === 1 ? '' : 's'}.` : 'Service deleted.', 'success');
         } catch (e) {
           console.error(e);
           notify('Failed to delete service', 'error');

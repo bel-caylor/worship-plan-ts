@@ -7137,8 +7137,8 @@ return {
         try {
           const id = String(this.selectedServiceId || '').trim();
           if (!id) { notify('Select a service first', 'info'); return; }
-          if (!confirm('Delete this service and its order?')) return;
-          await callRpc('deleteService', { id });
+          if (!confirm('Delete this service and all saved order, team, availability, volunteer, and song timestamp references?')) return;
+          const deleteResult = await callRpc('deleteService', { id });
           // Refresh list
           this.loadingServices = true;
           try {
@@ -7156,7 +7156,12 @@ return {
           this.activeContentTab = 'scripture';
           this.resetTeamAssignments();
           this.resetRecommendations();
-          notify('Service deleted.', 'success');
+          const removed = deleteResult?.deleted
+            ? Object.entries(deleteResult.deleted)
+              .filter(([key]) => key !== 'services' && key !== 'youtubeMatchesCleared')
+              .reduce((sum, [, value]) => sum + (Number(value) || 0), 0)
+            : 0;
+          notify(removed ? `Service deleted. Removed ${removed} related row${removed === 1 ? '' : 's'}.` : 'Service deleted.', 'success');
         } catch (e) {
           console.error(e);
           notify('Failed to delete service', 'error');
@@ -11316,7 +11321,7 @@ return {
       <template x-if="!isGuest">
         <button class="ml-1 btn btn--surface btn--danger btn--square" :disabled="loadingServices || !selectedServiceId"
           title="Delete service"
-          @click="selectedServiceId && confirm('Delete this service and all its items?') && deleteSelectedService()">
+          @click="deleteSelectedService()">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="w-4 h-4">
             <path
