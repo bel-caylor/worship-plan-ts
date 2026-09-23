@@ -4215,7 +4215,7 @@ return {
   const ACTIVE_TEAM_TYPE_SET = new Set(ACTIVE_TEAM_TYPES.map(team => String(team || '').trim().toLowerCase()).filter(Boolean));
   const WEEKLY_COLUMN_LABELS = ['1st Sunday', '2nd Sunday', '3rd Sunday', '4th Sunday', '5th Sunday'];
   const TEAM_ROLES_CACHE_KEY = 'wp.team.roles.v2';
-  const TEAM_WEEKLY_TEAMS_CACHE_KEY = 'wp.team.weeklyTeams.v2';
+  const TEAM_WEEKLY_TEAMS_CACHE_KEY = 'wp.team.weeklyTeams.v3';
 
   function teamApp() {
     return {
@@ -4979,21 +4979,6 @@ return {
             window.TeamDataCache.setRoles({
               items: res.roles,
               teams: Array.isArray(res?.teams) ? res.teams : this.teamOptions
-            });
-          }
-          if (Array.isArray(res?.weeklyTeams)) {
-            this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.weeklyTeamDefaults);
-            this.weeklyTeams = res.weeklyTeams
-              .map(item => this.normalizeWeeklyTeam(item))
-              .filter(item => this.isActiveTeamType(item?.team));
-            this.weeklyTeamsLoadedOnce = true;
-            window.TeamDataCache.setWeeklyTeams({
-              items: this.weeklyTeams,
-              defaults: res?.weeklyTeamDefaults || {}
-            });
-            this.writeLocalCache(TEAM_WEEKLY_TEAMS_CACHE_KEY, {
-              items: this.weeklyTeams,
-              defaults: res?.weeklyTeamDefaults || {}
             });
           }
           const services = this.normalizeScheduleServices(res?.services);
@@ -5843,6 +5828,13 @@ return {
         this.weeklyTeamsByType(teamType).forEach(team => {
           (Array.isArray(team.roles) ? team.roles : []).forEach(role => {
             pushName(role?.roleName || role?.roleType);
+          });
+        });
+        [this.scheduleAssignmentBaseline, this.scheduleAssignmentMap].forEach(map => {
+          Object.values(map || {}).forEach(entry => {
+            if (this.normalize(entry?.teamType) === this.normalize(teamType)) {
+              pushName(entry?.roleName || entry?.roleType);
+            }
           });
         });
         if (!names.length && Array.isArray(this.rolePresets?.[teamType])) {

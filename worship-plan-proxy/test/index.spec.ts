@@ -173,6 +173,36 @@ describe('Worship Plan proxy RPC contract', () => {
 		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
 	});
 
+	it('does not report the original Apps Script redirect when the final redirected result times out', async () => {
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: {
+					Location: 'https://script.googleusercontent.com/slow-result-1',
+					'Content-Type': 'application/binary'
+				}
+			}))
+			.mockRejectedValueOnce(new DOMException('The operation was aborted.', 'AbortError'))
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: {
+					Location: 'https://script.googleusercontent.com/slow-result-2',
+					'Content-Type': 'application/binary'
+				}
+			}))
+			.mockRejectedValueOnce(new DOMException('The operation was aborted.', 'AbortError'));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await fetchWorker(rpcRequest('getServiceTeamAssignments', { serviceId: 'svc-1' }));
+		const body = await response.json() as { ok: boolean; error: string };
+
+		expect(response.status).toBe(502);
+		expect(body.ok).toBe(false);
+		expect(body.error).toContain('upstream_timeout');
+		expect(body.error).not.toContain('non-JSON response (302');
+		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+	});
+
 	it('does not replay non-idempotent email RPC POSTs when the redirected result is non-JSON', async () => {
 		const fetchMock = vi.fn()
 			.mockResolvedValueOnce(new Response('', {

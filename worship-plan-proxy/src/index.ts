@@ -128,6 +128,7 @@ export default {
         if (upstream.status >= 300 && upstream.status < 400) {
           const resultUrl = upstream.headers.get('Location');
           if (!resultUrl) throw new Error('Apps Script redirected the RPC request without a result URL.');
+          let resultTimedOut = false;
           // The redirected googleusercontent URL is occasionally not ready
           // immediately, especially just after a new Apps Script deployment.
           // Retrying this same one-time URL is important; issuing a new POST
@@ -146,7 +147,10 @@ export default {
                 resultAttempt,
                 timeout: isTimeoutError(err) || undefined
               });
-              if (canRetry && isTimeoutError(err)) break;
+              if (canRetry && isTimeoutError(err)) {
+                resultTimedOut = true;
+                break;
+              }
               throw err;
             }
             const probeText = await upstream.clone().text();
@@ -167,6 +171,15 @@ export default {
               await new Promise(resolve => setTimeout(resolve, 250 * (resultAttempt + 1)));
               markPhase('result_backoff', backoffStartedAt, { attempt, resultAttempt });
             }
+          }
+          if (resultTimedOut) {
+            if (attempt < attempts - 1) {
+              const backoffStartedAt = Date.now();
+              await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+              markPhase('retry_backoff', backoffStartedAt, { attempt, reason: 'result_timeout' });
+              continue;
+            }
+            throw new Error('upstream_timeout');
           }
         }
 
