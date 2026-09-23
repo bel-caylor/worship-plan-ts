@@ -4583,10 +4583,12 @@ return {
         (Array.isArray(rows) ? rows : []).forEach(row => {
           const email = String(row?.email || '').trim();
           if (!email) return;
-          const first = String(row?.first || '').trim();
-          const last = String(row?.last || '').trim();
-          const label = [first, last].filter(Boolean).join(' ') || email;
-          const roles = this.parseRoleList(row?.role);
+          const displayName = String(row?.name || row?.memberName || row?.label || '').trim();
+          const nameParts = displayName.replace(/\s*\([^)]*\)\s*$/, '').split(/\s+/).filter(Boolean);
+          const first = String(row?.first || row?.firstName || nameParts[0] || '').trim();
+          const last = String(row?.last || row?.lastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '')).trim();
+          const label = [first, last].filter(Boolean).join(' ') || displayName || email;
+          const roles = this.parseRoleList(row?.role || row?.roles || row?.roleType || row?.roleName);
           map[email.toLowerCase()] = {
             email,
             first,
@@ -4971,6 +4973,14 @@ return {
         try {
           const payload = { limit: this.scheduleServiceLimit };
           const res = await callRpc('getTeamScheduleSnapshot', payload);
+          if (Array.isArray(res?.roles)) {
+            this.roles = res.roles;
+            this.memberLookup = this.buildMemberLookup(res.roles);
+            window.TeamDataCache.setRoles({
+              items: res.roles,
+              teams: Array.isArray(res?.teams) ? res.teams : this.teamOptions
+            });
+          }
           const services = this.normalizeScheduleServices(res?.services);
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
@@ -6861,6 +6871,7 @@ return {
       teamEmailGeneratedKey: '',
       teamEmailAttemptId: '',
       teamEmailLink: '',
+      initialServiceAutoLoaded: false,
       // service detail autosave
       savingDetails: false,
       saveDetailsTimer: null,
@@ -6961,7 +6972,7 @@ return {
           if (this.hasFreshServiceChoices()) {
             this.loadingServices = false;
             this.ensureDefaults();
-            this.restoreSelectedService();
+            this.restoreSelectedService({ autoLoadUpcoming: true });
             return;
           }
           try {
@@ -6984,7 +6995,7 @@ return {
           this.$nextTick(() => {
             try { document.querySelectorAll('option[value="__custom"]').forEach(o => o.textContent = 'CustomGǪ'); } catch (_) { }
           });
-          this.restoreSelectedService();
+          this.restoreSelectedService({ autoLoadUpcoming: true });
         })();
         try {
           window.addEventListener('embedded-songs-ready', (evt) => {
@@ -7094,8 +7105,17 @@ return {
         try { localStorage.setItem(SERVICE_CHOICES_CACHE_KEY, JSON.stringify({ ts: Date.now(), items: this.existingServices })); } catch (_) { }
       },
 
-      restoreSelectedService() {
+      restoreSelectedService(opts = {}) {
         this.$nextTick(() => {
+          if (opts?.autoLoadUpcoming && !this.initialServiceAutoLoaded && !this.isGuest) {
+            const upcoming = this.nextUpcomingServiceChoice();
+            if (upcoming?.id) {
+              this.initialServiceAutoLoaded = true;
+              this.selectedServiceId = upcoming.id;
+              this.loadSelected();
+              return;
+            }
+          }
           const exists = Array.isArray(this.existingServices) && this.existingServices.some(svc => svc?.id === this.selectedServiceId);
           // Restore the picker selection without automatically fetching the
           // entire service record.  Detail loading is intentionally explicit
@@ -7106,6 +7126,23 @@ return {
             try { localStorage.removeItem('wp.selectedServiceId'); } catch (_) { }
           }
         });
+      },
+
+      todayISO() {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      },
+
+      nextUpcomingServiceChoice() {
+        const today = this.todayISO();
+        const choices = (Array.isArray(this.existingServices) ? this.existingServices : [])
+          .filter(svc => svc?.id && /^\d{4}-\d{2}-\d{2}$/.test(String(svc?.date || '')))
+          .filter(svc => String(svc.date) >= today)
+          .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time || '').localeCompare(String(b.time || '')));
+        return choices[0] || null;
       },
 
       hydrateDocxExportStore() {
@@ -8093,10 +8130,12 @@ return {
         (Array.isArray(rows) ? rows : []).forEach(row => {
           const email = String(row?.email || '').trim();
           if (!email) return;
-          const first = String(row?.first || '').trim();
-          const last = String(row?.last || '').trim();
-          const baseLabel = [first, last].filter(Boolean).join(' ') || email;
-          const roles = this.parseRoleList(row?.role);
+          const displayName = String(row?.name || row?.memberName || row?.label || '').trim();
+          const nameParts = displayName.replace(/\s*\([^)]*\)\s*$/, '').split(/\s+/).filter(Boolean);
+          const first = String(row?.first || row?.firstName || nameParts[0] || '').trim();
+          const last = String(row?.last || row?.lastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '')).trim();
+          const baseLabel = [first, last].filter(Boolean).join(' ') || displayName || email;
+          const roles = this.parseRoleList(row?.role || row?.roles || row?.roleType || row?.roleName);
           map[email.toLowerCase()] = {
             email,
             first,

@@ -379,10 +379,12 @@
         (Array.isArray(rows) ? rows : []).forEach(row => {
           const email = String(row?.email || '').trim();
           if (!email) return;
-          const first = String(row?.first || '').trim();
-          const last = String(row?.last || '').trim();
-          const label = [first, last].filter(Boolean).join(' ') || email;
-          const roles = this.parseRoleList(row?.role);
+          const displayName = String(row?.name || row?.memberName || row?.label || '').trim();
+          const nameParts = displayName.replace(/\s*\([^)]*\)\s*$/, '').split(/\s+/).filter(Boolean);
+          const first = String(row?.first || row?.firstName || nameParts[0] || '').trim();
+          const last = String(row?.last || row?.lastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '')).trim();
+          const label = [first, last].filter(Boolean).join(' ') || displayName || email;
+          const roles = this.parseRoleList(row?.role || row?.roles || row?.roleType || row?.roleName);
           map[email.toLowerCase()] = {
             email,
             first,
@@ -767,6 +769,14 @@
         try {
           const payload = { limit: this.scheduleServiceLimit };
           const res = await callRpc('getTeamScheduleSnapshot', payload);
+          if (Array.isArray(res?.roles)) {
+            this.roles = res.roles;
+            this.memberLookup = this.buildMemberLookup(res.roles);
+            window.TeamDataCache.setRoles({
+              items: res.roles,
+              teams: Array.isArray(res?.teams) ? res.teams : this.teamOptions
+            });
+          }
           const services = this.normalizeScheduleServices(res?.services);
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
