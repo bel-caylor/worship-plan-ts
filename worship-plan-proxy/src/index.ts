@@ -6,10 +6,10 @@ type Env = {
 const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
   getServiceViewerStartup: 120
 };
-const RETRYABLE_POST_TIMEOUT_MS = 15000;
+const RETRYABLE_POST_TIMEOUT_MS = 35000;
 const NON_RETRYABLE_POST_TIMEOUT_MS = 45000;
 const RESULT_TIMEOUT_MS = 10000;
-const RETRYABLE_TOTAL_BUDGET_MS = 30000;
+const RETRYABLE_TOTAL_BUDGET_MS = 45000;
 
 function normalizeAppsScriptBase(value?: string) {
   return String(value || '')
@@ -117,7 +117,7 @@ export default {
             attempt,
             timeout: isTimeoutError(err) || undefined
           });
-          if (canRetry && isTimeoutError(err) && attempt < attempts - 1) continue;
+          if (isTimeoutError(err)) throw new Error('upstream_timeout');
           throw err;
         }
         markPhase('apps_script_post', postStartedAt, {

@@ -203,6 +203,20 @@ describe('Worship Plan proxy RPC contract', () => {
 		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
 	});
 
+	it('does not replay a safe RPC when the original Apps Script POST times out', async () => {
+		const fetchMock = vi.fn()
+			.mockRejectedValueOnce(new DOMException('The operation was aborted.', 'AbortError'));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await fetchWorker(rpcRequest('getTeamScheduleSnapshot', { limit: 1 }));
+		const body = await response.json() as { ok: boolean; error: string };
+
+		expect(response.status).toBe(502);
+		expect(body.ok).toBe(false);
+		expect(body.error).toContain('upstream_timeout');
+		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+	});
+
 	it('does not replay non-idempotent email RPC POSTs when the redirected result is non-JSON', async () => {
 		const fetchMock = vi.fn()
 			.mockResolvedValueOnce(new Response('', {
