@@ -4981,6 +4981,21 @@ return {
               teams: Array.isArray(res?.teams) ? res.teams : this.teamOptions
             });
           }
+          if (Array.isArray(res?.weeklyTeams)) {
+            this.weeklyTeamDefaults = this.normalizeWeeklyTeamDefaults(res?.weeklyTeamDefaults);
+            this.weeklyTeams = res.weeklyTeams
+              .map(item => this.normalizeWeeklyTeam(item))
+              .filter(item => this.isActiveTeamType(item?.team));
+            this.weeklyTeamsLoadedOnce = true;
+            window.TeamDataCache.setWeeklyTeams({
+              items: this.weeklyTeams,
+              defaults: res?.weeklyTeamDefaults || {}
+            });
+            this.writeLocalCache(TEAM_WEEKLY_TEAMS_CACHE_KEY, {
+              items: this.weeklyTeams,
+              defaults: res?.weeklyTeamDefaults || {}
+            });
+          }
           const services = this.normalizeScheduleServices(res?.services);
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
