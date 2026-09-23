@@ -85,6 +85,8 @@ const YOUTUBE_STREAMS_CURSOR_PROPERTY = 'youtube_streams_catalog_page_token_v2';
 const YOUTUBE_API_KEY_PROPERTY = 'YOUTUBE_API_KEY';
 const YOUTUBE_CHANNEL_HANDLE = '@hopechurch7113';
 const AUTO_SERVICE_WEEKS_AHEAD = 12;
+const SCRIPTURE_VERSIONS_CACHE_PREFIX = 'scriptureVersions:v1:';
+const SCRIPTURE_VERSIONS_CACHE_TTL_SECONDS = 21600;
 
 type SongPlayback = {
   youtubeUrl: string;
@@ -3911,11 +3913,26 @@ export function lblaPassage(input: { reference: string }): PassageResult {
 }
 
 export function getScriptureVersions(input: { reference: string }) {
-  const esv = esvPassage({ reference: String(input?.reference || ''), html: false });
-  const lbla = lblaPassage({ reference: String(input?.reference || '') });
-  return {
-    reference: esv.reference || lbla.reference || normalizeReferenceSpacing(String(input?.reference || '')),
+  const reference = normalizeReferenceForLookup(String(input?.reference || ''));
+  if (!reference) return { reference, esv: { reference, text: '' }, lbla: { reference, text: '' } };
+  const cacheKey = `${SCRIPTURE_VERSIONS_CACHE_PREFIX}${Utilities.base64EncodeWebSafe(reference).slice(0, 180)}`;
+  try {
+    const cached = CacheService.getDocumentCache().get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.reference) return parsed;
+    }
+  } catch (_) { /* cache misses should not affect scripture lookup */ }
+
+  const esv = esvPassage({ reference, html: false });
+  const lbla = lblaPassage({ reference });
+  const result = {
+    reference: esv.reference || lbla.reference || reference,
     esv,
     lbla
   };
+  try {
+    CacheService.getDocumentCache().put(cacheKey, JSON.stringify(result), SCRIPTURE_VERSIONS_CACHE_TTL_SECONDS);
+  } catch (_) { /* ignore cache size/capacity failures */ }
+  return result;
 }

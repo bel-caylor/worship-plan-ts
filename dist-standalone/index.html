@@ -2916,6 +2916,7 @@ return {
       _songLoadPromise: null,
       songMedia: {},
       scriptureCache: {},
+      scripturePromises: {},
       selectedServiceId: '',
       loadingServices: !cachedServices.length && !seededServices.length,
       servicesError: '',
@@ -3063,7 +3064,8 @@ return {
         state.error = '';
         try {
           const cached = this.scriptureCache[ref];
-          const res = cached || await callRpc('getScriptureVersions', { reference: ref });
+          const pending = this.scripturePromises[ref];
+          const res = cached || await (pending || (this.scripturePromises[ref] = callRpc('getScriptureVersions', { reference: ref })));
           if (!cached) {
             this.scriptureCache = { ...this.scriptureCache, [ref]: res || {} };
           }
@@ -3081,6 +3083,9 @@ return {
           };
           state.error = err && err.message ? err.message : 'Failed to fetch scripture';
         } finally {
+          if (this.scripturePromises[ref]) {
+            this.scripturePromises = Object.fromEntries(Object.entries(this.scripturePromises).filter(([key]) => key !== ref));
+          }
           state.loading = false;
         }
       },

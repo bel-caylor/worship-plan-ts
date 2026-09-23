@@ -9,8 +9,11 @@ import { getSheetByName, getHeaders, ensureColumn } from '../util/sheets';
 import { readMediaSnapshot } from './media-snapshot';
 import { findBestFolderForSong, listAudioInFolder } from '../util/drive';
 import { splitTokens } from '../util/text';
-import { aiSongMetadata } from '../util/ai';
-
+import { aiSongMetadata } from '../util/ai';
+
+
+const SERVICE_VIEW_SONGS_CACHE_PREFIX = 'songs:serviceView:v1:';
+const SERVICE_VIEW_SONGS_CACHE_TTL_SECONDS = 300;
 type UpdateSongUsageInput = {
   name?: string;
   date?: string;
@@ -1017,6 +1020,17 @@ export function getSongsForServiceView(input: { names?: string[] }): Row[] {
       .filter(Boolean)
   ));
   if (!names.length) return [];
+  const normalizedNames = names.map(normalizeSongTitle).filter(Boolean).sort();
+  if (!normalizedNames.length) return [];
+  const cacheKey = `${SERVICE_VIEW_SONGS_CACHE_PREFIX}${Utilities.base64EncodeWebSafe(normalizedNames.join('|')).slice(0, 180)}`;
+  try {
+    const cached = CacheService.getDocumentCache().get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.rows)) return parsed.rows as Row[];
+    }
+  } catch (_) { /* cache misses should not affect song loading */ }
+
   const sh = getSheetByName(SONG_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
@@ -1026,21 +1040,19 @@ export function getSongsForServiceView(input: { names?: string[] }): Row[] {
   const col = (name: string) => headers.findIndex(header => header.toLowerCase() === name.toLowerCase());
   const nameIdx = col(SONG_COL_NAME);
   if (nameIdx < 0) return [];
-  const requested = new Set(names.map(normalizeSongTitle).filter(Boolean));
-  const titles = sh.getRange(2, nameIdx + 1, lastRow - 1, 1).getDisplayValues();
-  const matchingRows = titles
-    .map((row, index) => requested.has(normalizeSongTitle(String(row[0] ?? ''))) ? index + 2 : 0)
-    .filter(Boolean);
-  if (!matchingRows.length) return [];
+  const requested = new Set(normalizedNames);
 
   const folderIdx = col(FOLDER_LINK_COL);
   const mediaIdx = col(MEDIA_FILES_COL);
+  const bodyRange = sh.getRange(2, 1, lastRow - 1, lastCol);
+  const valuesRows = bodyRange.getValues();
+  const formulaRows = bodyRange.getFormulas();
+  const richRows = bodyRange.getRichTextValues();
   const rows: Row[] = [];
-  matchingRows.forEach(rowNumber => {
-    const range = sh.getRange(rowNumber, 1, 1, lastCol);
-    const values = range.getValues()[0];
-    const formulas = range.getFormulas()[0];
-    const rich = range.getRichTextValues()[0];
+  valuesRows.forEach((values, index) => {
+    if (!requested.has(normalizeSongTitle(String(values[nameIdx] ?? '')))) return;
+    const formulas = formulaRows[index] || [];
+    const rich = richRows[index] || [];
     const row: Row = {};
     [SONG_COL_NAME, 'Lyrics', 'Lyrics (PD)', 'Link'].forEach(field => {
       const index = col(field);
@@ -1062,6 +1074,9 @@ export function getSongsForServiceView(input: { names?: string[] }): Row[] {
     row._mediaFiles = mediaIdx >= 0 ? readMediaSnapshot(rich[mediaIdx]) : [];
     rows.push(row);
   });
+  try {
+    CacheService.getDocumentCache().put(cacheKey, JSON.stringify({ rows }), SERVICE_VIEW_SONGS_CACHE_TTL_SECONDS);
+  } catch (_) { /* ignore cache size/capacity failures */ }
   return rows;
 }
 
