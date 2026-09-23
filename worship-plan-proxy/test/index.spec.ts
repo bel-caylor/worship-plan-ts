@@ -113,6 +113,66 @@ describe('Worship Plan proxy RPC contract', () => {
 		expect(body.error).toContain('Drive 404');
 	});
 
+	it('retries the RPC immediately when a redirected result returns the app shell', async () => {
+		const appShell = `<!doctype html><html><head><title>Worship Planner</title></head><body>${'x'.repeat(100001)}</body></html>`;
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: { Location: 'https://script.googleusercontent.com/app-shell' }
+			}))
+			.mockResolvedValueOnce(new Response(appShell, {
+				status: 200,
+				headers: { 'Content-Type': 'text/html; charset=utf-8' }
+			}))
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: { Location: 'https://script.googleusercontent.com/rpc-result' }
+			}))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, data: { items: [] } }), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json; charset=utf-8' }
+			}));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await fetchWorker(rpcRequest('listServices', { summary: true }));
+		const body = await response.json() as { ok: boolean; data: { items: unknown[] } };
+
+		expect(response.status).toBe(200);
+		expect(body.ok).toBe(true);
+		expect(body.data.items).toEqual([]);
+		expect(fetchMock).toHaveBeenCalledTimes(4);
+		expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+		expect(fetchMock.mock.calls[1][0]).toBe('https://script.googleusercontent.com/app-shell');
+		expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: 'POST' });
+		expect(fetchMock.mock.calls[3][0]).toBe('https://script.googleusercontent.com/rpc-result');
+	});
+
+	it('retries safe RPCs after a redirected result times out', async () => {
+		const fetchMock = vi.fn()
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: { Location: 'https://script.googleusercontent.com/slow-result' }
+			}))
+			.mockRejectedValueOnce(new DOMException('The operation was aborted.', 'AbortError'))
+			.mockResolvedValueOnce(new Response('', {
+				status: 302,
+				headers: { Location: 'https://script.googleusercontent.com/rpc-result' }
+			}))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, data: { items: [] } }), {
+				status: 200,
+				headers: { 'Content-Type': 'application/json; charset=utf-8' }
+			}));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const response = await fetchWorker(rpcRequest('getViewerProfile'));
+		const body = await response.json() as { ok: boolean; data: { items: unknown[] } };
+
+		expect(response.status).toBe(200);
+		expect(body.ok).toBe(true);
+		expect(fetchMock).toHaveBeenCalledTimes(4);
+		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+	});
+
 	it('does not replay non-idempotent email RPC POSTs when the redirected result is non-JSON', async () => {
 		const fetchMock = vi.fn()
 			.mockResolvedValueOnce(new Response('', {

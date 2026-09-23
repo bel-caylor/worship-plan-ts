@@ -6,6 +6,10 @@ type Env = {
 const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
   getServiceViewerStartup: 120
 };
+const RETRYABLE_POST_TIMEOUT_MS = 15000;
+const NON_RETRYABLE_POST_TIMEOUT_MS = 45000;
+const RESULT_TIMEOUT_MS = 10000;
+const RETRYABLE_TOTAL_BUDGET_MS = 30000;
 
 function normalizeAppsScriptBase(value?: string) {
   return String(value || '')
@@ -93,19 +97,29 @@ export default {
       // complete POST cycles can turn one bad read into a multi-second hang.
       const attempts = canRetry ? 2 : 1;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
+        if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
         const rpcUrl = `${appsScriptBase}/exec?worker_request=${Date.now()}_${attempt}`;
         const postStartedAt = Date.now();
-        upstream = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'text/plain;charset=utf-8',
-            'Cache-Control': 'no-store'
-          },
-          body,
-          // Apps Script answers a POST with a 302 to a one-time
-          // googleusercontent URL. Retrieve that response explicitly as GET.
-          redirect: 'manual'
-        });
+        try {
+          upstream = await fetchWithTimeout(rpcUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain;charset=utf-8',
+              'Cache-Control': 'no-store'
+            },
+            body,
+            // Apps Script answers a POST with a 302 to a one-time
+            // googleusercontent URL. Retrieve that response explicitly as GET.
+            redirect: 'manual'
+          }, canRetry ? RETRYABLE_POST_TIMEOUT_MS : NON_RETRYABLE_POST_TIMEOUT_MS);
+        } catch (err) {
+          markPhase('apps_script_post', postStartedAt, {
+            attempt,
+            timeout: isTimeoutError(err) || undefined
+          });
+          if (canRetry && isTimeoutError(err) && attempt < attempts - 1) continue;
+          throw err;
+        }
         markPhase('apps_script_post', postStartedAt, {
           attempt,
           status: upstream.status
@@ -122,18 +136,32 @@ export default {
           // treating the result as ready. This is safe for email sends because
           // it never replays their original POST.
           for (let resultAttempt = 0; resultAttempt < 3; resultAttempt += 1) {
+            if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
             const resultStartedAt = Date.now();
-            upstream = await fetch(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } });
+            try {
+              upstream = await fetchWithTimeout(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } }, RESULT_TIMEOUT_MS);
+            } catch (err) {
+              markPhase('apps_script_result_get', resultStartedAt, {
+                attempt,
+                resultAttempt,
+                timeout: isTimeoutError(err) || undefined
+              });
+              if (canRetry && isTimeoutError(err)) break;
+              throw err;
+            }
             const probeText = await upstream.clone().text();
             const isJsonResult = upstream.ok && parseJsonSafely(probeText).ok;
+            const isWrongAppShell = isAppsScriptHtmlShell(upstream, probeText);
             markPhase('apps_script_result_get', resultStartedAt, {
               attempt,
               resultAttempt,
               status: upstream.status,
               isJson: isJsonResult,
-              bytes: probeText.length
+              bytes: probeText.length,
+              wrongAppShell: isWrongAppShell || undefined
             });
             if (isJsonResult) break;
+            if (isWrongAppShell) break;
             if (resultAttempt < 2) {
               const backoffStartedAt = Date.now();
               await new Promise(resolve => setTimeout(resolve, 250 * (resultAttempt + 1)));
@@ -154,6 +182,7 @@ export default {
           bytes: text.length
         });
         if (parsed.ok) break;
+        if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
         // A brief backoff gives Google's one-time result URL time to become
         // available instead of returning its transient Drive 404 to the app.
         if (attempt < attempts - 1) {
@@ -210,6 +239,33 @@ function parseJsonSafely(text: string) {
   } catch (_) {
     return { ok: false as const };
   }
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort('upstream_timeout'), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function isAppsScriptHtmlShell(response: Response, text: string) {
+  const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+  if (!contentType.includes('text/html')) return false;
+  if (text.length > 100000) return true;
+  return /\bWorship Planner\b/i.test(text) && /<html|<!doctype/i.test(text);
+}
+
+function isTimeoutError(err: unknown) {
+  if (!err) return false;
+  if (err === 'upstream_timeout') return true;
+  if (err instanceof DOMException && err.name === 'AbortError') return true;
+  if (err instanceof Error) {
+    return err.name === 'AbortError' || /upstream_timeout|abort/i.test(err.message);
+  }
+  return /upstream_timeout|abort/i.test(String(err));
 }
 
 function summarizeUpstream(text: string) {
