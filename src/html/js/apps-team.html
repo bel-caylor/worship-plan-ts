@@ -31,6 +31,8 @@
       editPermissions: '',
       spanishChecked: false,
       saving: false,
+      deleting: false,
+      error: '',
       savedAt: 0,
       presetLookup: {},
       showNewMemberModal: false,
@@ -118,6 +120,10 @@
       emailSendStatus: '',
       emailSendError: '',
       showCreateServicesModal: false,
+      serviceCreateMode: 'batch',
+      singleServiceDate: '',
+      singleServiceTime: '10:00',
+      singleServiceType: '',
       batchStartDate: '',
       batchWeeks: 12,
       batchCreateLoading: false,
@@ -660,10 +666,14 @@
 
       async openCreateServicesModal() {
         this.batchCreateError = '';
+        this.serviceCreateMode = 'batch';
         const next = await this.nextServiceDateFromExistingISO();
         this.batchStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(this.batchStartDate || '')) ? this.batchStartDate : next;
         if (!this.batchStartDate) this.batchStartDate = next;
         if (!this.batchWeeks || this.batchWeeks < 1) this.batchWeeks = 12;
+        this.singleServiceDate = this.nextSundayISO();
+        this.singleServiceTime = '10:00';
+        this.singleServiceType = '';
         this.showCreateServicesModal = true;
         this.$nextTick(() => {
           try { this.$refs.batchWeeks?.focus(); } catch (_) {}
@@ -673,6 +683,29 @@
       closeCreateServicesModal() {
         if (this.batchCreateLoading) return;
         this.showCreateServicesModal = false;
+      },
+
+      async submitSingleServiceCreate() {
+        const date = String(this.singleServiceDate || '').trim();
+        const type = String(this.singleServiceType || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { this.batchCreateError = 'Select a service date.'; return; }
+        if (!type) { this.batchCreateError = 'Enter a service name.'; return; }
+        this.batchCreateLoading = true;
+        this.batchCreateError = '';
+        try {
+          const timeParts = String(this.singleServiceTime || '10:00').split(':').map(Number);
+          const hours = timeParts[0] || 0;
+          const time = `${hours % 12 || 12}:${String(timeParts[1] || 0).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+          await callRpc('addService', { date, time, type });
+          notify(`${type} service created.`, 'success');
+          this.showCreateServicesModal = false;
+          if (this.scheduleLoadedOnce || this.activeTab === 'schedule') await this.loadSchedule();
+        } catch (e) {
+          console.error(e);
+          const msg = e?.message || 'Unable to create service.';
+          this.batchCreateError = msg;
+          notify(msg, 'error');
+        } finally { this.batchCreateLoading = false; }
       },
 
       batchCreateSummary(preview) {
@@ -1346,6 +1379,32 @@
           this.recomputeScheduleDirty();
           this.buildScheduleLayouts();
           this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to reset week.';
+        } finally {
+          this.scheduleSaving = false;
+        }
+      },
+
+      async deleteScheduleWeek(serviceId) {
+        const service = this.resolveScheduleService(serviceId);
+        if (!service || this.scheduleSaving) return;
+        const label = String(service.label || service.date || 'this week').trim();
+        if (!confirm(`Delete ${label} and all of its schedule data? This cannot be undone.`)) return;
+
+        if (this.scheduleSaveTimer) {
+          clearTimeout(this.scheduleSaveTimer);
+          this.scheduleSaveTimer = null;
+        }
+        this.schedulePendingSaves = {};
+        this.scheduleSaving = true;
+        this.scheduleSaveMessage = '';
+        this.scheduleSaveError = '';
+        try {
+          await callRpc('deleteService', { id: service.id });
+          this.scheduleSaveMessage = `${label} deleted.`;
+          await this.loadSchedule();
+        } catch (e) {
+          console.error(e);
+          this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to delete week.';
         } finally {
           this.scheduleSaving = false;
         }
@@ -2538,6 +2597,26 @@
           this.error = (e && e.message) ? e.message : 'Failed to save changes.';
         } finally {
           this.saving = false;
+        }
+      },
+
+      async deleteSelectedMember() {
+        const sel = this.selected;
+        if (!sel || this.saving || this.deleting) return;
+        const name = `${sel.first || ''} ${sel.last || ''}`.trim() || sel.email;
+        if (!confirm(`Delete ${name} (${sel.email}) from the roles table?`)) return;
+        this.deleting = true;
+        this.error = '';
+        try {
+          const res = await callRpc('deleteRoleEntry', { email: sel.email });
+          this.selectedEmail = '';
+          this.applyRolesResult(res);
+          this.savedAt = 0;
+        } catch (e) {
+          console.error(e);
+          this.error = (e && e.message) ? e.message : 'Failed to delete person.';
+        } finally {
+          this.deleting = false;
         }
       },
 

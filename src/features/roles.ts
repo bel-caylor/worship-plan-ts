@@ -384,6 +384,33 @@ export function addRoleEntry(input: AddRoleInput) {
   return listRoles();
 }
 
+export function deleteRoleEntry(input: { email: string }) {
+  const email = normalizeEmail(input?.email);
+  if (!email) throw new Error('Email is required.');
+
+  const lock = acquireRolesLock();
+  try {
+    const sh = getSheetByName(ROLES_SHEET);
+    const lastRow = sh.getLastRow();
+    const lastCol = sh.getLastColumn();
+    if (lastRow < 2 || lastCol < 1) throw new Error('Roles sheet is empty.');
+
+    const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
+    const idxEmail = headers.findIndex(h => h.toLowerCase() === ROLES_COL.email.toLowerCase());
+    if (idxEmail < 0) throw new Error(`Column "${ROLES_COL.email}" not found on Roles sheet.`);
+
+    const emails = sh.getRange(2, idxEmail + 1, lastRow - 1, 1).getValues();
+    const rowOffset = emails.findIndex(row => normalizeEmail(row[0]) === email);
+    if (rowOffset < 0) throw new Error(`No role entry found for ${email}`);
+    sh.deleteRow(rowOffset + 2);
+  } finally {
+    lock.releaseLock();
+  }
+
+  removeDocumentCacheKeys([ROLES_CACHE_KEY]);
+  return listRoles();
+}
+
 
 
 

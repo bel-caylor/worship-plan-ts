@@ -7,7 +7,7 @@ import { getOrder, getOrderRecordingLinks, saveOrder } from './features/order';
 import { exportOrderOfWorshipDoc } from './features/order-of-worship-doc';
 import { suggestSongs, getSongsForServiceView, getSongsWithLinksForView, rebuildSongUsageFromPlanner, getSongFields, updateSongRecency, saveSongEntry, suggestSongMetadata } from './features/songs';
 import { aiScripturesForLyrics } from './util/ai';
-import { listRoles, updateRoleEntry, addRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
+import { listRoles, updateRoleEntry, addRoleEntry, deleteRoleEntry, memberExistsInRoles, getViewerProfile, getViewerAuthDebug } from './features/roles';
 import { listWeeklyTeams, createWeeklyTeam, saveWeeklyTeam, saveWeeklyTeamDefaults } from './features/weekly-teams';
 import { getTeamScheduleSnapshot, getServiceTeamAssignments, getUnavailableByServices, resetServiceTeamAssignments, saveServiceTeamAssignments } from './features/service-team-assignments';
 import { getMemberAvailability, saveMemberAvailability } from './features/member-availability';
@@ -84,6 +84,8 @@ export function rpc(input: { method: string; payload: unknown }) {
         return updateRoleEntry(payload as any);
       case 'addRoleEntry':
         return addRoleEntry(payload as any);
+      case 'deleteRoleEntry':
+        return deleteRoleEntry(payload as any);
       case 'memberExistsInRoles':
         return memberExistsInRoles(payload as any);
       case 'getViewerProfile':

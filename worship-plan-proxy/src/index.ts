@@ -6,9 +6,9 @@ type Env = {
 const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
   getServiceViewerStartup: 120
 };
-const RETRYABLE_POST_TIMEOUT_MS = 35000;
+const RETRYABLE_POST_TIMEOUT_MS = 20000;
 const NON_RETRYABLE_POST_TIMEOUT_MS = 45000;
-const RESULT_TIMEOUT_MS = 10000;
+const RESULT_TIMEOUT_MS = 5000;
 const RETRYABLE_TOTAL_BUDGET_MS = 45000;
 
 function normalizeAppsScriptBase(value?: string) {
@@ -136,7 +136,7 @@ export default {
           // still be Google's temporary HTML page, so check the body before
           // treating the result as ready. This is safe for email sends because
           // it never replays their original POST.
-          for (let resultAttempt = 0; resultAttempt < 3; resultAttempt += 1) {
+          for (let resultAttempt = 0; resultAttempt < 2; resultAttempt += 1) {
             if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
             const resultStartedAt = Date.now();
             try {

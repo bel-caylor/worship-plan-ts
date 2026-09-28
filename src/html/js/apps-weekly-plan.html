@@ -105,6 +105,10 @@
       youtubeSuggestMessage: '',
       youtubeSuggestCandidates: [],
       showCreateServicesModal: false,
+      serviceCreateMode: 'batch',
+      singleServiceDate: '',
+      singleServiceTime: '10:00',
+      singleServiceType: '',
       batchStartDate: '',
       batchWeeks: 12,
       batchCreateLoading: false,
@@ -552,10 +556,14 @@
 
       openCreateServicesModal() {
         this.batchCreateError = '';
+        this.serviceCreateMode = 'batch';
         const next = this.nextServiceDateFromExistingISO();
         this.batchStartDate = /^\d{4}-\d{2}-\d{2}$/.test(String(this.batchStartDate || '')) ? this.batchStartDate : next;
         if (!this.batchStartDate) this.batchStartDate = next;
         if (!this.batchWeeks || this.batchWeeks < 1) this.batchWeeks = 12;
+        this.singleServiceDate = this.nextSundayISO();
+        this.singleServiceTime = '10:00';
+        this.singleServiceType = '';
         this.showCreateServicesModal = true;
         this.$nextTick(() => {
           try { this.$refs.batchWeeks?.focus(); } catch (_) { }
@@ -565,6 +573,30 @@
       closeCreateServicesModal() {
         if (this.batchCreateLoading) return;
         this.showCreateServicesModal = false;
+      },
+
+      async submitSingleServiceCreate() {
+        const date = String(this.singleServiceDate || '').trim();
+        const type = String(this.singleServiceType || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { this.batchCreateError = 'Select a service date.'; return; }
+        if (!type) { this.batchCreateError = 'Enter a service name.'; return; }
+        this.batchCreateLoading = true;
+        this.batchCreateError = '';
+        try {
+          const timeParts = String(this.singleServiceTime || '10:00').split(':').map(Number);
+          const hours = timeParts[0] || 0;
+          const time = `${hours % 12 || 12}:${String(timeParts[1] || 0).padStart(2, '0')} ${hours < 12 ? 'AM' : 'PM'}`;
+          const result = await callRpc('addService', { date, time, type });
+          notify(`${type} service created.`, 'success');
+          await this.refreshServices();
+          this.selectedServiceId = result?.id || '';
+          this.showCreateServicesModal = false;
+        } catch (e) {
+          console.error(e);
+          const msg = e?.message || 'Unable to create service.';
+          this.batchCreateError = msg;
+          notify(msg, 'error');
+        } finally { this.batchCreateLoading = false; }
       },
 
       batchCreateSummary(preview) {

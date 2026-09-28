@@ -555,12 +555,17 @@ export function getUnavailableByServices(input?: { serviceIds?: string[] }) {
 
 export function getTeamScheduleSnapshot(input?: { limit?: number } & ListServicesOptions): TeamScheduleSnapshot {
   const limitRaw = Number(input?.limit);
-  const limit = Number.isFinite(limitRaw)
+  const limit = input?.limit == null || input.limit === ''
+    ? 0
+    : Number.isFinite(limitRaw)
     ? Math.max(0, Math.floor(limitRaw))
     : 0;
   const serviceOptions: ListServicesOptions = {
     includePast: false,
     sort: 'asc',
+    summary: true,
+    ...(input?.startDate ? { startDate: input.startDate } : {}),
+    ...(input?.endDate ? { endDate: input.endDate } : {}),
     ...(limit > 0 ? { limit } : {})
   };
   const serviceResult = listServices(serviceOptions);

@@ -235,6 +235,6 @@ describe('Worship Plan proxy RPC contract', () => {
 		expect(response.status).toBe(502);
 		expect(body.ok).toBe(false);
 		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
-		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3);
+		expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(2);
 	});
 });

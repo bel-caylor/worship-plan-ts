@@ -54,28 +54,47 @@
   <div x-cloak x-show="showCreateServicesModal && !isGuest" class="modal-overlay z-30"
     @keydown.escape.window="closeCreateServicesModal()" @click.self="closeCreateServicesModal()">
     <div class="modal-panel p-5">
-      <h2 class="text-lg font-semibold mb-3">Batch Create Services</h2>
-      <p class="text-sm text-gray-600 mb-4">
+      <h2 class="text-lg font-semibold mb-3" x-text="serviceCreateMode === 'single' ? 'Create a Special Service' : 'Batch Create Services'"></h2>
+      <p class="text-sm text-gray-600 mb-4" x-show="serviceCreateMode === 'batch'">
         We'll create Sunday services at 10:00 AM. Communion is scheduled on the 1st, 3rd, and 5th Sundays;
         Offering on the 2nd and 4th. Defaults: Leader &mdash; Darden, Preacher &mdash; Tom.
       </p>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div class="flex gap-2 mb-4">
+        <button type="button" class="btn btn--muted" :class="serviceCreateMode === 'single' ? 'ring-2 ring-blue-500' : ''" @click="serviceCreateMode = 'single'">One special service</button>
+        <button type="button" class="btn btn--muted" :class="serviceCreateMode === 'batch' ? 'ring-2 ring-blue-500' : ''" @click="serviceCreateMode = 'batch'">Weekly Sundays</button>
+      </div>
+      <div x-show="serviceCreateMode === 'single'" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <label class="text-sm text-gray-700">Service name
+          <input type="text" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceType" placeholder="Christmas Eve">
+        </label>
+        <label class="text-sm text-gray-700">Date
+          <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceDate">
+        </label>
+        <label class="text-sm text-gray-700">Time
+          <input type="time" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceTime">
+        </label>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4" x-show="serviceCreateMode === 'batch'">
+        <template x-if="serviceCreateMode === 'batch'">
         <label class="text-sm text-gray-700">
           Start Sunday
           <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="batchStartDate">
         </label>
+        </template>
+        <template x-if="serviceCreateMode === 'batch'">
         <label class="text-sm text-gray-700">
           Weeks to create
           <input type="number" min="1" max="52" class="mt-1 w-full form-control form-control--dense"
             x-model.number="batchWeeks" x-ref="batchWeeks">
         </label>
+        </template>
       </div>
       <div class="text-error mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
       <div class="flex justify-end gap-2">
         <button type="button" class="btn btn--muted" @click="closeCreateServicesModal()"
           :disabled="batchCreateLoading">Cancel</button>
-        <button type="button" class="btn btn--accent" :disabled="batchCreateLoading" @click="submitBatchCreate()">
-          <span x-show="!batchCreateLoading">Create Services</span>
+        <button type="button" class="btn btn--accent" :disabled="batchCreateLoading" @click="serviceCreateMode === 'single' ? submitSingleServiceCreate() : submitBatchCreate()">
+          <span x-show="!batchCreateLoading" x-text="serviceCreateMode === 'single' ? 'Create Service' : 'Create Services'"></span>
           <span x-show="batchCreateLoading">Creating...</span>
         </button>
       </div>

@@ -182,16 +182,35 @@
     <div class="modal-panel p-5">
       <h2 class="text-lg font-semibold mb-2">Add New Services</h2>
       <p class="text-sm text-gray-600 mb-4" x-text="batchCreateHelpText()"></p>
+      <div class="flex gap-2 mb-4">
+        <button type="button" class="btn btn--muted" :class="serviceCreateMode === 'single' ? 'ring-2 ring-blue-500' : ''" @click="serviceCreateMode = 'single'">One special service</button>
+        <button type="button" class="btn btn--muted" :class="serviceCreateMode === 'batch' ? 'ring-2 ring-blue-500' : ''" @click="serviceCreateMode = 'batch'">Weekly Sundays</button>
+      </div>
+      <div x-show="serviceCreateMode === 'single'" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <label class="text-sm text-gray-700">Service name
+          <input type="text" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceType" placeholder="Christmas Eve">
+        </label>
+        <label class="text-sm text-gray-700">Date
+          <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceDate">
+        </label>
+        <label class="text-sm text-gray-700">Time
+          <input type="time" class="mt-1 w-full form-control form-control--dense" x-model="singleServiceTime">
+        </label>
+      </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <template x-if="serviceCreateMode === 'batch'">
         <label class="text-sm text-gray-700">
           Start Sunday
           <input type="date" class="mt-1 w-full form-control form-control--dense" x-model="batchStartDate">
         </label>
+        </template>
+        <template x-if="serviceCreateMode === 'batch'">
         <label class="text-sm text-gray-700">
           Weeks to create
           <input type="number" min="1" max="52" class="mt-1 w-full form-control form-control--dense"
             x-model.number="batchWeeks" x-ref="batchWeeks">
         </label>
+        </template>
       </div>
       <div class="text-error mb-2" x-text="batchCreateError" x-show="batchCreateError"></div>
       <div class="flex justify-end gap-2">
@@ -200,8 +219,8 @@
           @click="closeCreateServicesModal()">Cancel</button>
         <button type="button" class="btn btn--primary"
           :disabled="batchCreateLoading"
-          @click="submitBatchCreate()">
-          <span x-show="!batchCreateLoading">Create Services</span>
+          @click="serviceCreateMode === 'single' ? submitSingleServiceCreate() : submitBatchCreate()">
+          <span x-show="!batchCreateLoading" x-text="serviceCreateMode === 'single' ? 'Create Service' : 'Create Services'"></span>
           <span x-show="batchCreateLoading">Creating...</span>
         </button>
       </div>
@@ -309,15 +328,6 @@
                   <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-20 bg-slate-100">Role</th>
                   <template x-for="column in layout.columns" :key="'gray-' + column.id">
                     <th class="text-left font-medium px-3 py-2 align-top min-w-[150px]">
-                      <div class="mt-1 text-xs text-rose-700 normal-case"
-                        x-show="unavailableMembersForService(column.id).length"
-                        x-text="unavailableSummaryForService(column.id)"></div>
-                      <button type="button"
-                        class="mt-2 btn btn--muted btn--xs"
-                        :disabled="scheduleSaving"
-                        @click="resetScheduleWeek(column.id, layout.teamType)">
-                        Reset week
-                      </button>
                     </th>
                   </template>
                 </tr>
@@ -347,6 +357,33 @@
                   </tr>
                 </template>
               </tbody>
+              <tfoot>
+                <tr class="border-t bg-slate-100">
+                  <th class="text-left font-medium px-3 py-2 min-w-[120px] sticky left-0 z-10 bg-slate-100">Excluded people</th>
+                  <template x-for="column in layout.columns" :key="'actions-' + column.id">
+                    <td class="align-top min-w-[150px] px-3 py-2">
+                      <div class="text-xs text-rose-700 normal-case"
+                        x-show="unavailableMembersForService(column.id).length"
+                        x-text="unavailableSummaryForService(column.id)"></div>
+                      <div class="mt-2 flex flex-wrap items-center gap-2">
+                        <button type="button"
+                          class="btn btn--muted btn--xs"
+                          :disabled="scheduleSaving"
+                          @click="resetScheduleWeek(column.id, layout.teamType)">
+                          Reset week
+                        </button>
+                        <button type="button"
+                          class="btn btn--danger btn--xs"
+                          :disabled="scheduleSaving"
+                          :aria-label="'Delete service on ' + column.service.label"
+                          @click="deleteScheduleWeek(column.id)">
+                          Delete week
+                        </button>
+                      </div>
+                    </td>
+                  </template>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </section>
@@ -556,7 +593,7 @@
     </div>
 
     <!-- Right column: detail -->
-    <div class="flex-1 min-h-0 flex flex-col">
+    <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-y-auto">
       <div class="px-6 pt-4 text-sm text-blue-900" x-show="!selected && !loading" x-text="tabIntro('roles')"></div>
       <div class="p-4 text-sm" x-show="selected">
         <div class="flex items-start justify-between">
@@ -634,11 +671,16 @@
           <button type="button" class="btn btn--primary"
             :disabled="saving || !dirty"
             @click="save()">Save Changes</button>
+          <button type="button" class="btn btn--muted text-red-700"
+            :disabled="saving || deleting"
+            @click="deleteSelectedMember()">Delete Person</button>
           <button type="button" class="btn btn--muted"
             :disabled="saving || !dirty"
             @click="resetEdits()">Discard</button>
           <span class="text-sm text-green-700" x-show="!saving && savedAt" x-text="'Saved ' + timeAgo(savedAt)"></span>
           <span class="text-sm text-gray-600" x-show="saving">Saving...</span>
+          <span class="text-sm text-gray-600" x-show="deleting">Deleting...</span>
+          <span class="text-sm text-red-600" x-show="error" x-text="error"></span>
         </div>
       </div>
       <div class="px-6 pt-3 text-gray-500" x-show="!selected && !loading">
