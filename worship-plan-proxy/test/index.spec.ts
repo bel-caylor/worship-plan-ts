@@ -29,6 +29,32 @@ afterEach(() => {
 });
 
 describe('Worship Plan proxy RPC contract', () => {
+	it('caches compact service summary lists at the edge', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+			ok: true,
+			items: [{ id: '2026-10-04', date: '2026-10-04' }]
+		}), { status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' } }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		const first = await fetchWorker(rpcRequest('listServices', { summary: true, sort: 'desc' }));
+		const second = await fetchWorker(rpcRequest('listServices', { summary: true, sort: 'desc' }));
+
+		expect(await first.json()).toEqual(await second.json());
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+	});
+
+	it('does not edge-cache full service lists', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, items: [] }), {
+			status: 200, headers: { 'Content-Type': 'application/json; charset=utf-8' }
+		}));
+		vi.stubGlobal('fetch', fetchMock);
+
+		await fetchWorker(rpcRequest('listServices', {}));
+		await fetchWorker(rpcRequest('listServices', {}));
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+	});
+
 	it('always returns JSON when APPS_SCRIPT_BASE is missing', async () => {
 		const response = await fetchWorker(rpcRequest(), {});
 		const body = await response.json() as { ok: boolean; error: string };

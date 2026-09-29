@@ -4,7 +4,11 @@ type Env = {
 };
 
 const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
-  getServiceViewerStartup: 120
+  // These responses contain public read-only lookup data used during the
+  // first render. Keep the window short because Apps Script edits are the
+  // source of truth and the Worker cache has no cross-location purge API.
+  getServiceViewerStartup: 120,
+  listServices: 30
 };
 const RETRYABLE_POST_TIMEOUT_MS = 20000;
 const NON_RETRYABLE_POST_TIMEOUT_MS = 45000;
@@ -325,6 +329,12 @@ async function rpcEdgeCacheKey(request: Request, body: string) {
   }
   const method = String(parsed?.method || '');
   if (!EDGE_CACHEABLE_RPC_TTL_SECONDS[method]) return null;
+  // Only cache the compact planner picker response. Other listServices
+  // variants may expose a wider payload or be used for administrative work.
+  if (method === 'listServices') {
+    const payload = parsed?.payload as { summary?: unknown } | null;
+    if (payload?.summary !== true) return null;
+  }
   const payload = JSON.stringify(parsed?.payload ?? null);
   const digest = await sha256Hex(`${method}|${payload}`);
   return new Request(new URL(`/__rpc_cache/${method}/${digest}`, request.url).toString(), {
