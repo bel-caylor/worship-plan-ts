@@ -2966,7 +2966,15 @@ return {
         const future = list
           .map(svc => {
             const dateValue = parseDateValue(svc?.date || parseDateFromServiceId(svc?.id));
-            return { svc, date: dateValue };
+            const date = dateValue ? new Date(dateValue.getFullYear(), dateValue.getMonth(), dateValue.getDate()) : null;
+            const timeValue = formatTimeLabel(parseTimeFromServiceId(svc?.id) || svc?.time);
+            const timeMatch = timeValue.match(/^(\d{1,2})(?::(\d{2}))?(am|pm)$/i);
+            if (date && timeMatch) {
+              let hours = Number(timeMatch[1]) % 12;
+              if (timeMatch[3].toLowerCase() === 'pm') hours += 12;
+              date.setHours(hours, Number(timeMatch[2] || 0), 0, 0);
+            }
+            return { svc, date };
           })
           .filter(entry => entry.date instanceof Date && !isNaN(entry.date))
           .sort((a, b) => a.date - b.date);
@@ -3104,10 +3112,13 @@ return {
           this.servicesError = err?.message || 'Unable to sync services.';
         } finally {
           this.loadingServices = false;
-          if (!this.selectedServiceId && Array.isArray(this.services) && this.services.length) {
+          if (Array.isArray(this.services) && this.services.length) {
+            // The startup endpoint is authoritative for the next service.
+            // If it was unavailable, choose from the refreshed archive rather
+            // than preserving a potentially stale selection from localStorage.
             const nextId = this.upcomingServiceId();
-            if (nextId) {
-              this.selectedServiceId = nextId;
+            if (nextId && (this._startupServiceId || !this.selectedServiceId)) {
+              this.selectedServiceId = this._startupServiceId || nextId;
               this.persistSelection();
             }
           }
@@ -3126,6 +3137,7 @@ return {
           if (requestId !== this._detailRequestId) return;
           const service = res?.service;
           if (!service?.id) return;
+          this._startupServiceId = service.id;
           const existing = Array.isArray(this.services) ? this.services.filter(item => item?.id !== service.id) : [];
           this.services = [service, ...existing];
           this.selectedServiceId = service.id;
@@ -5004,8 +5016,16 @@ return {
         this.scheduleLoading = true;
         this.scheduleError = '';
         try {
-          const payload = { limit: this.scheduleServiceLimit };
-          const res = await callRpc('getTeamScheduleSnapshot', payload);
+          // The schedule snapshot contains assignments, but its rows and name
+          // options are built from the separate roles and weekly-team data.
+          // Load those first so a slow startup request cannot leave an
+          // apparently empty schedule until the user refreshes again.
+          const [startup, res] = await Promise.all([
+            window.TeamDataCache.getStartup({ force: true }),
+            callRpc('getTeamScheduleSnapshot', { limit: this.scheduleServiceLimit })
+          ]);
+          this.applyRolesResult(startup?.roles);
+          await this.applyWeeklyTeamsResult(startup?.weeklyTeams);
           if (Array.isArray(res?.roles)) {
             this.roles = res.roles;
             this.memberLookup = this.buildMemberLookup(res.roles);
@@ -6548,7 +6568,10 @@ return {
         }
         return filtered.map(opt => ({
           ...opt,
-          display: opt.shortLabel || opt.label || opt.email
+          // The short label is useful in compact tables, but the schedule is
+          // where coordinators need to tell people with similar first names
+          // apart. Keep the full name and email visible in each option.
+          display: opt.label || opt.email
         }));
       },
 
