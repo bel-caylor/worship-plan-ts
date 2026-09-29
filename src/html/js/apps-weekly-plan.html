@@ -1362,7 +1362,7 @@
             email,
             first,
             last,
-            label: `${baseLabel} (${email})`.trim(),
+            label: baseLabel,
             shortLabel: first || baseLabel.split(' ')[0] || email,
             roles,
             rolesNormalized: roles.map(r => this.normalizeTeamLabel(r)),
@@ -1421,7 +1421,7 @@
         }
         return filtered.map(opt => ({
           ...opt,
-          display: opt.shortLabel || opt.label || opt.email
+          display: opt.label || opt.email
         }));
       },
 

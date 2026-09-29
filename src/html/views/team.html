@@ -342,7 +342,7 @@
                         <div class="flex flex-col gap-1">
                           <select class="w-full form-control form-control--dense text-sm"
                             :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'border-rose-300 bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
-                            :value="row.cells[column.id]?.memberEmail || ''"
+                            x-model="row.cells[column.id].memberEmail"
                             @change="setScheduleAssignment(column.id, layout.teamType, row.label, $event.target.value)">
                             <option value="">Open</option>
                             <template x-for="member in memberOptionsForRoleType(row.label, row.cells[column.id], { serviceId: column.id })"

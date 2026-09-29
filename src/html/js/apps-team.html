@@ -389,13 +389,13 @@
           const nameParts = displayName.replace(/\s*\([^)]*\)\s*$/, '').split(/\s+/).filter(Boolean);
           const first = String(row?.first || row?.firstName || nameParts[0] || '').trim();
           const last = String(row?.last || row?.lastName || (nameParts.length > 1 ? nameParts.slice(1).join(' ') : '')).trim();
-          const label = [first, last].filter(Boolean).join(' ') || displayName || email;
+          const label = [first, last].filter(Boolean).join(' ') || displayName.replace(/\s*\([^)]*\)\s*$/, '').trim() || email;
           const roles = this.parseRoleList(row?.role || row?.roles || row?.roleType || row?.roleName);
           map[email.toLowerCase()] = {
             email,
             first,
             last,
-            label: `${label} (${email})`.trim(),
+            label,
             shortLabel: first || label.split(' ')[0] || email,
             roles,
             rolesNormalized: roles.map(r => this.normalize(r)),
@@ -804,12 +804,10 @@
           // options are built from the separate roles and weekly-team data.
           // Load those first so a slow startup request cannot leave an
           // apparently empty schedule until the user refreshes again.
-          const [startup, res] = await Promise.all([
-            window.TeamDataCache.getStartup({ force: true }),
-            callRpc('getTeamScheduleSnapshot', { limit: this.scheduleServiceLimit })
-          ]);
+          const startup = await window.TeamDataCache.getStartup({ force: true });
           this.applyRolesResult(startup?.roles);
           await this.applyWeeklyTeamsResult(startup?.weeklyTeams);
+          const res = await callRpc('getTeamScheduleSnapshot', { limit: this.scheduleServiceLimit });
           if (Array.isArray(res?.roles)) {
             this.roles = res.roles;
             this.memberLookup = this.buildMemberLookup(res.roles);
@@ -2352,9 +2350,6 @@
         }
         return filtered.map(opt => ({
           ...opt,
-          // The short label is useful in compact tables, but the schedule is
-          // where coordinators need to tell people with similar first names
-          // apart. Keep the full name and email visible in each option.
           display: opt.label || opt.email
         }));
       },
