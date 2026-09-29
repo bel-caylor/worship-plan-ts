@@ -5522,8 +5522,22 @@ return {
           this.buildScheduleLayouts();
         } catch (e) {
           console.error(e);
-          this.schedulePendingSaves = { ...pending, ...(this.schedulePendingSaves || {}) };
-          this.scheduleSaveError = (e && e.message) ? e.message : 'Failed to save schedule changes.';
+          const latestPending = this.schedulePendingSaves || {};
+          const nextAssignments = { ...(this.scheduleAssignmentMap || {}) };
+          assignments.forEach(entry => {
+            const key = this.scheduleCellKey(entry.serviceId, entry.teamType, entry.roleName);
+            const newerEntry = latestPending[key];
+            // Keep a newer edit made while this request was in flight. Otherwise
+            // restore the last value known to have been saved on the server.
+            if (newerEntry) return;
+            const baseline = this.scheduleAssignmentBaseline?.[key];
+            if (baseline) nextAssignments[key] = { ...baseline };
+            else delete nextAssignments[key];
+          });
+          this.scheduleAssignmentMap = nextAssignments;
+          this.scheduleSaveError = 'Schedule change failed to save. The affected dropdown was reverted.';
+          this.recomputeScheduleDirty();
+          this.buildScheduleLayouts();
         } finally {
           this.scheduleSaving = false;
           if (Object.keys(this.schedulePendingSaves || {}).length) {
@@ -12853,7 +12867,6 @@ return {
                           <select class="w-full form-control form-control--dense text-sm"
                             :class="layout.duplicateFlags?.[scheduleCellKey(column.id, layout.teamType, row.label)] ? 'border-rose-300 bg-pink-100' : (!row.cells[column.id]?.memberEmail ? 'border-amber-400 bg-amber-50' : '')"
                             :value="row.cells[column.id]?.memberEmail || ''"
-                            :disabled="scheduleSaving"
                             @change="setScheduleAssignment(column.id, layout.teamType, row.label, $event.target.value)">
                             <option value="">Open</option>
                             <template x-for="member in memberOptionsForRoleType(row.label, row.cells[column.id], { serviceId: column.id })"
