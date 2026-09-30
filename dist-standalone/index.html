@@ -1974,6 +1974,16 @@
           });
         }
 
+        // Keep the active table sort as the secondary order, but promote
+        // title hits ahead of matches found only in lyrics or metadata.
+        if (tokens.length) {
+          const titleMatches = row => {
+            const title = String(row?.Song || '').toLowerCase();
+            return tokens.every(token => title.includes(token));
+          };
+          out = out.slice().sort((a, b) => Number(titleMatches(b)) - Number(titleMatches(a)));
+        }
+
         const aiOnly = [];
         const remainder = [];
         for (const row of out) {
