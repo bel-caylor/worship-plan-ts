@@ -2178,7 +2178,7 @@ function toServiceTime(value: any) {
   }
 }
 
-function fetchServiceSummaries(): ServiceItem[] {
+function fetchServiceSummaries(includePast = true): ServiceItem[] {
   const sh = getSheetByName(SERVICES_SHEET);
   const lastRow = sh.getLastRow();
   const lastCol = sh.getLastColumn();
@@ -2190,7 +2190,8 @@ function fetchServiceSummaries(): ServiceItem[] {
     })();
     const ver = `${lastRow}-${lastCol}-${updatedAt}`;
     const cache = CacheService.getDocumentCache();
-    const cached = cache.get(SERVICES_SUMMARY_CACHE_KEY);
+    const summaryCacheKey = includePast ? SERVICES_SUMMARY_CACHE_KEY : `${SERVICES_SUMMARY_CACHE_KEY}:upcoming`;
+    const cached = cache.get(summaryCacheKey);
     if (cached) {
       const obj = JSON.parse(cached);
       if (obj && obj.ver === ver && Array.isArray(obj.items)) {
@@ -2198,18 +2199,19 @@ function fetchServiceSummaries(): ServiceItem[] {
       }
     }
 
-    const items = fetchServiceSummariesUncached(sh, lastRow, lastCol);
-    try { cache.put(SERVICES_SUMMARY_CACHE_KEY, JSON.stringify({ ver, items }), 300); } catch (_) {}
+    const items = fetchServiceSummariesUncached(sh, lastRow, lastCol, includePast);
+    try { cache.put(summaryCacheKey, JSON.stringify({ ver, items }), 300); } catch (_) {}
     return items;
   } catch (_) {
-    return fetchServiceSummariesUncached(sh, lastRow, lastCol);
+    return fetchServiceSummariesUncached(sh, lastRow, lastCol, includePast);
   }
 }
 
 function fetchServiceSummariesUncached(
   sh: GoogleAppsScript.Spreadsheet.Sheet,
   lastRow: number,
-  lastCol: number
+  lastCol: number,
+  includePast = true
 ): ServiceItem[] {
   const rowCount = lastRow - 1;
   const headers = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(v => String(v ?? '').trim());
@@ -2219,32 +2221,42 @@ function fetchServiceSummariesUncached(
   const timeIdx = col(SERVICES_COL.time);
   const typeIdx = col(SERVICES_COL.type);
   const leaderIdx = col(SERVICES_COL.leader);
+  const today = todayISO();
+  // Summary callers populate upcoming service pickers and schedule views. Read
+  // only the small set of required columns, then discard past rows before
+  // creating objects. The Services sheet can contain a long archive, and a
+  // full-width read on every cache miss includes large scripture fields.
+  const requiredIndexes = [idIdx, dateIdx, timeIdx, typeIdx, leaderIdx].filter(index => index >= 0);
+  const columnValues = new Map<number, any[][]>();
+  requiredIndexes.forEach(index => {
+    columnValues.set(index, sh.getRange(2, index + 1, rowCount, 1).getValues());
+  });
+  const valueAt = (index: number, row: number) => index >= 0 ? columnValues.get(index)?.[row]?.[0] : '';
 
-  const body = sh.getRange(2, 1, rowCount, lastCol).getValues();
-
-  const items = body
-    .map((row, index) => {
-      const id = idIdx >= 0 ? String(row[idIdx] ?? '').trim() : '';
-      const rawDate = dateIdx >= 0 ? toServiceIso(row[dateIdx]) : '';
-      const rawTime = timeIdx >= 0 ? toServiceTime(row[timeIdx]) : '';
-      const derivedTime = deriveTimeFromServiceId(id);
-      return {
-        id,
-        date: rawDate || deriveDateFromServiceId(id),
-        time: derivedTime || rawTime,
-        type: typeIdx >= 0 ? String(row[typeIdx] ?? '') : '',
-        leader: leaderIdx >= 0 ? String(row[leaderIdx] ?? '') : '',
-        youtubeUrl: '',
-        preacher: '',
-        scripture: '',
-        scriptureText: '',
-        theme: '',
-        keywords: '',
-        notes: '',
-        suggestedSongs: ''
-      } as ServiceItem;
-    })
-    .filter(item => item.id || item.date);
+  const items: ServiceItem[] = [];
+  for (let index = 0; index < rowCount; index += 1) {
+    const id = String(valueAt(idIdx, index) ?? '').trim();
+    const rawDate = dateIdx >= 0 ? toServiceIso(valueAt(dateIdx, index)) : '';
+    const date = rawDate || deriveDateFromServiceId(id);
+    if (!(id || date) || (!includePast && date && date < today)) continue;
+    const rawTime = timeIdx >= 0 ? toServiceTime(valueAt(timeIdx, index)) : '';
+    const derivedTime = deriveTimeFromServiceId(id);
+    items.push({
+      id,
+      date,
+      time: derivedTime || rawTime,
+      type: String(valueAt(typeIdx, index) ?? ''),
+      leader: String(valueAt(leaderIdx, index) ?? ''),
+      youtubeUrl: '',
+      preacher: '',
+      scripture: '',
+      scriptureText: '',
+      theme: '',
+      keywords: '',
+      notes: '',
+      suggestedSongs: ''
+    });
+  }
   items.sort((a, b) => serviceSortKey(b).localeCompare(serviceSortKey(a)));
   return items;
 }
@@ -2282,7 +2294,7 @@ export function listServices(opts?: ListServicesOptions) {
   // makes otherwise read-only requests queue behind each other (and can make
   // the public Worker time out).  Service creation remains an explicit admin
   // action through the planning UI.
-  const all = opts?.summary ? fetchServiceSummaries() : fetchServicesUnfiltered();
+  const all = opts?.summary ? fetchServiceSummaries(opts?.includePast !== false) : fetchServicesUnfiltered();
   const items = applyServiceFilters(all, opts);
   // Scripture text and notes can be very large.  The picker needs neither,
   // so keep its response deliberately small.
