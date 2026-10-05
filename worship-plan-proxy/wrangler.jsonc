@@ -10,6 +10,12 @@
 	"compatibility_flags": [
 		"global_fetch_strictly_public"
 	],
+	"kv_namespaces": [
+		{
+			"binding": "SCHEDULE_CACHE",
+			"id": "b75565405d764ad19b4883777b23255b"
+		}
+	],
 	"assets": {
 		// The path to the directory containing the `index.html` file to be served at `/`
 		"directory": "./public",

@@ -1,3 +1,7 @@
 name = "worship-plan-proxy"
 main = "src/index.ts"
 compatibility_date = "2025-11-12"
+
+[[kv_namespaces]]
+binding = "SCHEDULE_CACHE"
+id = "b75565405d764ad19b4883777b23255b"

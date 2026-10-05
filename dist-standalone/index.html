@@ -3645,9 +3645,14 @@ return {
         try {
           const snapshot = await callRpc('getTeamScheduleSnapshot', { limit: 0 });
           const services = this.normalizeScheduleServices(snapshot?.services);
-          const volunteerSnapshot = await callRpc('getVolunteerRequestsSnapshot', {
-            serviceIds: services.map(service => service.id)
-          });
+          let volunteerSnapshot = { items: [] };
+          try {
+            volunteerSnapshot = await callRpc('getVolunteerRequestsSnapshot', {
+              serviceIds: services.map(service => service.id)
+            });
+          } catch (volunteerError) {
+            console.warn('Volunteer requests are temporarily unavailable.', volunteerError);
+          }
           this.scheduleServices = services;
           this.buildScheduleServiceLookup(services);
           this.scheduleTemplateOverrides = this.buildScheduleTemplateOverrides(snapshot?.assignments);

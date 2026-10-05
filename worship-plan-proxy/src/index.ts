@@ -1,7 +1,20 @@
 type Env = {
   APPS_SCRIPT_BASE?: string;
   ASSETS?: Fetcher;
+  SCHEDULE_CACHE?: KVNamespace;
 };
+
+type ScheduleCacheEntry = { cachedAt: number; value: { ok: true; [key: string]: unknown } };
+const SCHEDULE_FRESH_MS = 5 * 60 * 1000;
+const SCHEDULE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
+const scheduleRefreshes = new Map<string, Promise<void>>();
+const SCHEDULE_INVALIDATING_METHODS = new Set([
+  'addService', 'saveService', 'deleteService', 'createServicesBatch',
+  'updateRoleEntry', 'addRoleEntry', 'deleteRoleEntry',
+  'createWeeklyTeam', 'saveWeeklyTeam', 'saveWeeklyTeamDefaults',
+  'resetServiceTeamAssignments', 'saveServiceTeamAssignments',
+  'saveMemberAvailability', 'setViewerVolunteerRequest'
+]);
 
 const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
   // These responses contain public read-only lookup data used during the
@@ -11,6 +24,7 @@ const EDGE_CACHEABLE_RPC_TTL_SECONDS: Record<string, number> = {
   listServices: 30
 };
 const RETRYABLE_POST_TIMEOUT_MS = 20000;
+const SCHEDULE_POST_TIMEOUT_MS = 60000;
 const NON_RETRYABLE_POST_TIMEOUT_MS = 45000;
 const RESULT_TIMEOUT_MS = 5000;
 const RETRYABLE_TOTAL_BUDGET_MS = 45000;
@@ -23,7 +37,7 @@ function normalizeAppsScriptBase(value?: string) {
 }
 
 export default {
-  async fetch(request: Request, env: Env) {
+  async fetch(request: Request, env: Env, ctx?: ExecutionContext, refreshSchedule = false): Promise<Response> {
     const workerStartedAt = Date.now();
     const phases: Array<Record<string, unknown>> = [];
     const markPhase = (name: string, startedAt: number, detail: Record<string, unknown> = {}) => {
@@ -74,6 +88,37 @@ export default {
       );
     }
 
+    // Both public schedule views request limit 0. This snapshot has no viewer
+    // fields, so a successful result can be shared across users and regions.
+    // Auth-dependent volunteer requests and writes are never cached here.
+    const scheduleKey = env.SCHEDULE_CACHE
+      ? `schedule:v1:${await sha256Hex(appsScriptBase)}`
+      : '';
+    const schedulePayload = parsedBody?.payload as { limit?: unknown } | null;
+    const cacheSchedule = rpcMethod === 'getTeamScheduleSnapshot'
+      && Number(schedulePayload?.limit ?? 0) === 0
+      && Boolean(scheduleKey);
+    if (cacheSchedule && !debugRpc && !refreshSchedule) {
+      try {
+        const cached = await env.SCHEDULE_CACHE!.get<ScheduleCacheEntry>(scheduleKey, 'json');
+        if (cached?.value?.ok === true && Number.isFinite(cached.cachedAt)) {
+          const fresh = Date.now() - cached.cachedAt < SCHEDULE_FRESH_MS;
+          if (!fresh && ctx && !scheduleRefreshes.has(scheduleKey)) {
+            const refreshRequest = new Request(request.url, {
+              method: 'POST', headers: request.headers, body
+            });
+            const refresh = this.fetch(refreshRequest, env, ctx, true)
+              .then(() => {})
+              .catch(() => {})
+              .finally(() => { scheduleRefreshes.delete(scheduleKey); });
+            scheduleRefreshes.set(scheduleKey, refresh);
+            ctx.waitUntil(refresh);
+          }
+          return scheduleResponse(cached.value, origin, fresh ? 'fresh' : 'stale');
+        }
+      } catch (_) { /* KV failure falls through to Apps Script. */ }
+    }
+
     const edgeCacheTtl = EDGE_CACHEABLE_RPC_TTL_SECONDS[rpcMethod] || 0;
     const edgeCacheKey = edgeCacheTtl ? await rpcEdgeCacheKey(request, body) : null;
     if (edgeCacheKey) {
@@ -91,6 +136,7 @@ export default {
     const canRetry = /^(get|list|suggest|ai|summarize|esv)/i.test(rpcMethod)
       || rpcMethod === 'memberExistsInRoles'
       || rpcMethod === 'saveOrder';
+    const retryBudgetMs = cacheSchedule ? 75000 : RETRYABLE_TOTAL_BUDGET_MS;
 
     let upstream: Response | undefined;
     let text = '';
@@ -99,9 +145,9 @@ export default {
     try {
       // A retry is enough to cover the occasional Google redirect race. Four
       // complete POST cycles can turn one bad read into a multi-second hang.
-      const attempts = canRetry ? 2 : 1;
+      const attempts = cacheSchedule ? 1 : canRetry ? 2 : 1;
       for (let attempt = 0; attempt < attempts; attempt += 1) {
-        if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
+        if (canRetry && Date.now() - workerStartedAt > retryBudgetMs) break;
         const rpcUrl = `${appsScriptBase}/exec?worker_request=${Date.now()}_${attempt}`;
         const postStartedAt = Date.now();
         try {
@@ -115,7 +161,7 @@ export default {
             // Apps Script answers a POST with a 302 to a one-time
             // googleusercontent URL. Retrieve that response explicitly as GET.
             redirect: 'manual'
-          }, canRetry ? RETRYABLE_POST_TIMEOUT_MS : NON_RETRYABLE_POST_TIMEOUT_MS);
+          }, cacheSchedule ? SCHEDULE_POST_TIMEOUT_MS : canRetry ? RETRYABLE_POST_TIMEOUT_MS : NON_RETRYABLE_POST_TIMEOUT_MS);
         } catch (err) {
           markPhase('apps_script_post', postStartedAt, {
             attempt,
@@ -141,7 +187,7 @@ export default {
           // treating the result as ready. This is safe for email sends because
           // it never replays their original POST.
           for (let resultAttempt = 0; resultAttempt < 2; resultAttempt += 1) {
-            if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
+            if (canRetry && Date.now() - workerStartedAt > retryBudgetMs) break;
             const resultStartedAt = Date.now();
             try {
               upstream = await fetchWithTimeout(resultUrl, { method: 'GET', headers: { 'Cache-Control': 'no-store' } }, RESULT_TIMEOUT_MS);
@@ -199,7 +245,7 @@ export default {
           bytes: text.length
         });
         if (parsed.ok) break;
-        if (canRetry && Date.now() - workerStartedAt > RETRYABLE_TOTAL_BUDGET_MS) break;
+        if (canRetry && Date.now() - workerStartedAt > retryBudgetMs) break;
         // A brief backoff gives Google's one-time result URL time to become
         // available instead of returning its transient Drive 404 to the app.
         if (attempt < attempts - 1) {
@@ -229,6 +275,18 @@ export default {
       );
     }
 
+    if (parsed.value && typeof parsed.value === 'object' && (parsed.value as { ok?: unknown }).ok === true && env.SCHEDULE_CACHE) {
+      try {
+        if (cacheSchedule && upstream?.ok) {
+          await env.SCHEDULE_CACHE.put(scheduleKey, JSON.stringify({
+            cachedAt: Date.now(), value: parsed.value
+          } satisfies ScheduleCacheEntry), { expirationTtl: SCHEDULE_RETENTION_SECONDS });
+        } else if (SCHEDULE_INVALIDATING_METHODS.has(rpcMethod)) {
+          await env.SCHEDULE_CACHE.delete(scheduleKey);
+        }
+      } catch (_) { /* A cache write must not fail the RPC. */ }
+    }
+
     const responsePayload = debugRpc && parsed.value && typeof parsed.value === 'object'
       ? { ...(parsed.value as Record<string, unknown>), __debug: workerDebug(rpcMethod, workerStartedAt, phases, 'ok') }
       : parsed.value;
@@ -236,7 +294,8 @@ export default {
       status: upstream?.status || 200,
       headers: {
         ...cors(origin),
-        'Content-Type': 'application/json; charset=utf-8'
+        'Content-Type': 'application/json; charset=utf-8',
+        ...(cacheSchedule ? { 'X-Schedule-Cache': 'origin' } : {})
       }
     });
     if (edgeCacheKey && edgeCacheTtl > 0 && !debugRpc) {
@@ -249,6 +308,18 @@ export default {
     return response;
   }
 };
+
+function scheduleResponse(value: ScheduleCacheEntry['value'], origin: string, state: 'fresh' | 'stale') {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: {
+      ...cors(origin),
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Schedule-Cache': state
+    }
+  });
+}
 
 function parseJsonSafely(text: string) {
   try {
